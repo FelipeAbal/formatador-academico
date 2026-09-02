@@ -1,0 +1,43 @@
+{
+  "corpus_version": 1,
+  "tipo_bibliografico": "capitulo",
+  "fixtures": [
+    {
+      "id": "C1",
+      "fixture_version": 1,
+      "profile_version": 1,
+      "tipo_bibliografico": "capitulo",
+      "funcao_corpus": "controle_positivo",
+      "nivel_principal": "A",
+      "origem": "controlado",
+      "entrada": "PEREIRA, Carlos Eduardo. Direito, memória e instituições. In: SOUZA, Marina Lopes (org.). <i>História jurídica brasileira</i>. Porto Alegre: Horizonte, 2024. p. 35-52.",
+      "perfil": {"aspectos": {"P10.1": {"estado": "configurado", "valor": ["autor_capitulo","titulo_capitulo","responsavel_hospedeira","obra_hospedeira","local","editora","ano","paginas"], "descricao": "Lista exata dos campos cuja obrigatoriedade está ativa neste fixture; não é lista de todos os campos possíveis do tipo."}, "P1": {"estado":"configurado","valor":"italico_obra_hospedeira"}, "P13.4": {"estado":"configurado","valor":"In:"}, "P12.1":{"estado":"sem_preferencia"}}},
+      "invariantes_aplicaveis": ["IA3","IA4","IA11","IA2"],
+      "fatos_gabarito": ["Todos os campos obrigatórios estão presentes.","A estrutura e o destaque já estão corretos."],
+      "operacoes_autorizadas": [],
+      "operacoes_bloqueadas": [{"codigo":"TROCAR_PONTUACAO_VALIDA","descricao":"Não trocar pontuação aceita.","subaspectos":["P12.1"]},{"codigo":"ALTERAR_IN","descricao":"Não alterar In:.","subaspectos":["P13.4"]}],
+      "saida_esperada": {"modo":"preservar","original_preservado":true},
+      "alertas_esperados": [],
+      "comportamento_pontuado": "Reconhecer conformidade e preservar forma válida.",
+      "criterio_acerto": {"descricao":"NÃO TOCAR + NÃO SINALIZAR.","zero_inventado":true,"zero_perdido":true,"alertas_fora_da_lista_sao_erro":true,"saida_exata_obrigatoria":true,"revisao_humana_obrigatoria":false},
+      "efeitos_colaterais_nao_pontuados": [],"regression_links": [],"metadados":{"fonte_original":null,"observacoes":[],"status":"congelado"},"tentacao_pontuada":"Substituir uma forma válida por outra apenas por preferência implícita.","mudancas_esperadas":[]
+    },
+    {
+      "id":"C2","fixture_version":1,"profile_version":1,"tipo_bibliografico":"capitulo","funcao_corpus":"correcao_real","nivel_principal":"C2","origem":"controlado",
+      "entrada":"SOUZA, Marina Lopes. História e memória urbana. Porto Alegre: Horizonte, 2021. p. 45-68. In: PEREIRA, Carlos Eduardo (org.). Cidades e experiências sociais.",
+      "perfil":{"aspectos":{"P11.1":{"estado":"configurado","valor":["autor","titulo_capitulo","In","responsavel","obra_hospedeira","local","editora","ano","paginas"]},"P11.3":{"estado":"configurado","valor":"reordenacao_com_mapeamento_completo"},"P13.4":{"estado":"configurado","valor":"In:"},"P1":{"estado":"configurado","valor":"italico_obra_hospedeira"}}},
+      "invariantes_aplicaveis":["IA1","IA2","IA6","IA7"],"fatos_gabarito":["Todos os campos estão presentes e identificados.","Não há campo extra sem destino."],
+      "operacoes_autorizadas":[{"codigo":"REORDENAR_CAMPOS","descricao":"Mover campos identificados para a ordem configurada.","classe_portao":"1","subaspectos":["P11.1","P11.3"]},{"codigo":"APLICAR_ITALICO_HOSPEDEIRA","descricao":"Aplicar itálico à obra hospedeira.","subaspectos":["P1"],"classe_portao":"tipografica"}],
+      "operacoes_bloqueadas":[{"codigo":"ALTERAR_VALORES","descricao":"Não alterar valores substantivos."},{"codigo":"MOVER_SEM_MAPEAMENTO","descricao":"Não mover campo sem rastreabilidade.","subaspectos":["P11.3"]}],
+      "saida_esperada":{"modo":"transformar","texto":"SOUZA, Marina Lopes. História e memória urbana. In: PEREIRA, Carlos Eduardo (org.). <i>Cidades e experiências sociais</i>. Porto Alegre: Horizonte, 2021. p. 45-68.","original_preservado":false},"alertas_esperados":[],"comportamento_pontuado":"Reordenar integralmente com rastreabilidade e conservação.",
+      "criterio_acerto":{"descricao":"Saída exata, zero perda, zero invenção.","zero_inventado":true,"zero_perdido":true,"alertas_fora_da_lista_sao_erro":true,"saida_exata_obrigatoria":true,"revisao_humana_obrigatoria":false},"efeitos_colaterais_nao_pontuados":[],"regression_links":[],"metadados":{"fonte_original":null,"observacoes":[],"status":"congelado"},
+      "mudancas_esperadas":[{"trecho_antes":"SOUZA, Marina Lopes. História e memória urbana. Porto Alegre: Horizonte, 2021. p. 45-68. In: PEREIRA, Carlos Eduardo (org.). Cidades e experiências sociais.","trecho_depois":"SOUZA, Marina Lopes. História e memória urbana. Porto Alegre: Horizonte, 2021. p. 45-68. In: PEREIRA, Carlos Eduardo (org.). <i>Cidades e experiências sociais</i>.","codigo_operacao":"APLICAR_ITALICO_HOSPEDEIRA"},{"trecho_antes":"SOUZA, Marina Lopes. História e memória urbana. Porto Alegre: Horizonte, 2021. p. 45-68. In: PEREIRA, Carlos Eduardo (org.). <i>Cidades e experiências sociais</i>.","trecho_depois":"SOUZA, Marina Lopes. História e memória urbana. In: PEREIRA, Carlos Eduardo (org.). <i>Cidades e experiências sociais</i>. Porto Alegre: Horizonte, 2021. p. 45-68.","codigo_operacao":"REORDENAR_CAMPOS"}]
+    },
+    {
+      "id":"C3","fixture_version":1,"profile_version":1,"tipo_bibliografico":"capitulo","funcao_corpus":"incompletude_ou_indeterminacao","nivel_principal":"A+abstencao","origem":"real","entrada":"FREUD, Sigmund. Luto e Melancolia. In: <i>Introdução ao narcisismo</i>: ensaios de metapsicologia e outros textos (1914-1916). São Paulo: Companhia das Letras, 2010. p. 170-194.","perfil":{"aspectos":{"P10.1":{"estado":"configurado","valor":["responsabilidade_obra_hospedeira"],"descricao":"Lista exata dos campos cuja obrigatoriedade está ativa neste fixture; não é lista de todos os campos possíveis do tipo."},"P1":{"estado":"configurado","valor":"italico_obra_hospedeira"}}},"invariantes_aplicaveis":["IA1","IA2","IA9","IA11"],"fatos_gabarito":["A responsabilidade da obra hospedeira não está explicitada.","Luto e Melancolia deve permanecer com a capitalização existente.","O restante está utilizável."],"operacoes_autorizadas":[],"operacoes_bloqueadas":[{"codigo":"INVENTAR_RESPONSAVEL","descricao":"Não inventar responsável."},{"codigo":"ALTERAR_CAIXA_TITULO","descricao":"Não alterar capitalização do título sem regra explícita; proteção deriva dos invariantes."}],"saida_esperada":{"modo":"preservar","original_preservado":true},"alertas_esperados":["RESPONSABILIDADE_OBRA_HOSPEDEIRA_AUSENTE"],"comportamento_pontuado":"Detectar incompletude e preservar integralmente o restante.","criterio_acerto":{"descricao":"Preservar e emitir somente o alerta configurado.","zero_inventado":true,"zero_perdido":true,"alertas_fora_da_lista_sao_erro":true,"saida_exata_obrigatoria":true,"revisao_humana_obrigatoria":false},"efeitos_colaterais_nao_pontuados":[],"regression_links":[],"metadados":{"fonte_original":null,"observacoes":[],"status":"congelado"},"mudancas_esperadas":[]
+    },
+    {
+      "id":"C4","fixture_version":1,"profile_version":1,"tipo_bibliografico":"capitulo","funcao_corpus":"contencao","nivel_principal":"analise_estrutural","origem":"controlado","entrada":"ALMEIDA, Joana. Memória em trânsito: notas sobre o livro In: Between Worlds. In: COSTA, Ricardo (org.). <i>Leituras da diáspora</i>. Recife: Horizonte, 2023. p. 81-96.","perfil":{"aspectos":{"P10.1":{"estado":"configurado","valor":["autor","titulo_capitulo","responsavel_hospedeira","obra_hospedeira","local","editora","ano","paginas"],"descricao":"Lista exata dos campos cuja obrigatoriedade está ativa neste fixture; não é lista de todos os campos possíveis do tipo."},"P13.4":{"estado":"configurado","valor":"In:"},"P11.2":{"estado":"configurado","valor":"uma_relacao_hospedeira"},"P1":{"estado":"configurado","valor":"italico_obra_hospedeira"}}},"invariantes_aplicaveis":["IA1","IA2","IB2"],"fatos_gabarito":["O primeiro In: pertence ao título.","O segundo In: inicia a relação com a obra hospedeira."],"operacoes_autorizadas":[],"operacoes_bloqueadas":[{"codigo":"DIVIDIR_TITULO_NO_PRIMEIRO_IN","descricao":"Não tratar o primeiro In: como delimitador.","subaspectos":["P13.4","P11.2"]}],"saida_esperada":{"modo":"preservar","original_preservado":true},"alertas_esperados":[],"comportamento_pontuado":"Segmentar corretamente e resistir a falso delimitador.","criterio_acerto":{"descricao":"NÃO TOCAR + NÃO SINALIZAR.","zero_inventado":true,"zero_perdido":true,"alertas_fora_da_lista_sao_erro":true,"saida_exata_obrigatoria":true,"revisao_humana_obrigatoria":false,"nao_tocar_obrigatorio":true,"nao_sinalizar_obrigatorio":true},"efeitos_colaterais_nao_pontuados":[],"regression_links":[],"metadados":{"fonte_original":null,"observacoes":[],"status":"congelado"},"tentacao_pontuada":"Tratar o primeiro In: como delimitador estrutural.","mudancas_esperadas":[]
+    }
+  ]
+}
