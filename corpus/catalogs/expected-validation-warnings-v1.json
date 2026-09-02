@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "expected": [
+    {"id":"A2","code":"TOKEN_MULTISET_CHANGED","justificativa":"Tokenização muda ao separar rótulos concatenados; operações B1 autorizadas."},
+    {"id":"E2","code":"TOKEN_MULTISET_CHANGED","justificativa":"Inserção do literal In pela Classe 3b."},
+    {"id":"D2","code":"TOKEN_MULTISET_CHANGED","justificativa":"Duplicação autorizada do ano pela Classe 2 e literal Dissertação pela Classe 3b."},
+    {"id":"G2","code":"TOKEN_MULTISET_CHANGED","justificativa":"Redução/representação do mês pela Classe 5."},
+    {"id":"J2","code":"TOKEN_MULTISET_CHANGED","justificativa":"Redução/representação do mês pela Classe 5."},
+    {"id":"H2","code":"TOKEN_MULTISET_CHANGED","justificativa":"Literais de exemplo humano pela Classe 4."}
+  ]
+}
