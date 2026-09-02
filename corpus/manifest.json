@@ -1,0 +1,23 @@
+{
+  "corpus_version": 1,
+  "status": "FROZEN",
+  "schema": "schemas/fixture-v1.2.schema.json",
+  "description": "Corpus congelado v1: 40 fixtures + RC3-01, após reauditoria Claude e rastreabilidade determinística.",
+  "fixture_count": 41,
+  "files": {
+    "livro": "fixtures/livro.json",
+    "capitulo": "fixtures/capitulo.json",
+    "artigo": "fixtures/artigo.json",
+    "evento": "fixtures/evento.json",
+    "dissertacao": "fixtures/dissertacao.json",
+    "tese": "fixtures/tese.json",
+    "online": "fixtures/online.json",
+    "legislacao": "fixtures/legislacao.json",
+    "jurisprudencia": "fixtures/jurisprudencia.json",
+    "fonte_historica": "fixtures/fonte_historica.json",
+    "regressao_c3": "fixtures/regressao_c3.json"
+  },
+  "null_engine_baseline": {"correct":20,"total":41,"percent":48.8},
+  "correction_distribution": {"B1":5,"C2":4,"C3":1},
+  "source_artifact_sha256": "9860ba219b039e6ad26eeb156d3ea0059a7431525891166ab9729f1fece7e7b8"
+}
