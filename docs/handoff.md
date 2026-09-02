@@ -2,7 +2,7 @@
 
 ## Estado do projeto
 
-**Fase atual:** corpus-base v1 congelado; arquitetura-base do motor fechada; contrato mínimo do parser DOCX fechado; pronto para escolher a estratégia de leitura do DOCX.
+**Fase atual:** corpus-base v1 congelado; arquitetura-base do motor fechada; contrato mínimo do parser DOCX fechado; estratégia de leitura DOCX fechada; pronto para definir a primeira fatia implementável do parser.
 
 Este é o HANDOFF corrente do projeto no GitHub. O histórico posterior deve ser preservado pelo Git, sem criar arquivos `handoff_vNN`.
 
@@ -227,6 +227,45 @@ Garantias formais:
 
 Objetos vivos de `python-docx`, `lxml` ou outra biblioteca não entram na IR.
 
+## Decisão arquitetural 0004 — Estratégia de leitura do DOCX
+
+Documento de decisão:
+`docs/decisions/0004-docx-read-strategy.md`
+
+Escolha aprovada:
+
+> **OOXML + lxml como camada autoritativa do parser físico. `python-docx` é auxiliar opcional e nunca fonte da verdade da PhysicalIR.**
+
+Fluxo:
+`DOCX -> PackageReader/OPC -> XML Parser (lxml, autoritativo) -> PhysicalIR -> Analysis View -> motor`.
+
+Justificativa estrutural:
+- `PARSER-G2` exige observação física abrangente;
+- abstrações de alto nível podem omitir estruturas sem aviso;
+- detectar essa omissão exigiria varrer o XML de qualquer modo;
+- logo, o custo de detectar falha silenciosa excede o custo de ler o XML diretamente.
+
+O parser XML não implementa a semântica completa do OOXML. Ele inventaria parts, localiza stories e containers, registra o conhecido e transforma o desconhecido em `opaque_object` protegido. Interpretação complexa fica para a Analysis View.
+
+### Invariante parse/patch
+
+Adicionada a garantia:
+
+- `PARSER-G7 / PATCHER-G1`: parser e patcher usam a mesma biblioteca XML, mesmas opções de parsing, política de namespaces, definição de `structural_path`, canonicalização e preservação de whitespace compatível.
+
+A identidade física precisa ser reencontrável pelo patcher na cópia do pacote original sem divergência de construção da árvore.
+
+### Papel de python-docx
+
+Pode ser usado para:
+- helpers de conveniência;
+- propriedades comuns bem suportadas;
+- conversões de unidade;
+- operações auxiliares específicas;
+- validação cruzada amostral em testes.
+
+Divergência entre a leitura XML e `python-docx` vira caso de investigação, nunca autoridade automática de um lado.
+
 ## Regra de revisão técnica
 
 Nenhuma decisão técnica relevante de arquitetura ou implementação é considerada fechada apenas por proposta do ChatGPT.
@@ -251,7 +290,8 @@ Papéis:
 3. reauditoria final do corpus: Claude Opus;
 4. arquitetura `DocumentIR`: Kimi K3, **APROVAR COM AJUSTES**;
 5. unidade de trabalho do motor: Kimi K3, **APROVAR COM AJUSTES**;
-6. contrato mínimo do parser DOCX: Kimi K3, **APROVAR COM AJUSTES**.
+6. contrato mínimo do parser DOCX: Kimi K3, **APROVAR COM AJUSTES**;
+7. estratégia de leitura DOCX: Kimi K3 em auditoria adversarial, **APROVAR**.
 
 Todos os ajustes aprovados foram integrados.
 
@@ -290,4 +330,4 @@ Fluxo operacional:
 
 ## Próximo passo
 
-Comparar e escolher a estratégia de leitura do DOCX capaz de cumprir o contrato do parser com maior fidelidade e menor risco: XML direto, `python-docx` + XML/lxml ou arquitetura híbrida. Nenhum código de produção antes de a estratégia ser auditada e aprovada.
+Definir a **primeira fatia implementável do parser DOCX**, com escopo mínimo suficiente para testar as garantias arquiteturais antes de ampliar a cobertura OOXML.
