@@ -1,0 +1,523 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://formatador.local/schemas/fixture-v1.2.schema.json",
+  "title": "Formatador Acadêmico - Fixture v1.2",
+  "description": "Schema estrutural dos fixtures do corpus-base e regressões C3.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "fixture_version",
+    "profile_version",
+    "tipo_bibliografico",
+    "funcao_corpus",
+    "nivel_principal",
+    "origem",
+    "entrada",
+    "perfil",
+    "invariantes_aplicaveis",
+    "fatos_gabarito",
+    "operacoes_autorizadas",
+    "operacoes_bloqueadas",
+    "saida_esperada",
+    "alertas_esperados",
+    "comportamento_pontuado",
+    "criterio_acerto"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^(L|C|A|E|D|T|O|G|J|H)[1-4]$|^RC3-[0-9]{2}$"
+    },
+    "fixture_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "profile_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "tipo_bibliografico": {
+      "type": "string",
+      "enum": [
+        "livro",
+        "capitulo",
+        "artigo",
+        "evento",
+        "dissertacao",
+        "tese",
+        "online",
+        "legislacao",
+        "jurisprudencia",
+        "fonte_historica",
+        "regressao_c3"
+      ]
+    },
+    "funcao_corpus": {
+      "type": "string",
+      "enum": [
+        "controle_positivo",
+        "correcao_real",
+        "incompletude_ou_indeterminacao",
+        "contencao",
+        "regressao_c3"
+      ]
+    },
+    "nivel_principal": {
+      "type": "string",
+      "enum": [
+        "A",
+        "B1",
+        "B2",
+        "B3",
+        "C1",
+        "C2",
+        "C3",
+        "A+B1",
+        "A+B3",
+        "A+abstencao",
+        "B1+abstencao",
+        "analise_estrutural"
+      ]
+    },
+    "origem": {
+      "type": "string",
+      "enum": [
+        "real",
+        "controlado",
+        "derivado_de_real",
+        "controlado_baseado_em_exemplo"
+      ]
+    },
+    "entrada": {
+      "$ref": "#/$defs/textoFormatado"
+    },
+    "perfil": {
+      "type": "object",
+      "description": "Somente regras configuráveis pelo usuário/instituição.",
+      "additionalProperties": false,
+      "required": [
+        "aspectos"
+      ],
+      "properties": {
+        "aspectos": {
+          "type": "object",
+          "description": "Mapa de subaspectos configurados. Chaves canônicas como P10.1, P12.3, P16.2 etc.",
+          "propertyNames": {
+            "pattern": "^P([1-9]|1[0-9]|2[0-7])(\\.[0-9]+)?$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/configuracaoSubaspecto"
+          }
+        },
+        "observacoes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "invariantes_aplicaveis": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^(IA|IB)[0-9]+$"
+      }
+    },
+    "fatos_gabarito": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "operacoes_autorizadas": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/operacao"
+      }
+    },
+    "operacoes_bloqueadas": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/operacao"
+      }
+    },
+    "saida_esperada": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/textoFormatado"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "modo",
+            "original_preservado"
+          ],
+          "properties": {
+            "modo": {
+              "type": "string",
+              "enum": [
+                "preservar",
+                "transformar",
+                "propor_revisao"
+              ]
+            },
+            "texto": {
+              "$ref": "#/$defs/textoFormatado"
+            },
+            "proposta": {
+              "$ref": "#/$defs/textoFormatado"
+            },
+            "original_preservado": {
+              "type": "boolean"
+            }
+          }
+        }
+      ]
+    },
+    "alertas_esperados": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z0-9_]+$"
+      }
+    },
+    "tentacao_pontuada": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "comportamento_pontuado": {
+      "type": "string"
+    },
+    "efeitos_colaterais_nao_pontuados": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "criterio_acerto": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "descricao",
+        "zero_inventado",
+        "zero_perdido",
+        "alertas_fora_da_lista_sao_erro"
+      ],
+      "properties": {
+        "descricao": {
+          "type": "string"
+        },
+        "zero_inventado": {
+          "type": "boolean",
+          "const": true
+        },
+        "zero_perdido": {
+          "type": "boolean",
+          "const": true
+        },
+        "alertas_fora_da_lista_sao_erro": {
+          "type": "boolean",
+          "const": true
+        },
+        "saida_exata_obrigatoria": {
+          "type": "boolean"
+        },
+        "revisao_humana_obrigatoria": {
+          "type": "boolean"
+        },
+        "nao_tocar_obrigatorio": {
+          "type": "boolean"
+        },
+        "nao_sinalizar_obrigatorio": {
+          "type": "boolean"
+        }
+      }
+    },
+    "regression_links": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^RC3-[0-9]{2}$"
+      },
+      "default": []
+    },
+    "metadados": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fonte_original": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "observacoes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "rascunho",
+            "aprovado_internamente",
+            "auditado_externamente",
+            "congelado"
+          ]
+        }
+      }
+    },
+    "mudancas_esperadas": {
+      "type": "array",
+      "description": "Sequência determinística de mudanças esperadas. Cada etapa é aplicada à cadeia produzida pela etapa anterior e deve ocorrer exatamente uma vez.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "trecho_antes",
+          "trecho_depois",
+          "codigo_operacao"
+        ],
+        "properties": {
+          "trecho_antes": {
+            "type": "string",
+            "minLength": 1
+          },
+          "trecho_depois": {
+            "type": "string"
+          },
+          "codigo_operacao": {
+            "type": "string",
+            "pattern": "^[A-Z0-9_]+$"
+          }
+        }
+      },
+      "default": []
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "funcao_corpus": {
+            "const": "contencao"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "tentacao_pontuada"
+        ],
+        "properties": {
+          "tentacao_pontuada": {
+            "type": "string",
+            "minLength": 1
+          },
+          "alertas_esperados": {
+            "maxItems": 0
+          },
+          "criterio_acerto": {
+            "properties": {
+              "nao_tocar_obrigatorio": {
+                "const": true
+              },
+              "nao_sinalizar_obrigatorio": {
+                "const": true
+              }
+            },
+            "required": [
+              "nao_tocar_obrigatorio",
+              "nao_sinalizar_obrigatorio"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "funcao_corpus": {
+            "const": "controle_positivo"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "tentacao_pontuada"
+        ],
+        "properties": {
+          "tentacao_pontuada": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "nivel_principal": {
+            "const": "C3"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "criterio_acerto": {
+            "properties": {
+              "revisao_humana_obrigatoria": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "saida_esperada": {
+            "properties": {
+              "modo": {
+                "enum": [
+                  "transformar",
+                  "propor_revisao"
+                ]
+              }
+            },
+            "required": [
+              "modo"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "mudancas_esperadas"
+        ],
+        "properties": {
+          "mudancas_esperadas": {
+            "minItems": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "saida_esperada": {
+            "properties": {
+              "modo": {
+                "const": "preservar"
+              }
+            },
+            "required": [
+              "modo"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "mudancas_esperadas": {
+            "maxItems": 0
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "textoFormatado": {
+      "type": "string",
+      "description": "Texto com marcação abstrata <b>, <i>, <u>. As tags representam propriedades tipográficas, não conteúdo substantivo."
+    },
+    "configuracaoSubaspecto": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "estado"
+      ],
+      "properties": {
+        "estado": {
+          "type": "string",
+          "enum": [
+            "configurado",
+            "sem_preferencia",
+            "nao_configurado"
+          ]
+        },
+        "valor": {},
+        "descricao": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "estado": {
+                "const": "configurado"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "valor"
+            ]
+          }
+        }
+      ]
+    },
+    "operacao": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "codigo",
+        "descricao"
+      ],
+      "properties": {
+        "codigo": {
+          "type": "string",
+          "pattern": "^[A-Z0-9_]+$"
+        },
+        "descricao": {
+          "type": "string"
+        },
+        "classe_portao": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            null,
+            "tipografica",
+            "1",
+            "2",
+            "3a",
+            "3b",
+            "4",
+            "5"
+          ],
+          "description": "tipografica = alteração somente de propriedade tipográfica; 1-5 = classes do portão de conservação."
+        },
+        "subaspectos": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^P([1-9]|1[0-9]|2[0-7])(\\.[0-9]+)?$"
+          }
+        }
+      }
+    }
+  }
+}

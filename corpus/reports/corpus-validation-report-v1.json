@@ -1,0 +1,163 @@
+{
+  "status": "FROZEN",
+  "structural_validation": {
+    "ok": true,
+    "errors": []
+  },
+  "semantic_validation": {
+    "ok": true,
+    "errors": [],
+    "warnings": [
+      {
+        "id": "A2",
+        "code": "TOKEN_MULTISET_CHANGED",
+        "added": [
+          "43",
+          "n",
+          "1",
+          "p"
+        ],
+        "removed": [
+          "43n",
+          "1p"
+        ]
+      },
+      {
+        "id": "E2",
+        "code": "TOKEN_MULTISET_CHANGED",
+        "added": [
+          "In"
+        ],
+        "removed": []
+      },
+      {
+        "id": "D2",
+        "code": "TOKEN_MULTISET_CHANGED",
+        "added": [
+          "2021",
+          "Dissertação"
+        ],
+        "removed": [
+          "dissertação"
+        ]
+      },
+      {
+        "id": "G2",
+        "code": "TOKEN_MULTISET_CHANGED",
+        "added": [
+          "dez"
+        ],
+        "removed": [
+          "12"
+        ]
+      },
+      {
+        "id": "J2",
+        "code": "TOKEN_MULTISET_CHANGED",
+        "added": [
+          "nov"
+        ],
+        "removed": [
+          "11"
+        ]
+      },
+      {
+        "id": "H2",
+        "code": "TOKEN_MULTISET_CHANGED",
+        "added": [
+          "caixa",
+          "pasta",
+          "n"
+        ],
+        "removed": [
+          "Pasta",
+          "Caixa"
+        ]
+      }
+    ]
+  },
+  "coverage_validation": {
+    "ok": true,
+    "errors": []
+  },
+  "change_mapping_validation": {
+    "ok": true
+  },
+  "expected_warning_baseline": {
+    "ok": true,
+    "count": 6
+  },
+  "correction_level_distribution": {
+    "B1": 5,
+    "C2": 4,
+    "C3": 1
+  },
+  "null_engine_baseline": {
+    "correct": 20,
+    "total": 41,
+    "percent": 48.8
+  },
+  "profile_vocabulary_fixture_coverage": {
+    "used": 51,
+    "total": 102,
+    "percent": 50.0,
+    "unused": [
+      "P2",
+      "P3",
+      "P4",
+      "P5",
+      "P6",
+      "P7",
+      "P8",
+      "P9",
+      "P10.2",
+      "P10.3",
+      "P10.4",
+      "P11.4",
+      "P12.2",
+      "P12.7",
+      "P12.8",
+      "P12.11",
+      "P13.5",
+      "P13.6",
+      "P13.8",
+      "P13.9",
+      "P14.3",
+      "P14.4",
+      "P14.5",
+      "P15.3",
+      "P15.4",
+      "P15.5",
+      "P16.1",
+      "P16.5",
+      "P16.6",
+      "P17.3",
+      "P17.4",
+      "P18.2",
+      "P18.3",
+      "P18.4",
+      "P19.2",
+      "P19.4",
+      "P20.1",
+      "P20.2",
+      "P20.3",
+      "P21.1",
+      "P21.3",
+      "P21.9",
+      "P21.10",
+      "P22.2",
+      "P22.5",
+      "P22.6",
+      "P22.7",
+      "P23.3",
+      "P24.1",
+      "P24.2",
+      "P24.3"
+    ]
+  },
+  "deferred_nonblocking": [
+    "M1: reconsiderar modelagem de nivel_principal antes de ampliar taxonomia.",
+    "M2: reclassificar origem real/derivado_de_real somente se houver evidência documental.",
+    "M4: P23.3 continua sem cobertura específica."
+  ]
+}
