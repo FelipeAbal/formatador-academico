@@ -2,13 +2,13 @@
 
 ## Estado do projeto
 
-**Fase atual:** corpus-base v1 congelado; arquitetura-base do motor em definição.
+**Fase atual:** corpus-base v1 congelado; arquitetura-base do motor fechada; pronto para desenho do parser DOCX.
 
-Este arquivo é o HANDOFF corrente do projeto no GitHub. O histórico posterior deve ser preservado pelo Git, sem criar arquivos `handoff_vNN`.
+Este é o HANDOFF corrente do projeto no GitHub. O histórico posterior deve ser preservado pelo Git, sem criar arquivos `handoff_vNN`.
 
 ## Objetivo
 
-Formatar com segurança documentos acadêmicos já existentes a partir de um perfil formal explicitamente declarado pelo usuário, revista, evento, programa ou instituição.
+Formatar com segurança documentos acadêmicos DOCX já existentes a partir de um perfil formal explicitamente declarado pelo usuário, revista, evento, programa ou instituição.
 
 O MVP não promete conformidade ABNT genérica. A fonte operacional de verdade é o perfil ativo.
 
@@ -17,13 +17,13 @@ O MVP não promete conformidade ABNT genérica. A fonte operacional de verdade �
 **Na dúvida, marcar.**
 
 O sistema deve maximizar utilidade segura sem:
-- inventar conteúdo;
+- inventar conteúdo substantivo;
 - perder conteúdo substantivo;
 - reescrever conteúdo intelectual;
 - aplicar regra não configurada;
 - resolver ambiguidade silenciosamente.
 
-## Entradas e saídas do MVP
+## Entrada e saídas do MVP
 
 Entrada:
 - DOCX;
@@ -34,10 +34,9 @@ Saídas:
 2. DOCX de revisão, com marcações e dúvidas;
 3. relatório de processamento.
 
-## Segurança
+## Segurança e portão de conservação
 
-### Invariantes principais
-
+Invariantes centrais:
 - nenhuma invenção substantiva;
 - nenhuma perda substantiva;
 - só atuar em subaspecto autorizado;
@@ -50,8 +49,7 @@ Saídas:
 - não sinalizar não-problema;
 - campo extra não pode ser descartado.
 
-### Classes de operação
-
+Classes de operação:
 - `tipografica`: propriedade tipográfica, sem alteração substantiva;
 - `1`: permutação/movimento de segmento identificado;
 - `2`: duplicação de valor identificado para papel explicitamente exigido;
@@ -62,28 +60,12 @@ Saídas:
 
 C3 exige revisão humana obrigatória.
 
-## Escopo de referências do MVP
-
-Tipos:
-1. livro;
-2. capítulo;
-3. artigo;
-4. trabalho publicado em evento;
-5. dissertação;
-6. tese;
-7. documento online;
-8. legislação;
-9. jurisprudência;
-10. fonte histórica/arquivo.
-
-Entrevista/testemunho fica fora do MVP inicial.
-
 ## Configuração
 
-Vocabulário P1–P27 está em:
+Vocabulário P1–P27:
 `corpus/catalogs/profile-vocabulary-v1.json`
 
-Regra metodológica:
+Regras:
 - configuração opera por subaspecto;
 - P1–P9 ainda podem funcionar como macroaspectos;
 - P10–P27 exigem subaspecto explícito;
@@ -93,12 +75,13 @@ Regra metodológica:
 ## Corpus congelado v1
 
 Estrutura:
-- 10 tipos;
+- 10 tipos bibliográficos;
 - 4 funções por tipo;
 - 40 fixtures-base;
-- RC3-01 adicional.
+- RC3-01 adicional;
+- total: 41 fixtures.
 
-Cada tipo possui:
+Funções:
 1. controle positivo;
 2. correção real;
 3. incompletude/indeterminação;
@@ -112,91 +95,24 @@ Distribuição das correções reais:
 Contenção significa exatamente:
 **NÃO TOCAR + NÃO SINALIZAR.**
 
-## Métricas
-
-A métrica principal é taxa de decisão correta.
-
-Contam como sucesso:
-- corrigir automaticamente de forma correta;
-- corrigir parcialmente e sinalizar;
-- preservar e sinalizar;
-- abster-se corretamente.
-
-Erros incluem:
-- alterar caso ambíguo;
-- inventar;
-- perder;
-- editar região errada;
-- deixar de sinalizar problema atribuído;
-- sinalizar problema inexistente.
+Baseline obrigatório do motor nulo:
+**20/41 = 48,8%**
 
 Meta de precisão das edições automáticas: >= 99%.
 Casos de alto risco: desejo >= 99,5%.
 Tolerância a invenção/perda conhecida, alteração indevida de citação direta ou dano a campo: zero.
 
-### Baseline obrigatório
-
-Motor nulo, que nunca altera e nunca sinaliza:
-**20/41 = 48,8%**
-
-Todo relatório de avaliação do motor deve mostrar esse baseline ao lado do resultado bruto.
-
-## Schema e validação
-
-Schema:
-`corpus/schemas/fixture-v1.2.schema.json`
-
-Catálogos:
+Arquivos principais:
+- `corpus/manifest.json`
+- `corpus/fixtures/`
+- `corpus/schemas/fixture-v1.2.schema.json`
 - `corpus/catalogs/profile-vocabulary-v1.json`
 - `corpus/catalogs/alert-catalog-v1.json`
 - `corpus/catalogs/expected-validation-warnings-v1.json`
+- `tools/validate_corpus.py`
+- `tools/build_corpus.py`
 
-Validador:
-`tools/validate_corpus.py`
-
-O validador verifica:
-- JSON Schema;
-- identidade e tipo;
-- markup abstrato `<b>/<i>/<u>`;
-- vocabulário de aspectos;
-- operações autorizadas e bloqueadas;
-- classes de portão;
-- subaspectos presentes/configurados;
-- C3 com revisão humana;
-- contenção;
-- entradas duplicadas;
-- links de regressão;
-- catálogo fechado de alertas;
-- mapeamento determinístico de mudanças;
-- baseline fechado de warnings lexicais.
-
-## Rastreabilidade de transformação
-
-Fixtures transformadores/propostas usam `mudancas_esperadas`.
-
-Cada etapa contém:
-- `trecho_antes`;
-- `trecho_depois`;
-- `codigo_operacao`.
-
-A cadeia deve começar na entrada e terminar exatamente na saída esperada. Toda operação autorizada de um fixture transformador deve aparecer no mapeamento.
-
-## Auditorias concluídas
-
-1. auditoria técnica do schema por Kimi K3;
-2. auditoria adversarial do corpus por Claude Opus;
-3. reauditoria final por Claude Opus;
-4. auditoria técnica da arquitetura inicial do `DocumentIR` por Kimi K3.
-
-Parecer final sobre o corpus:
-**pode congelar o corpus: SIM.**
-
-Parecer sobre a arquitetura `DocumentIR`:
-**APROVAR COM AJUSTES.**
-
-## Arquitetura-base do motor — decisão fechada
-
-### Princípio arquitetural
+## Decisão arquitetural 0001 — DocumentIR
 
 A arquitetura separa obrigatoriamente:
 1. o que veio fisicamente do DOCX;
@@ -208,23 +124,23 @@ A arquitetura separa obrigatoriamente:
 
 `OriginalPackage` é imutável e permanece como fonte da verdade física.
 
-`DocumentIR` é uma visão analítica derivada, serializável e imutável após o parse.
+`DocumentIR` é visão analítica derivada, serializável e imutável após o parse.
 
 A saída NÃO será reconstruída a partir da IR.
 
-Fluxo correto:
+Fluxo:
 `DOCX original imutável -> DocumentIR -> decisões -> patches registrados -> cópia do XML original modificada`.
 
-### Estrutura conceitual
+### Stories e blocos
 
-`DocumentIR` deve conter stories separadas, incluindo ao menos:
+A IR deve preservar stories separadas, incluindo ao menos:
 - body;
 - footnotes;
 - endnotes;
 - headers;
 - footers.
 
-Blocos estruturais devem distinguir, quando aplicável:
+Blocos/objetos estruturais devem distinguir, quando aplicável:
 - paragraph;
 - table;
 - table_row;
@@ -240,79 +156,43 @@ Hyperlinks são spans/anotações, não necessariamente blocos.
 
 ### Identidade/provenance
 
-`paragraph_index` isolado é proibido como chave de identidade.
+`paragraph_index` isolado é proibido como chave.
 
-Identidade mínima composta:
+Identidade mínima:
 - `story`;
 - `structural_path`;
 - `original_index`;
 - `content_hash`.
 
-O pacote original também deve possuir hash próprio.
+O pacote original possui hash próprio.
 
-### Runs
+### Runs e formatação
 
-O parser preserva `runs_raw` exatamente como vieram do DOCX.
+Preservar `runs_raw` exatamente como vieram do DOCX.
 
-Uma visão `runs_normalized` pode existir apenas como derivação para análise, com mapeamento de offsets para os runs originais.
+`runs_normalized` pode existir apenas como visão derivada para análise, com mapeamento de offsets para os runs originais.
 
 Normalização destrutiva no parse é proibida.
 
-### Formatação
-
-Cada propriedade relevante deve registrar:
+Cada propriedade de formatação relevante registra:
 - valor;
 - origem: `direct | style | inherited | default`.
 
-Devem ser preservados desde o parse, conforme aplicável:
-- estilos de parágrafo e run;
-- alinhamento;
-- espaçamentos;
-- line spacing e sua regra;
-- indents;
-- numPr/numbering;
-- outline level;
-- sectPr aplicável;
-- bold/italic/underline;
-- fonte, tamanho, cor, highlight;
-- idioma;
-- sub/superscript;
-- demais propriedades necessárias à preservação fiel.
+Objetos vivos de `python-docx` ou outra biblioteca não entram na IR.
 
-### Inferência e política
+### Inferência, política e transformação
 
-Classificação semântica é separada da estrutura física.
+Classificação semântica fica em `role_candidates`.
 
-Usar `role_candidates` para permitir múltiplas hipóteses e ambiguidade explícita.
-
-A autorização do perfil fica em `policy_decision`, separada da classificação.
-
-### Transformações
+Autorização do perfil fica em `policy_decision`.
 
 A IR não é mutada.
 
-Transformações ficam em `TransformLog`, com patches separados da representação original.
+Transformações ficam em `TransformLog`, separadas da representação original.
 
-Cada patch deve ser rastreável ao menos por:
-- alvo/provenance;
-- operação;
-- regra/subaspecto ativo;
-- before;
-- after.
+### Tracked changes e comments
 
-### Bibliotecas
-
-A IR deve conter apenas dados serializáveis e enums próprios.
-
-Objetos vivos de `python-docx` ou outra biblioteca não entram na IR.
-
-Bibliotecas ficam atrás de uma camada adaptadora substituível.
-
-Edições cirúrgicas provavelmente exigirão acesso XML/lxml; `python-docx` pode ser auxiliar, não fundamento arquitetural obrigatório.
-
-### Tracked changes e comments — decisão fechada
-
-No MVP, presença de tracked changes (`w:ins`, `w:del`) ou comentário ancorado cria **zona protegida**.
+No MVP, presença de `w:ins`, `w:del` ou comentário ancorado cria **zona protegida**.
 
 Regra:
 - preservar XML original intacto;
@@ -321,43 +201,140 @@ Regra:
 - não assumir revisões como aceitas ou rejeitadas;
 - não editar comentário nem seu conteúdo automaticamente.
 
-A análise pode reconhecer a região e seu conteúdo, mas nenhuma transformação automática é autorizada ali.
+## Decisão arquitetural 0002 — Unidade de trabalho do motor
+
+Documento de decisão:
+`docs/decisions/0002-engine-work-unit.md`
+
+Hierarquia aprovada:
+
+`DocumentContext -> BlockWorkItem -> Field/Aspect Decisions -> OperationPlan -> SafetyGate -> TransformLog -> XML Patches`
+
+### Unidades
+
+- documento = contexto;
+- bloco = unidade de orquestração e rastreabilidade;
+- campo/aspecto = unidade de decisão/autorização;
+- operação = unidade de execução, auditoria e reversibilidade.
+
+### Dois níveis de contexto
+
+`LocalContext` é uma visão curada e limitada para regras locais.
+
+`GlobalContext` é reservado a regras verdadeiramente documentais.
+
+Regra local não recebe pacote DOCX nem visão global irrestrita.
+
+### OperationPlan como fronteira de segurança
+
+`OperationPlan` é a fronteira rígida entre entendimento e modificação.
+
+Antes dele, o sistema pode lidar com classificação, hipóteses e incerteza.
+
+Depois dele, a execução é determinística.
+
+Se ainda existe dúvida relevante, a operação não deve existir.
+
+Componentes de análise/decisão não recebem referência ao pacote DOCX e não podem escrever nele por construção.
+
+### Contrato mínimo de operação
+
+Toda operação deve carregar ao menos:
+- `operation_id`;
+- `type`;
+- alvo pela identidade composta;
+- campo/aspecto afetado;
+- regra/subaspecto do perfil autorizador;
+- `before`;
+- `after`;
+- nível de risco;
+- classe do portão quando aplicável.
+
+### Operações estruturais
+
+O contrato admite desde o início, mesmo que inicialmente desabilitadas:
+- `MOVE_BLOCK`;
+- `INSERT_BLOCK`;
+- `MERGE_BLOCKS`.
+
+### Endereçamento e aplicação
+
+Operações são registradas em coordenadas do documento original.
+
+Regra inicial:
+1. validar todas as operações;
+2. aplicar operações internas de conteúdo/formatação;
+3. verificar novamente identidades relevantes;
+4. aplicar operações estruturais por último;
+5. validar o pacote resultante.
+
+A camada de aplicação é responsável por re-resolver endereços e detectar conflitos quando operações estruturais forem implementadas.
+
+### SafetyGate
+
+O gate verifica deterministicamente, no mínimo:
+1. existe regra ativa autorizando a operação?
+2. o alvo ainda corresponde ao provenance/content hash esperado?
+3. a operação altera somente o aspecto autorizado?
+4. o aplicador sabe executar esse tipo de patch com segurança?
+
+Falha em qualquer verificação implica `NÃO APLICAR`.
+
+O gate nunca corrige, reinterpreta ou completa uma operação.
+
+### Fluxo unidirecional
+
+`análise -> decisão -> plano -> gate -> log -> patch`
+
+Dados entre camadas devem ser serializáveis.
 
 ## Regra de revisão técnica
 
-Nenhuma decisão técnica de arquitetura ou implementação é considerada fechada apenas por proposta do ChatGPT.
+Nenhuma decisão técnica relevante de arquitetura ou implementação é considerada fechada apenas por proposta do ChatGPT.
 
-Fluxo obrigatório para decisão técnica relevante:
+Fluxo obrigatório:
 1. ChatGPT propõe;
 2. auditor/modelo adequado revisa;
 3. ChatGPT integra o parecer;
 4. Felipe aprova;
-5. decisão é registrada no HANDOFF e commitada.
+5. decisão é registrada e commitada.
 
-Referência de papéis:
+Papéis:
 - ChatGPT: arquitetura, integração, decisões e HANDOFF;
 - Claude Opus: auditor adversarial de metodologia/segurança;
 - Kimi K3: implementação, parsing, DOCX, heurísticas e revisão técnica;
 - Felipe: decisão final de produto.
+
+## Auditorias concluídas
+
+1. schema do corpus: Kimi K3;
+2. auditoria adversarial do corpus: Claude Opus;
+3. reauditoria final do corpus: Claude Opus;
+4. arquitetura `DocumentIR`: Kimi K3, **APROVAR COM AJUSTES**;
+5. unidade de trabalho do motor: Kimi K3, **APROVAR COM AJUSTES**.
+
+Ajustes das auditorias 4 e 5 foram integrados e aprovados.
 
 ## Ressalvas não bloqueantes
 
 - possível remodelagem futura de `nivel_principal`;
 - `origem` real vs derivado de real só deve mudar com evidência;
 - P23.3 ainda não tem fixture isolado específico;
-- fixtures isolados exercitam aproximadamente metade do vocabulário catalogado; P2–P9, P24 e outros terão cobertura natural em testes documentais/transversais;
+- fixtures isolados exercitam aproximadamente metade do vocabulário catalogado; cobertura documental/transversal virá depois;
 - resolução fina de confiança/classificação pode esperar;
 - renderização visual do DOCX de revisão pode esperar desde que `TransformLog` exista;
 - equações, gráficos e OLE podem nascer como objetos estruturais opacos;
-- políticas avançadas para tracked changes ficam fora do MVP inicial.
+- políticas avançadas para tracked changes ficam fora do MVP inicial;
+- operações estruturais podem estar presentes no contrato sem implementação imediata.
 
-## Regra de congelamento
+## Regra de congelamento do corpus
 
 O corpus-base v1 só pode ser reaberto diante de:
 - falha de teste;
 - impossibilidade técnica demonstrada;
 - contradição nova;
-- mudança explícita de escopo ou contrato.
+- mudança explícita de escopo ou contrato;
+- novo risco de segurança demonstrado.
 
 Não reabrir por preferência estilística.
 
@@ -365,12 +342,12 @@ Não reabrir por preferência estilística.
 
 Fluxo operacional:
 - passo pequeno;
-- teste/revisão adequada;
-- resultado;
+- revisão adequada;
+- integração;
 - aprovação;
 - commit coerente;
 - próximo passo.
 
 ## Próximo passo
 
-Definir a **unidade real de trabalho do motor** e a relação entre documento, bloco, campo e operação, antes de desenhar o parser ou escrever código de produção.
+Definir o **contrato mínimo do parser DOCX** e sua primeira fatia implementável, preservando a arquitetura dual e sem escrever ainda código de produção.
