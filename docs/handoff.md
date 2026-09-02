@@ -2,7 +2,7 @@
 
 ## Estado do projeto
 
-**Fase atual:** corpus-base v1 congelado; arquitetura-base do motor fechada; contrato e estratégia do parser DOCX fechados; parser v0.1 endurecido após auditoria adversarial; **11/11 testes locais aprovados**. Próxima etapa: definir a menor fatia v0.2 antes de escrever novo código.
+**Fase atual:** corpus-base v1 congelado; arquitetura-base do motor fechada; contrato e estratégia do parser DOCX fechados; parser v0.1 endurecido; **parser v0.2 implementado localmente e no GitHub, com 11/11 testes próprios + 5/5 smoke regressions da v0.1 aprovados**. Próxima etapa: revisão técnica do código real da v0.2 antes de abrir stories secundárias.
 
 Este é o HANDOFF corrente do projeto no GitHub. O histórico anterior permanece no Git; não criar `handoff_vNN`.
 
@@ -71,11 +71,6 @@ O corpus só reabre por falha de teste, impossibilidade técnica demonstrada, co
 Hierarquia:
 `DocumentContext -> BlockWorkItem -> Field/Aspect Decisions -> OperationPlan -> SafetyGate -> TransformLog -> XML Patches`
 
-- documento = contexto;
-- bloco = orquestração/rastreabilidade;
-- campo/aspecto = decisão/autorização;
-- operação = execução/auditoria/reversibilidade.
-
 `OperationPlan` é a fronteira entre interpretação e execução determinística. Nenhum componente de análise recebe acesso de escrita ao DOCX.
 
 ### 0003 — Contrato mínimo do parser
@@ -95,42 +90,31 @@ Garantias:
 
 **OOXML + lxml autoritativo. `python-docx` apenas auxiliar opcional.**
 
-Justificativa: conservadorismo na decisão exige observação física abrangente. Detectar falhas silenciosas de uma abstração de alto nível exigiria ler o XML de qualquer forma.
-
 ### 0005 — Hardening do parser v0.1
 
 Documento: `docs/decisions/0005-parser-v01-hardening.md`.
 
-A auditoria real do código pelo Kimi K3 encontrou um bloqueante e problemas importantes de borda; a arquitetura permaneceu válida. Todos os ajustes do patch mínimo foram incorporados antes da v0.2.
+A auditoria do código pelo Kimi K3 encontrou um bloqueante e problemas importantes de borda; a arquitetura permaneceu válida. Todos os ajustes mínimos foram incorporados.
+
+### 0006 — Parser v0.2: parágrafos e runs
+
+Documento: `docs/decisions/0006-parser-v02-paragraph-runs.md`.
+
+Escolha aprovada após auditoria do Kimi K3:
+- decompor `w:p` antes de abrir stories secundárias;
+- `w:pPr` e `w:rPr` permanecem crus;
+- `w:r` vira `run_raw`, sem coalescimento;
+- containers (`hyperlink`, `ins`, `del`, `fldSimple`, `sdt`, `sdtContent`, `smartTag`) viram `run_container` protegido;
+- runs dentro de containers são decompostos recursivamente mantendo path real;
+- fragmentos conhecidos são tipados; desconhecidos viram `opaque_fragment` protegido;
+- cobertura 1:1 de filhos de `w:p` e `w:r` é testada mecanicamente;
+- sem formatação efetiva, herança, análise acadêmica ou patches.
 
 ## Parser v0.1 endurecido
 
-Implementação:
-- `src/formatador_academico/docx_parser.py`
-- `tests/test_docx_parser_v01.py`
-- `requirements.txt`
+Versão interna final da v0.1: **0.1.1**.
 
-Versão interna atual: **0.1.1**.
-
-Escopo implementado:
-- recebe bytes de DOCX;
-- abre ZIP/OPC somente em memória;
-- SHA-256 do pacote;
-- inventário de parts com nome, tamanho, SHA-256 e content type;
-- inventário cru de relationships;
-- `word/document.xml` via lxml;
-- percorre filhos diretos de `w:body`;
-- reconhece `paragraph`, `table`, `section_properties`;
-- desconhecidos viram `opaque_object` protegido;
-- comentários XML e processing instructions viram `non_element_node` protegido;
-- tabela ainda não é decomposta;
-- parts duplicadas são rejeitadas;
-- OOXML Strict/namespaces WordprocessingML não suportados falham explicitamente;
-- erros fatais ficam em `errors[]`, warnings em `parse_warnings[]`;
-- versões de parser/lxml/libxml2 ficam em `environment`;
-- nenhuma extração para filesystem.
-
-### Identidade física
+Implementa pacote/body, inventário de parts/relationships, proteção ZIP/XML, opacos, comentários/PI, identidade física e erros controlados.
 
 Cada bloco registra:
 - `structural_path`;
@@ -139,26 +123,89 @@ Cada bloco registra:
 - `inherited_xml_attrs` (`xml:space`, `xml:lang`, `xml:base` em escopo);
 - `physical_hash`.
 
-`physical_hash` = SHA-256 de uma serialização JSON determinística de `canonical_xml + inherited_xml_attrs`.
+`physical_hash` = SHA-256 de serialização JSON determinística de `canonical_xml + inherited_xml_attrs`.
 
 O patcher futuro **nunca** reconstrói o documento a partir de `canonical_xml`; atua sempre sobre uma cópia do pacote original.
 
-### Canonicalização
-
+Canonicalização:
 - elementos XML: C14N 1.0 inclusivo com comentários;
 - comentário/PI isolado: serialização XML direta determinística sem tail.
 
-A exceção para nós não-elemento é deliberada: durante o hardening, C14N sobre comentário/PI isolado provocou falha do libxml2.
-
-### Structural path v0.1
-
-- escopo dentro de uma única part;
+Structural path:
+- escopo de uma única part;
 - raiz sem predicado;
-- elemento: posição 1-based entre irmãos da mesma tag;
+- posição 1-based entre irmãos da mesma tag/tipo;
 - `w` usa `w:local`;
 - namespace estrangeiro usa `{namespace}local`;
-- comentário: `comment()[n]`;
-- PI: `processing-instruction()[n]`.
+- comentário `comment()[n]`;
+- PI `processing-instruction()[n]`.
+
+## Parser v0.2 implementado
+
+Arquivo principal:
+- `src/formatador_academico/docx_parser.py`
+
+Testes novos:
+- `tests/test_docx_parser_v02.py`
+
+Versão interna atual: **0.2.0**.
+
+### Parágrafo
+
+Um `paragraph` agora expõe:
+- `properties_raw` para o primeiro `w:pPr`;
+- `children[]` na ordem física;
+- `runs_raw[]` para runs diretos;
+- `canonical_xml`, `inherited_xml_attrs`, `physical_hash` do parágrafo inteiro.
+
+O `physical_hash` do parágrafo continua baseado no parágrafo integral, preservando a identidade física estabelecida na v0.1.
+
+### Run
+
+`run_raw` expõe:
+- `properties_raw` para `w:rPr`;
+- `fragments[]`;
+- `children[]` na ordem física;
+- `canonical_xml`, `inherited_xml_attrs`, `physical_hash`;
+- sem inferir formatação efetiva.
+
+Runs adjacentes nunca são fundidos.
+
+### Containers
+
+`run_container` é recursivo e protegido. Tipos iniciais:
+- `w:hyperlink`;
+- `w:ins`;
+- `w:del`;
+- `w:fldSimple`;
+- `w:sdt`;
+- `w:sdtContent`;
+- `w:smartTag`.
+
+O path permanece físico e não achatado, por exemplo:
+`/w:document/w:body[1]/w:p[3]/w:hyperlink[1]/w:r[2]`.
+
+### Fragmentos tipados
+
+- `w:t` -> `text`;
+- `w:tab` -> `tab`;
+- `w:br` -> `break`;
+- `w:cr` -> `carriage_return`;
+- `w:noBreakHyphen` -> `no_break_hyphen`;
+- `w:softHyphen` -> `soft_hyphen`;
+- `w:sym` -> `symbol`;
+- `w:instrText` -> `instruction_text`;
+- `w:delText` -> `deleted_text`.
+
+Qualquer outro filho de run vira `opaque_fragment` protegido. `xml:space`, `xml:lang` e `xml:base` próprios do fragmento são registrados em `xml_attrs`; contexto ancestral continua em `inherited_xml_attrs`.
+
+### Cobertura mecânica
+
+A suíte v0.2 verifica que cada filho de `w:p` e de `w:r` tem exatamente uma representação correspondente, além de testar containers aninhados, paths profundos, fragmentos opacos e ausência de coalescimento.
+
+Resultados locais antes do commit:
+- **11/11 testes específicos da v0.2 aprovados**;
+- **5/5 smoke regressions das garantias centrais da v0.1 aprovados**.
 
 ## Segurança ZIP/XML já implementada
 
@@ -174,24 +221,8 @@ A exceção para nós não-elemento é deliberada: durante o hardening, C14N sob
 - limite total descomprimido;
 - limite de razão de compressão;
 - parts duplicadas recusadas;
-- compressão não suportada tem erro próprio.
-
-## Testes atuais
-
-Suíte local endurecida: **11/11 aprovados**.
-
-Inclui:
-- documento básico;
-- determinismo mesmo input;
-- comentário/PI preservados e protegidos;
-- part duplicada rejeitada;
-- `xml:space` herdado altera hash;
-- OOXML Strict falha honestamente;
-- body vazio válido;
-- document.xml não UTF-8;
-- hash físico independente do timestamp do ZIP;
-- erros separados de warnings;
-- ambiente lxml/libxml2 registrado.
+- compressão não suportada tem erro próprio;
+- nenhuma extração para filesystem.
 
 ## Auditorias concluídas
 
@@ -203,7 +234,8 @@ Inclui:
 6. contrato do parser: Kimi K3, APROVAR COM AJUSTES;
 7. estratégia de leitura: Kimi K3 adversarial, APROVAR;
 8. primeira fatia v0.1: Kimi K3, APROVAR COM AJUSTES;
-9. revisão do código real v0.1: Kimi K3, **APROVAR COM CORREÇÕES**; correções integradas e testadas.
+9. revisão do código real v0.1: Kimi K3, APROVAR COM CORREÇÕES; correções integradas;
+10. recorte v0.2 parágrafos/runs: Kimi K3, **APROVAR COM AJUSTES**; cinco ajustes integrados antes da implementação.
 
 ## Regra de revisão técnica
 
@@ -222,4 +254,4 @@ Papéis:
 
 ## Próximo passo
 
-**Não escrever v0.2 ainda.** Primeiro definir a menor expansão de cobertura que produza valor técnico sem misturar responsabilidades. Candidatas a comparar: decomposição física de parágrafos/runs ou inclusão de stories secundárias. A proposta deve ser auditada pelo Kimi K3 antes da implementação.
+Submeter a **implementação real da v0.2** ao Kimi K3 para revisão adversarial do código e dos testes. Não abrir footnotes/endnotes/headers/footers/comments antes dessa revisão e das correções eventualmente necessárias.
