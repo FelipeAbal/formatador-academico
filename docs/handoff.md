@@ -2,7 +2,7 @@
 
 ## Estado do projeto
 
-**Fase atual:** corpus-base v1 congelado; arquitetura-base do motor fechada; contrato mínimo do parser DOCX fechado; estratégia de leitura DOCX fechada; pronto para definir a primeira fatia implementável do parser.
+**Fase atual:** corpus-base v1 congelado; arquitetura-base do motor fechada; contrato mínimo do parser DOCX fechado; estratégia de leitura DOCX fechada; parser v0.1 implementado e testado; pronto para revisão técnica da implementação e definição da v0.2.
 
 Este é o HANDOFF corrente do projeto no GitHub. O histórico posterior deve ser preservado pelo Git, sem criar arquivos `handoff_vNN`.
 
@@ -215,7 +215,7 @@ No parser físico, `null` significa apenas propriedade não especificada no XML,
 
 Objeto não representável vira `source_type = opaque_object`, mantém XML bruto ou referência exata, gera warning e fica protegido automaticamente.
 
-`content_hash` usa representação canônica de `text_raw + source_type + propriedades físicas diretamente presentes`, sem valores derivados de estilos/defaults. A canonização será versionada.
+Identidade física de bloco passa a usar `physical_hash = SHA256(C14N(raw_xml))`; hashes analíticos futuros serão campos separados.
 
 Garantias formais:
 - `PARSER-G1`: nunca modifica o pacote original;
@@ -249,8 +249,6 @@ O parser XML não implementa a semântica completa do OOXML. Ele inventaria part
 
 ### Invariante parse/patch
 
-Adicionada a garantia:
-
 - `PARSER-G7 / PATCHER-G1`: parser e patcher usam a mesma biblioteca XML, mesmas opções de parsing, política de namespaces, definição de `structural_path`, canonicalização e preservação de whitespace compatível.
 
 A identidade física precisa ser reencontrável pelo patcher na cópia do pacote original sem divergência de construção da árvore.
@@ -265,6 +263,58 @@ Pode ser usado para:
 - validação cruzada amostral em testes.
 
 Divergência entre a leitura XML e `python-docx` vira caso de investigação, nunca autoridade automática de um lado.
+
+## Parser v0.1 — primeira fatia implementada
+
+Implementação:
+- `src/formatador_academico/docx_parser.py`
+- `src/formatador_academico/__init__.py`
+- `tests/test_docx_parser_v01.py`
+- `requirements.txt`
+
+Escopo implementado:
+- recebe bytes de DOCX;
+- abre ZIP/OPC somente em memória;
+- calcula SHA-256 do pacote;
+- inventaria parts com nome, tamanho, hash e content type;
+- inventaria relationships crus;
+- lê `word/document.xml` com `lxml`;
+- percorre filhos diretos de `w:body`;
+- reconhece `paragraph`, `table` e `section_properties`;
+- demais filhos diretos viram `opaque_object` protegido + warning;
+- todo bloco v0.1 preserva `raw_xml` canonicalizado;
+- `table` permanece não decomposta e gera `unparsed_children`;
+- `structural_path` usa XPath posicional 1-based entre irmãos do mesmo tipo;
+- falhas de pacote/XML retornam `status = failed` com warning e zero stories;
+- ParseResult é serializado em JSON determinístico.
+
+Configuração XML fechada para v0.1:
+- `resolve_entities=False`;
+- `no_network=True`;
+- `remove_blank_text=False`;
+- `strip_cdata=False`;
+- `recover=False`;
+- `huge_tree=False`;
+- DTD/DOCTYPE recusado explicitamente.
+
+Canonicalização usada pelo `physical_hash`: **C14N 1.0 inclusivo com comentários**. C14N 2.0 foi tentado durante a implementação e rejeitado porque falhou em nós destacados com namespace herdado; a escolha v0.1 é deliberada e deve ser compartilhada pelo futuro patcher.
+
+Proteções ZIP iniciais:
+- limite de número de parts;
+- limite por part;
+- limite total descomprimido;
+- limite de razão de compressão;
+- nenhuma extração para filesystem.
+
+Testes locais da v0.1: **6/6 aprovados**:
+1. determinismo do mesmo input;
+2. documento mínimo com 2 parágrafos + tabela + `sectPr`;
+3. objeto opaco preservado/protegido;
+4. cobertura 1:1 dos filhos diretos de `w:body`;
+5. falhas controladas;
+6. `physical_hash` estável diante de diferenças de empacotamento ZIP.
+
+Commit de implementação: `c601bc421ebab1927b7a021130e441aa93cd8668`.
 
 ## Regra de revisão técnica
 
@@ -291,9 +341,8 @@ Papéis:
 4. arquitetura `DocumentIR`: Kimi K3, **APROVAR COM AJUSTES**;
 5. unidade de trabalho do motor: Kimi K3, **APROVAR COM AJUSTES**;
 6. contrato mínimo do parser DOCX: Kimi K3, **APROVAR COM AJUSTES**;
-7. estratégia de leitura DOCX: Kimi K3 em auditoria adversarial, **APROVAR**.
-
-Todos os ajustes aprovados foram integrados.
+7. estratégia de leitura DOCX: Kimi K3 em auditoria adversarial, **APROVAR**;
+8. primeira fatia implementável v0.1: Kimi K3, **APROVAR COM AJUSTES**; ajustes integrados antes da implementação.
 
 ## Ressalvas não bloqueantes
 
@@ -330,4 +379,4 @@ Fluxo operacional:
 
 ## Próximo passo
 
-Definir a **primeira fatia implementável do parser DOCX**, com escopo mínimo suficiente para testar as garantias arquiteturais antes de ampliar a cobertura OOXML.
+Submeter a **implementação real da v0.1** a revisão técnica do Kimi K3. Se aprovada, definir a menor expansão v0.2, provavelmente começando pela decomposição segura de parágrafos/runs ou por stories secundárias, sem decidir antes da auditoria.
