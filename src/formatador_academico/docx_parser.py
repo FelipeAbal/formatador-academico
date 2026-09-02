@@ -23,7 +23,18 @@ DOCUMENT_XML = "word/document.xml"
 CONTENT_TYPES_XML = "[Content_Types].xml"
 INHERITED_XML_ATTRS = ("space", "lang", "base")
 
-RUN_CONTAINER_TYPES = {"hyperlink", "ins", "del", "fldSimple", "sdt", "sdtContent", "smartTag"}
+RUN_CONTAINER_TYPES = {
+    "hyperlink",
+    "ins",
+    "del",
+    "fldSimple",
+    "sdt",
+    "sdtContent",
+    "smartTag",
+    "bdo",
+    "dir",
+    "customXml",
+}
 TEXT_FRAGMENT_TYPES = {
     "t": "text",
     "tab": "tab",
@@ -57,7 +68,14 @@ def _sha256(data: bytes) -> str:
 
 
 def _xml_parser() -> etree.XMLParser:
-    return etree.XMLParser(resolve_entities=False, no_network=True, remove_blank_text=False, strip_cdata=False, recover=False, huge_tree=False)
+    return etree.XMLParser(
+        resolve_entities=False,
+        no_network=True,
+        remove_blank_text=False,
+        strip_cdata=False,
+        recover=False,
+        huge_tree=False,
+    )
 
 
 def _reject_doctype(data: bytes, part_name: str) -> None:
@@ -109,6 +127,7 @@ def _structural_path(node: etree._Element, root: etree._Element) -> str:
         current = current.getparent()
     if not elements or elements[-1] is not root:
         raise ValueError("node is not a descendant of root")
+
     parts: list[str] = []
     for element in reversed(elements):
         name = _node_kind_name(element)
@@ -130,21 +149,12 @@ def _structural_path(node: etree._Element, root: etree._Element) -> str:
     return "/" + "/".join(parts)
 
 
-def _same_kind_index(node: etree._Element) -> int:
+def _child_index(node: etree._Element) -> int:
+    """0-based position among all children of the immediate parent."""
     parent = node.getparent()
     if parent is None:
         return 0
-    peers = []
-    for child in parent:
-        if isinstance(node.tag, str):
-            if isinstance(child.tag, str) and child.tag == node.tag:
-                peers.append(child)
-        elif isinstance(node, etree._Comment):
-            if isinstance(child, etree._Comment):
-                peers.append(child)
-        elif isinstance(child, etree._ProcessingInstruction):
-            peers.append(child)
-    return peers.index(node)
+    return list(parent).index(node)
 
 
 def _inherited_xml_attrs(node: etree._Element) -> dict[str, str]:
@@ -182,7 +192,41 @@ def _physical_hash(canonical_xml: str, inherited_xml_attrs: dict[str, str]) -> s
 def _raw_node_record(node: etree._Element, root: etree._Element) -> dict[str, Any]:
     canonical = _canonical_xml(node).decode("utf-8")
     inherited = _inherited_xml_attrs(node)
-    return {"structural_path": _structural_path(node, root), "original_index": _same_kind_index(node), "canonical_xml": canonical, "inherited_xml_attrs": inherited, "physical_hash": _physical_hash(canonical, inherited)}
+    return {
+        "structural_path": _structural_path(node, root),
+        "original_index": _child_index(node),
+        "canonical_xml": canonical,
+        "inherited_xml_attrs": inherited,
+        "physical_hash": _physical_hash(canonical, inherited),
+    }
+
+
+def _warn_mixed_content(node: etree._Element, root: etree._Element, warnings: list[dict[str, Any]], *, allow_text: bool = False) -> None:
+    if not allow_text and node.text and node.text.strip():
+        warnings.append({
+            "code": "mixed_content_text",
+            "message": "Unexpected direct text preserved only in canonical XML.",
+            "structural_path": _structural_path(node, root),
+        })
+    for child in node:
+        if child.tail and child.tail.strip():
+            warnings.append({
+                "code": "mixed_content_text",
+                "message": "Unexpected tail text preserved only in canonical XML.",
+                "structural_path": _structural_path(child, root),
+            })
+
+
+def _aggregate_warnings(warnings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str, str], dict[str, Any]] = {}
+    for warning in warnings:
+        key = (warning["code"], warning["message"])
+        item = grouped.setdefault(key, {"code": warning["code"], "message": warning["message"], "count": 0, "sample_paths": []})
+        item["count"] += 1
+        path = warning.get("structural_path")
+        if path and len(item["sample_paths"]) < 3:
+            item["sample_paths"].append(path)
+    return sorted(grouped.values(), key=lambda x: (x["code"], x["message"]))
 
 
 def _properties_record(node: etree._Element, root: etree._Element) -> dict[str, Any]:
@@ -195,22 +239,48 @@ def _fragment_record(node: etree._Element, root: etree._Element, warnings: list[
     record = _raw_node_record(node, root)
     if not isinstance(node.tag, str):
         record.update({"source_type": "non_element_fragment", "protected": True})
-        warnings.append({"code": "non_element_run_child", "message": f"Non-element run child preserved: {_node_kind_name(node)}", "structural_path": record["structural_path"]})
+        warnings.append({
+            "code": "non_element_run_child",
+            "message": f"Non-element run child preserved: {_node_kind_name(node)}",
+            "structural_path": record["structural_path"],
+        })
         return record
+
     namespace, local = _qname_parts(node.tag)
     if namespace == W_NS and local in TEXT_FRAGMENT_TYPES:
-        record.update({"source_type": "text_fragment", "fragment_type": TEXT_FRAGMENT_TYPES[local], "text": node.text if node.text is not None else "", "xml_attrs": _own_xml_attrs(node), "protected": False})
+        record.update({
+            "source_type": "text_fragment",
+            "fragment_type": TEXT_FRAGMENT_TYPES[local],
+            "text": node.text if node.text is not None else "",
+            "xml_attrs": _own_xml_attrs(node),
+            "protected": False,
+        })
         if local == "sym":
-            record["symbol"] = {"font": node.get(f"{{{W_NS}}}font"), "char": node.get(f"{{{W_NS}}}char")}
+            record["symbol"] = {
+                "font": node.get(f"{{{W_NS}}font"),
+                "char": node.get(f"{{{W_NS}}}char"),
+            }
         return record
+
     record.update({"source_type": "opaque_fragment", "protected": True})
-    warnings.append({"code": "opaque_run_fragment", "message": f"Run child preserved as opaque fragment: {_prefixed_name(node.tag)}", "structural_path": record["structural_path"]})
+    warnings.append({
+        "code": "opaque_run_fragment",
+        "message": f"Run child preserved as opaque fragment: {_prefixed_name(node.tag)}",
+        "structural_path": record["structural_path"],
+    })
     return record
 
 
 def _parse_run(node: etree._Element, root: etree._Element, warnings: list[dict[str, Any]]) -> dict[str, Any]:
+    _warn_mixed_content(node, root, warnings)
     record = _raw_node_record(node, root)
-    record.update({"source_type": "run_raw", "properties_raw": None, "fragments": [], "children": [], "protected": False})
+    record.update({
+        "source_type": "run_raw",
+        "properties_raw": None,
+        "fragment_refs": [],
+        "children": [],
+        "protected": False,
+    })
     for child in node:
         if isinstance(child.tag, str):
             namespace, local = _qname_parts(child.tag)
@@ -218,28 +288,43 @@ def _parse_run(node: etree._Element, root: etree._Element, warnings: list[dict[s
                 if record["properties_raw"] is None:
                     record["properties_raw"] = _properties_record(child, root)
                 else:
-                    opaque = _fragment_record(child, root, warnings)
-                    opaque["source_type"] = "opaque_fragment"
-                    opaque["protected"] = True
+                    opaque = _raw_node_record(child, root)
+                    opaque.update({"source_type": "opaque_fragment", "protected": True})
                     record["children"].append(opaque)
+                    warnings.append({
+                        "code": "duplicate_run_properties",
+                        "message": "Additional w:rPr preserved as opaque run child.",
+                        "structural_path": opaque["structural_path"],
+                    })
                 continue
         fragment = _fragment_record(child, root, warnings)
-        record["fragments"].append(fragment)
+        record["fragment_refs"].append(fragment["structural_path"])
         record["children"].append(fragment)
     return record
 
 
 def _parse_run_container(node: etree._Element, root: etree._Element, warnings: list[dict[str, Any]]) -> dict[str, Any]:
+    _warn_mixed_content(node, root, warnings)
     record = _raw_node_record(node, root)
     _, local = _qname_parts(node.tag)
-    record.update({"source_type": "run_container", "container_type": local, "children": [], "runs_raw": [], "protected": True})
-    warnings.append({"code": "unparsed_container", "message": f"Run container preserved; nested runs decomposed for ordering: w:{local}", "structural_path": record["structural_path"]})
+    record.update({
+        "source_type": "run_container",
+        "container_type": local,
+        "children": [],
+        "run_refs": [],
+        "protected": True,
+    })
+    warnings.append({
+        "code": "unparsed_container",
+        "message": f"Run container preserved; nested runs decomposed for ordering: w:{local}",
+        "structural_path": record["structural_path"],
+    })
     for child in node:
         if isinstance(child.tag, str):
             namespace, child_local = _qname_parts(child.tag)
             if namespace == W_NS and child_local == "r":
                 run = _parse_run(child, root, warnings)
-                record["runs_raw"].append(run)
+                record["run_refs"].append(run["structural_path"])
                 record["children"].append(run)
                 continue
             if namespace == W_NS and child_local in RUN_CONTAINER_TYPES:
@@ -248,13 +333,24 @@ def _parse_run_container(node: etree._Element, root: etree._Element, warnings: l
         opaque = _raw_node_record(child, root)
         opaque.update({"source_type": "opaque_container_child", "protected": True})
         record["children"].append(opaque)
-        warnings.append({"code": "opaque_container_child", "message": f"Container child preserved without decomposition: {_node_kind_name(child)}", "structural_path": opaque["structural_path"]})
+        warnings.append({
+            "code": "opaque_container_child",
+            "message": f"Container child preserved without decomposition: {_node_kind_name(child)}",
+            "structural_path": opaque["structural_path"],
+        })
     return record
 
 
 def _parse_paragraph(node: etree._Element, root: etree._Element, warnings: list[dict[str, Any]]) -> dict[str, Any]:
+    _warn_mixed_content(node, root, warnings)
     record = _raw_node_record(node, root)
-    record.update({"source_type": "paragraph", "properties_raw": None, "children": [], "runs_raw": [], "protected": False})
+    record.update({
+        "source_type": "paragraph",
+        "properties_raw": None,
+        "children": [],
+        "run_refs": [],
+        "protected": False,
+    })
     for child in node:
         if isinstance(child.tag, str):
             namespace, local = _qname_parts(child.tag)
@@ -265,20 +361,32 @@ def _parse_paragraph(node: etree._Element, root: etree._Element, warnings: list[
                     opaque = _raw_node_record(child, root)
                     opaque.update({"source_type": "opaque_paragraph_child", "protected": True})
                     record["children"].append(opaque)
-                    warnings.append({"code": "duplicate_paragraph_properties", "message": "Additional w:pPr preserved as opaque paragraph child.", "structural_path": opaque["structural_path"]})
+                    warnings.append({
+                        "code": "duplicate_paragraph_properties",
+                        "message": "Additional w:pPr preserved as opaque paragraph child.",
+                        "structural_path": opaque["structural_path"],
+                    })
                 continue
             if namespace == W_NS and local == "r":
                 run = _parse_run(child, root, warnings)
-                record["runs_raw"].append(run)
+                record["run_refs"].append(run["structural_path"])
                 record["children"].append(run)
                 continue
             if namespace == W_NS and local in RUN_CONTAINER_TYPES:
                 record["children"].append(_parse_run_container(child, root, warnings))
                 continue
+
         opaque = _raw_node_record(child, root)
-        opaque.update({"source_type": "non_element_paragraph_child" if not isinstance(child.tag, str) else "opaque_paragraph_child", "protected": True})
+        opaque.update({
+            "source_type": "non_element_paragraph_child" if not isinstance(child.tag, str) else "opaque_paragraph_child",
+            "protected": True,
+        })
         record["children"].append(opaque)
-        warnings.append({"code": "opaque_paragraph_child", "message": f"Paragraph child preserved without decomposition: {_node_kind_name(child)}", "structural_path": opaque["structural_path"]})
+        warnings.append({
+            "code": "opaque_paragraph_child",
+            "message": f"Paragraph child preserved without decomposition: {_node_kind_name(child)}",
+            "structural_path": opaque["structural_path"],
+        })
     return record
 
 
@@ -315,7 +423,7 @@ def _relationship_source_part(rels_name: str) -> str:
     path = PurePosixPath(rels_name)
     if path.parent.name != "_rels" or not path.name.endswith(".rels"):
         return rels_name
-    return str(path.parent.parent / path.name[: -len(".rels")])
+    return str(path.parent.parent / path.name[ : -len(".rels")])
 
 
 def _safe_zip_inventory(zf: zipfile.ZipFile, limits: ParserLimits) -> list[zipfile.ZipInfo]:
@@ -342,11 +450,24 @@ def _safe_zip_inventory(zf: zipfile.ZipFile, limits: ParserLimits) -> list[zipfi
 
 
 def _environment() -> dict[str, Any]:
-    return {"parser": PARSER_VERSION, "lxml": lxml.__version__, "libxml2": ".".join(str(x) for x in etree.LIBXML_VERSION)}
+    return {
+        "parser": PARSER_VERSION,
+        "lxml": lxml.__version__,
+        "libxml2": ".".join(str(x) for x in etree.LIBXML_VERSION),
+    }
 
 
 def _failed_result(package_sha256: str | None, code: str, message: str) -> dict[str, Any]:
-    return {"parser_version": PARSER_VERSION, "environment": _environment(), "status": "failed", "package": {"sha256": package_sha256, "parts": []}, "relationships": [], "stories": [], "errors": [{"code": code, "message": message}], "parse_warnings": []}
+    return {
+        "parser_version": PARSER_VERSION,
+        "environment": _environment(),
+        "status": "failed",
+        "package": {"sha256": package_sha256, "parts": []},
+        "relationships": [],
+        "stories": [],
+        "errors": [{"code": code, "message": message}],
+        "parse_warnings": [],
+    }
 
 
 class DocxParser:
@@ -371,12 +492,19 @@ class DocxParser:
                     raise ParseFailure("missing_document_xml", f"Missing required part: {DOCUMENT_XML}")
                 if CONTENT_TYPES_XML not in names:
                     raise ParseFailure("missing_content_types", f"Missing required part: {CONTENT_TYPES_XML}")
+
                 content_types_root = _parse_xml(self._read(zf, CONTENT_TYPES_XML), CONTENT_TYPES_XML)
                 defaults, overrides = _content_type_maps(content_types_root)
                 parts: list[dict[str, Any]] = []
                 for info in sorted((i for i in infos if not i.is_dir()), key=lambda i: i.filename):
                     data = self._read(zf, info.filename)
-                    parts.append({"name": info.filename, "size": info.file_size, "sha256": _sha256(data), "content_type": _content_type_for(info.filename, defaults, overrides)})
+                    parts.append({
+                        "name": info.filename,
+                        "size": info.file_size,
+                        "sha256": _sha256(data),
+                        "content_type": _content_type_for(info.filename, defaults, overrides),
+                    })
+
                 relationships = self._read_relationships(zf, names)
                 document_root = _parse_xml(self._read(zf, DOCUMENT_XML), DOCUMENT_XML)
                 if not isinstance(document_root.tag, str):
@@ -386,9 +514,11 @@ class DocxParser:
                     if root_ns == STRICT_W_NS:
                         raise ParseFailure("unsupported_namespace", f"Strict OOXML namespace is not supported in v0.2: {root_ns}")
                     raise ParseFailure("unsupported_namespace", f"Unsupported WordprocessingML namespace/root: {root_ns} {root_local}")
+
                 body = document_root.find(f"{{{W_NS}}}body")
                 if body is None:
                     raise ParseFailure("missing_body", "word/document.xml has no w:body element")
+
                 blocks: list[dict[str, Any]] = []
                 warnings: list[dict[str, Any]] = []
                 for original_index, child in enumerate(body):
@@ -396,29 +526,66 @@ class DocxParser:
                         namespace, local = _qname_parts(child.tag)
                         if namespace == W_NS and local == "p":
                             block = _parse_paragraph(child, document_root, warnings)
-                            block.update({"id": f"body/block-{original_index + 1:06d}", "original_index": original_index})
+                            block.update({
+                                "id": f"body/block-{original_index + 1:06d}",
+                                "original_index": original_index,
+                            })
                             blocks.append(block)
                             continue
+
                     path = _structural_path(child, document_root)
                     canonical = _canonical_xml(child).decode("utf-8")
                     inherited = _inherited_xml_attrs(child)
                     p_hash = _physical_hash(canonical, inherited)
+
                     if not isinstance(child.tag, str):
                         source_type, protected = "non_element_node", True
                         node_kind = "comment" if isinstance(child, etree._Comment) else "processing_instruction"
-                        warnings.append({"code": "non_element_child", "message": f"Non-element body child preserved and protected: {node_kind}", "structural_path": path})
+                        warnings.append({
+                            "code": "non_element_child",
+                            "message": f"Non-element body child preserved and protected: {node_kind}",
+                            "structural_path": path,
+                        })
                     else:
                         namespace, local = _qname_parts(child.tag)
                         if namespace == W_NS and local == "tbl":
                             source_type, protected = "table", False
-                            warnings.append({"code": "unparsed_children", "message": "Table interior is preserved as canonical XML but not decomposed in parser v0.2.", "structural_path": path})
+                            warnings.append({
+                                "code": "unparsed_children",
+                                "message": "Table interior is preserved as canonical XML but not decomposed in parser v0.2.",
+                                "structural_path": path,
+                            })
                         elif namespace == W_NS and local == "sectPr":
                             source_type, protected = "section_properties", True
                         else:
                             source_type, protected = "opaque_object", True
-                            warnings.append({"code": "unsupported_body_child", "message": f"Unsupported direct w:body child preserved as opaque object: {_prefixed_name(child.tag)}", "structural_path": path})
-                    blocks.append({"id": f"body/block-{original_index + 1:06d}", "source_type": source_type, "structural_path": path, "original_index": original_index, "physical_hash": p_hash, "canonical_xml": canonical, "inherited_xml_attrs": inherited, "protected": protected})
-                return {"parser_version": PARSER_VERSION, "environment": _environment(), "status": "ok", "package": {"sha256": package_sha256, "parts": parts}, "relationships": relationships, "stories": [{"story_id": "body", "story_type": "body", "part": DOCUMENT_XML, "blocks": blocks}], "errors": [], "parse_warnings": warnings}
+                            warnings.append({
+                                "code": "unsupported_body_child",
+                                "message": f"Unsupported direct w:body child preserved as opaque object: {_prefixed_name(child.tag)}",
+                                "structural_path": path,
+                            })
+
+                    blocks.append({
+                        "id": f"body/block-{original_index + 1:06d}",
+                        "source_type": source_type,
+                        "structural_path": path,
+                        "original_index": original_index,
+                        "physical_hash": p_hash,
+                        "canonical_xml": canonical,
+                        "inherited_xml_attrs": inherited,
+                        "protected": protected,
+                    })
+
+                return {
+                    "parser_version": PARSER_VERSION,
+                    "environment": _environment(),
+                    "status": "ok",
+                    "package": {"sha256": package_sha256, "parts": parts},
+                    "relationships": relationships,
+                    "stories": [{"story_id": "body", "story_type": "body", "part": DOCUMENT_XML, "blocks": blocks}],
+                    "errors": [],
+                    "parse_warnings": _aggregate_warnings(warnings),
+                }
         except zipfile.BadZipFile:
             return _failed_result(package_sha256, "not_a_docx", "Input is not a valid ZIP/DOCX package.")
         except ParseFailure as exc:
