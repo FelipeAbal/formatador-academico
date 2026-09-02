@@ -2,7 +2,7 @@
 
 ## Estado do projeto
 
-**Fase atual:** corpus-base v1 congelado; arquitetura-base do motor fechada; pronto para desenho do parser DOCX.
+**Fase atual:** corpus-base v1 congelado; arquitetura-base do motor fechada; contrato mínimo do parser DOCX fechado; pronto para escolher a estratégia de leitura do DOCX.
 
 Este é o HANDOFF corrente do projeto no GitHub. O histórico posterior deve ser preservado pelo Git, sem criar arquivos `handoff_vNN`.
 
@@ -120,8 +120,6 @@ A arquitetura separa obrigatoriamente:
 3. o que o perfil autorizou;
 4. o que foi efetivamente modificado.
 
-### Arquitetura dual
-
 `OriginalPackage` é imutável e permanece como fonte da verdade física.
 
 `DocumentIR` é visão analítica derivada, serializável e imutável após o parse.
@@ -131,75 +129,17 @@ A saída NÃO será reconstruída a partir da IR.
 Fluxo:
 `DOCX original imutável -> DocumentIR -> decisões -> patches registrados -> cópia do XML original modificada`.
 
-### Stories e blocos
-
-A IR deve preservar stories separadas, incluindo ao menos:
-- body;
-- footnotes;
-- endnotes;
-- headers;
-- footers.
-
-Blocos/objetos estruturais devem distinguir, quando aplicável:
-- paragraph;
-- table;
-- table_row;
-- table_cell;
-- structural_object;
-- section_break;
-- field;
-- bookmark_boundary;
-- textbox;
-- note_reference.
-
-Hyperlinks são spans/anotações, não necessariamente blocos.
-
-### Identidade/provenance
-
-`paragraph_index` isolado é proibido como chave.
-
 Identidade mínima:
 - `story`;
 - `structural_path`;
 - `original_index`;
 - `content_hash`.
 
-O pacote original possui hash próprio.
+Preservar `runs_raw` exatamente como vieram do DOCX. `runs_normalized` só existe como visão derivada com mapeamento para os runs originais.
 
-### Runs e formatação
+Classificação semântica fica em `role_candidates`; autorização em `policy_decision`; transformações em `TransformLog`.
 
-Preservar `runs_raw` exatamente como vieram do DOCX.
-
-`runs_normalized` pode existir apenas como visão derivada para análise, com mapeamento de offsets para os runs originais.
-
-Normalização destrutiva no parse é proibida.
-
-Cada propriedade de formatação relevante registra:
-- valor;
-- origem: `direct | style | inherited | default`.
-
-Objetos vivos de `python-docx` ou outra biblioteca não entram na IR.
-
-### Inferência, política e transformação
-
-Classificação semântica fica em `role_candidates`.
-
-Autorização do perfil fica em `policy_decision`.
-
-A IR não é mutada.
-
-Transformações ficam em `TransformLog`, separadas da representação original.
-
-### Tracked changes e comments
-
-No MVP, presença de `w:ins`, `w:del` ou comentário ancorado cria **zona protegida**.
-
-Regra:
-- preservar XML original intacto;
-- bloquear edição automática na região afetada;
-- sinalizar para revisão humana;
-- não assumir revisões como aceitas ou rejeitadas;
-- não editar comentário nem seu conteúdo automaticamente.
+Tracked changes e comments ancorados criam zona protegida: preservar XML, bloquear edição automática e sinalizar.
 
 ## Decisão arquitetural 0002 — Unidade de trabalho do motor
 
@@ -207,86 +147,85 @@ Documento de decisão:
 `docs/decisions/0002-engine-work-unit.md`
 
 Hierarquia aprovada:
-
 `DocumentContext -> BlockWorkItem -> Field/Aspect Decisions -> OperationPlan -> SafetyGate -> TransformLog -> XML Patches`
 
-### Unidades
-
+Unidades:
 - documento = contexto;
-- bloco = unidade de orquestração e rastreabilidade;
-- campo/aspecto = unidade de decisão/autorização;
-- operação = unidade de execução, auditoria e reversibilidade.
+- bloco = orquestração/rastreabilidade;
+- campo/aspecto = decisão/autorização;
+- operação = execução/auditoria/reversibilidade.
 
-### Dois níveis de contexto
+`OperationPlan` é a fronteira rígida entre entendimento e modificação. Depois dele, execução é determinística.
 
-`LocalContext` é uma visão curada e limitada para regras locais.
-
-`GlobalContext` é reservado a regras verdadeiramente documentais.
-
-Regra local não recebe pacote DOCX nem visão global irrestrita.
-
-### OperationPlan como fronteira de segurança
-
-`OperationPlan` é a fronteira rígida entre entendimento e modificação.
-
-Antes dele, o sistema pode lidar com classificação, hipóteses e incerteza.
-
-Depois dele, a execução é determinística.
-
-Se ainda existe dúvida relevante, a operação não deve existir.
-
-Componentes de análise/decisão não recebem referência ao pacote DOCX e não podem escrever nele por construção.
-
-### Contrato mínimo de operação
-
-Toda operação deve carregar ao menos:
+Toda operação carrega ao menos:
 - `operation_id`;
 - `type`;
 - alvo pela identidade composta;
 - campo/aspecto afetado;
-- regra/subaspecto do perfil autorizador;
+- regra/subaspecto autorizador;
 - `before`;
 - `after`;
 - nível de risco;
 - classe do portão quando aplicável.
 
-### Operações estruturais
+Operações estruturais fazem parte do contrato desde o início, mesmo que desabilitadas no primeiro motor.
 
-O contrato admite desde o início, mesmo que inicialmente desabilitadas:
-- `MOVE_BLOCK`;
-- `INSERT_BLOCK`;
-- `MERGE_BLOCKS`.
+SafetyGate verifica deterministicamente autorização, identidade/provenance, escopo da mudança e suporte seguro do patch. Falha implica `NÃO APLICAR`.
 
-### Endereçamento e aplicação
+## Decisão arquitetural 0003 — Contrato mínimo do parser DOCX
 
-Operações são registradas em coordenadas do documento original.
+Documento de decisão:
+`docs/decisions/0003-parser-contract.md`
 
-Regra inicial:
-1. validar todas as operações;
-2. aplicar operações internas de conteúdo/formatação;
-3. verificar novamente identidades relevantes;
-4. aplicar operações estruturais por último;
-5. validar o pacote resultante.
+O parser é estritamente físico/forense. Ele observa e registra o pacote original sem classificar conteúdo acadêmico, normalizar destrutivamente runs ou decidir transformações.
 
-A camada de aplicação é responsável por re-resolver endereços e detectar conflitos quando operações estruturais forem implementadas.
+Fluxo:
+`OriginalPackage -> DOCX Parser -> PhysicalIR -> Normalizer/Analysis View -> classificação/decisão`
 
-### SafetyGate
+Saída mínima do parser:
+- `package_metadata` + `package_hash`;
+- stories;
+- blocks;
+- `styles_raw`;
+- `numbering_raw`;
+- `relationships_raw`;
+- `protected_regions`;
+- `parse_warnings`.
 
-O gate verifica deterministicamente, no mínimo:
-1. existe regra ativa autorizando a operação?
-2. o alvo ainda corresponde ao provenance/content hash esperado?
-3. a operação altera somente o aspecto autorizado?
-4. o aplicador sabe executar esse tipo de patch com segurança?
+Stories obrigatoriamente procuradas:
+- body;
+- footnotes;
+- endnotes;
+- comments;
+- headers[];
+- footers[];
+- textboxes[] aninhadas.
 
-Falha em qualquer verificação implica `NÃO APLICAR`.
+Story não mapeável gera `unsupported_story`.
 
-O gate nunca corrige, reinterpreta ou completa uma operação.
+Regra: tudo que existe entra na IR ou vira warning explícito.
 
-### Fluxo unidirecional
+Offsets dentro de bloco são medidos em caracteres Unicode sobre `text_raw`. Regiões multi-bloco usam âncoras compostas `(block_id, offset_in_block)`.
 
-`análise -> decisão -> plano -> gate -> log -> patch`
+`styles`, `numbering` e `relationships` são lidos e preservados crus. Resolução de herança/defaults e numbering visível pertence à Analysis View.
 
-Dados entre camadas devem ser serializáveis.
+No parser físico, `null` significa apenas propriedade não especificada no XML, nunca default calculado.
+
+`runs_raw` são preservados exatamente; `runs_normalized` não pertence ao parser-base.
+
+Objeto não representável vira `source_type = opaque_object`, mantém XML bruto ou referência exata, gera warning e fica protegido automaticamente.
+
+`content_hash` usa representação canônica de `text_raw + source_type + propriedades físicas diretamente presentes`, sem valores derivados de estilos/defaults. A canonização será versionada.
+
+Garantias formais:
+- `PARSER-G1`: nunca modifica o pacote original;
+- `PARSER-G2`: nenhuma estrutura conhecida ou desconhecida desaparece silenciosamente;
+- `PARSER-G3`: não classifica semanticamente conteúdo acadêmico;
+- `PARSER-G4`: todo dado é rastreável ao XML físico;
+- `PARSER-G5`: conteúdo não representável vira opaque + warning + proteção;
+- `PARSER-G6`: ParseResult é serializável e determinístico.
+
+Objetos vivos de `python-docx`, `lxml` ou outra biblioteca não entram na IR.
 
 ## Regra de revisão técnica
 
@@ -311,21 +250,22 @@ Papéis:
 2. auditoria adversarial do corpus: Claude Opus;
 3. reauditoria final do corpus: Claude Opus;
 4. arquitetura `DocumentIR`: Kimi K3, **APROVAR COM AJUSTES**;
-5. unidade de trabalho do motor: Kimi K3, **APROVAR COM AJUSTES**.
+5. unidade de trabalho do motor: Kimi K3, **APROVAR COM AJUSTES**;
+6. contrato mínimo do parser DOCX: Kimi K3, **APROVAR COM AJUSTES**.
 
-Ajustes das auditorias 4 e 5 foram integrados e aprovados.
+Todos os ajustes aprovados foram integrados.
 
 ## Ressalvas não bloqueantes
 
 - possível remodelagem futura de `nivel_principal`;
 - `origem` real vs derivado de real só deve mudar com evidência;
 - P23.3 ainda não tem fixture isolado específico;
-- fixtures isolados exercitam aproximadamente metade do vocabulário catalogado; cobertura documental/transversal virá depois;
+- cobertura documental/transversal virá depois;
 - resolução fina de confiança/classificação pode esperar;
 - renderização visual do DOCX de revisão pode esperar desde que `TransformLog` exista;
 - equações, gráficos e OLE podem nascer como objetos estruturais opacos;
 - políticas avançadas para tracked changes ficam fora do MVP inicial;
-- operações estruturais podem estar presentes no contrato sem implementação imediata.
+- operações estruturais podem existir no contrato sem implementação imediata.
 
 ## Regra de congelamento do corpus
 
@@ -350,4 +290,4 @@ Fluxo operacional:
 
 ## Próximo passo
 
-Definir o **contrato mínimo do parser DOCX** e sua primeira fatia implementável, preservando a arquitetura dual e sem escrever ainda código de produção.
+Comparar e escolher a estratégia de leitura do DOCX capaz de cumprir o contrato do parser com maior fidelidade e menor risco: XML direto, `python-docx` + XML/lxml ou arquitetura híbrida. Nenhum código de produção antes de a estratégia ser auditada e aprovada.
