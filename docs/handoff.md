@@ -2,42 +2,44 @@
 
 ## Estado atual
 
-**Fase:** corpus-base v1 congelado; arquitetura e contrato do parser fechados; parser DOCX v0.2 implementado e endurecido após revisão adversarial do código real. **18/18 testes específicos da v0.2 aprovados localmente** após as correções. Próximo passo: definir e auditar a v0.3 para stories secundárias.
+**Fase:** corpus-base v1 congelado; arquitetura/contrato do parser fechados; parser v0.2 endurecido; **parser v0.3 implementado com stories secundárias e parse parcial por story, 20/20 testes específicos aprovados localmente**. Próximo passo: revisão adversarial do código real da v0.3 pelo Kimi K3.
 
-Este é o HANDOFF corrente. O histórico anterior fica no Git; não criar `handoff_vNN`.
+Este é o HANDOFF corrente. O histórico fica no Git; não criar `handoff_vNN`.
 
 ## Objetivo do MVP
 
-Formatar com segurança DOCX acadêmicos existentes a partir de perfil formal explicitamente declarado. Não promete conformidade ABNT genérica. Fonte operacional da verdade: perfil ativo.
+Formatar com segurança DOCX acadêmicos existentes a partir de perfil formal explicitamente declarado. Não promete conformidade ABNT genérica.
 
-Saídas: DOCX limpo, DOCX de revisão e relatório de processamento.
+Saídas:
+1. DOCX limpo;
+2. DOCX de revisão;
+3. relatório.
 
 Princípio: **Na dúvida, marcar.**
 
 ## Segurança
 
-- nenhuma invenção ou perda substantiva;
+- nenhuma invenção/perda substantiva;
 - só atuar em subaspecto autorizado;
-- subaspecto sem regra ativa é preservado;
-- portão de conservação é veto, nunca autorização;
-- campo extra não pode ser descartado;
-- conteúdo ambíguo não é resolvido silenciosamente;
+- ambiguidade não é resolvida silenciosamente;
+- opacos são preservados/protegidos;
+- Safety Gate é veto, nunca autorização;
 - C3 exige revisão humana.
 
 ## Corpus congelado v1
 
-- 41 fixtures: 40 base + RC3-01;
+- 41 fixtures;
 - baseline motor nulo: 20/41 = 48,8%;
-- precisão-alvo de edição automática >=99%;
+- precisão-alvo automática >=99%;
 - alto risco desejado >=99,5%;
-- tolerância zero a invenção/perda conhecida, dano a campo ou alteração indevida de citação direta.
+- tolerância zero a invenção/perda conhecida, dano a campo e alteração indevida de citação direta.
 
-Só reabrir por falha de teste, impossibilidade técnica demonstrada, nova contradição, mudança explícita de escopo/contrato ou novo risco de segurança.
+Reabrir apenas por falha de teste, impossibilidade técnica, contradição nova, mudança explícita de contrato/escopo ou novo risco de segurança.
 
-## Decisões arquiteturais
+## Arquitetura fechada
 
 ### 0001 — DocumentIR
-`OriginalPackage` imutável é fonte física da verdade. IR é derivada/serializável. A saída nunca é reconstruída da IR.
+OriginalPackage imutável; IR derivada/serializável; saída nunca reconstruída da IR.
 
 ### 0002 — Unidade de trabalho
 `DocumentContext -> BlockWorkItem -> Field/Aspect Decisions -> OperationPlan -> SafetyGate -> TransformLog -> XML Patches`
@@ -46,122 +48,192 @@ Só reabrir por falha de teste, impossibilidade técnica demonstrada, nova contr
 Parser físico/forense, sem análise acadêmica ou transformação. Garantias G1-G7: imutabilidade, nenhuma perda silenciosa, rastreabilidade, opacos protegidos, determinismo e convenções compartilhadas com o patcher.
 
 ### 0004 — Estratégia DOCX
-**OOXML + lxml autoritativo.** `python-docx` apenas auxiliar opcional.
+**OOXML + lxml autoritativo.** `python-docx` apenas auxiliar.
 
 ### 0005 — Hardening v0.1
-Documento: `docs/decisions/0005-parser-v01-hardening.md`.
+`docs/decisions/0005-parser-v01-hardening.md`
 
-Incluiu proteção contra comentários/PI, parts duplicadas, contexto `xml:*`, erros controlados, versões lxml/libxml2, namespace Strict e convenções de structural path/hash.
+### 0006 — v0.2 parágrafos/runs
+`docs/decisions/0006-parser-v02-paragraph-runs.md`
 
-### 0006 — Parser v0.2: parágrafos e runs
-Documento: `docs/decisions/0006-parser-v02-paragraph-runs.md`.
+- `w:pPr`/`w:rPr` crus;
+- runs forenses sem coalescimento;
+- containers recursivos;
+- fragments tipados;
+- opacos protegidos;
+- sem estilo efetivo/herança/análise acadêmica.
 
-- `w:pPr` e `w:rPr` crus;
-- `w:r` forense, sem coalescimento;
-- containers recursivos com path físico real;
-- fragmentos conhecidos tipados, desconhecidos opacos/protegidos;
-- sem formatação efetiva, herança, análise acadêmica ou patches.
+### 0007 — Hardening v0.2
+`docs/decisions/0007-parser-v02-hardening.md`
 
-### 0007 — Hardening v0.2 pós-auditoria
-Documento: `docs/decisions/0007-parser-v02-hardening.md`.
+- `original_index`: posição 0-based entre todos os filhos do pai;
+- `children[]` autoritativo;
+- `run_refs[]`/`fragment_refs[]` são paths;
+- cobertura 1:1 por paths;
+- mixed content sinalizado;
+- warnings agregados;
+- `bdo`, `dir`, `customXml`;
+- fixture de hash fixa;
+- determinismo cross-process.
 
-Revisão Kimi K3: **APROVAR COM CORREÇÕES**, nenhum bloqueante. Ajustes incorporados:
+### 0008 — v0.3 stories secundárias
+`docs/decisions/0008-parser-v03-secondary-stories.md`
 
-- `original_index` = posição 0-based entre todos os filhos do pai imediato em qualquer profundidade;
-- `structural_path` mantém posição 1-based entre irmãos da mesma tag/tipo;
-- `children[]` é a árvore autoritativa;
-- `run_refs[]` e `fragment_refs[]` são referências por `structural_path`, não cópias completas;
-- cobertura 1:1 é validada por multiconjunto de paths;
-- `mixed_content_text` para texto/tail inesperado;
-- warnings repetitivos agregados com `count` e `sample_paths`;
-- `bdo`, `dir`, `customXml` adicionados aos run containers;
-- `duplicate_run_properties` específico para `w:rPr` duplicado;
-- fixture de hash esperado fixo;
-- determinismo testado entre processos com `PYTHONHASHSEED` diferentes usando os mesmos bytes DOCX.
+Recorte aprovado pelo Kimi K3: footnotes, endnotes, headers, footers e comments na mesma versão.
 
-## Identidade física
+Decisão estrutural:
+**falha de story secundária não derruba o documento**.
 
-Cada nó físico relevante registra:
-- `structural_path`;
-- `original_index`;
-- `canonical_xml`;
-- `inherited_xml_attrs`;
-- `physical_hash`.
+Estados de story:
+- `ok`;
+- `missing`;
+- `failed`.
 
-Algoritmo atual de `physical_hash`:
-SHA-256 de JSON determinístico contendo `canonical_xml + inherited_xml_attrs`.
+Resultado global:
+- `ok` se body/pacote e stories secundárias processarem;
+- `partial` se alguma story secundária estiver `missing`/`failed`;
+- `failed` para falha fatal do pacote/body.
 
-**Migração:** hashes antigos baseados apenas em C14N não são comparáveis com o algoritmo atual. Comparações entre versões devem usar `canonical_xml` + contexto/versionamento, não igualdade cega de hash.
+## Parser atual
 
-Canonicalização:
-- elementos: C14N 1.0 inclusivo com comentários;
-- comentário/PI isolado: serialização XML direta determinística sem tail.
+Versão: **0.3.0**
 
-O patcher futuro nunca reconstrói DOCX a partir de `canonical_xml`; opera sobre cópia do pacote original.
+Arquivo:
+`src/formatador_academico/docx_parser.py`
 
-## Parser v0.2 atual
+### Body e blocos
 
-Versão: `0.2.0`.
+O dispatch foi extraído para `_parse_block_sequence`, reutilizado por body, header/footer e itens de notes/comments.
 
-### Parágrafo
-- `properties_raw`;
-- `children[]` na ordem física, fonte autoritativa;
-- `run_refs[]` somente referências;
-- `canonical_xml`, contexto `xml:*`, hash físico.
+Parágrafos/runs preservam comportamento v0.2.
 
-### Run
-- `properties_raw`;
-- `children[]` na ordem física;
-- `fragment_refs[]` somente referências;
-- sem inferir formatação efetiva.
+Tabelas permanecem integrais.
 
-### Run containers reconhecidos
-`hyperlink`, `ins`, `del`, `fldSimple`, `sdt`, `sdtContent`, `smartTag`, `bdo`, `dir`, `customXml`.
+### Descoberta de stories
 
-Containers são protegidos; runs internos são decompostos recursivamente para preservar ordem textual e path real.
+Relationships de `word/document.xml` são a autoridade de vínculo, identificados pelo Type URI.
 
-### Fragmentos tipados
-`w:t`, `w:tab`, `w:br`, `w:cr`, `w:noBreakHyphen`, `w:softHyphen`, `w:sym`, `w:instrText`, `w:delText`.
+`Target` relativo é resolvido contra a part de origem.
 
-Outros filhos de run ficam como `opaque_fragment` protegido. `fldChar` continua legitimamente opaco na v0.2.
+Content type funciona como validação cruzada.
 
-## Limitações conhecidas e aceitas
+Warnings:
+- `story_type_mismatch`;
+- `orphan_story_part`;
+- `duplicate_story_relationship`;
+- `textbox_detected`.
 
-- tabelas continuam bloco único; candidata a v0.4;
-- containers em nível de body podem continuar opacos;
-- markers inline zero-width (bookmark/proofErr/perm/comment ranges) podem permanecer opacos na v0.2;
-- stories secundárias ainda não são abertas;
-- proteção contextual de runs dentro de `ins/del` deve ser respeitada pela futura Analysis View.
+Missing related part:
+- story registrada `missing`;
+- `missing_related_part`;
+- documento `partial`.
 
-## Segurança ZIP/XML
+Part relacionada malformada:
+- apenas a story fica `failed`;
+- documento `partial`.
 
-XXE/rede desabilitados, DOCTYPE recusado, sem `recover`, sem `huge_tree`, limites de parts/tamanho/razão de compressão, parts duplicadas recusadas, compressão não suportada com erro próprio, nenhuma extração em filesystem.
+### Footnotes / endnotes
 
-## Auditorias concluídas
+Stories coletivas com `items[]`.
 
-1. schema corpus — Kimi K3;
-2. corpus adversarial — Claude Opus;
-3. corpus final — Claude Opus;
-4. DocumentIR — Kimi K3, aprovar com ajustes;
-5. unidade de trabalho — Kimi K3, aprovar com ajustes;
-6. contrato parser — Kimi K3, aprovar com ajustes;
-7. estratégia leitura — Kimi K3, aprovar;
-8. primeira fatia v0.1 — Kimi K3, aprovar com ajustes;
-9. código real v0.1 — Kimi K3, aprovar com correções; integradas;
-10. recorte v0.2 — Kimi K3, aprovar com ajustes; integrados;
-11. código real v0.2 — Kimi K3, **aprovar com correções**; integradas nesta etapa.
+Cada item preserva:
+- `note_id` como string crua;
+- `note_type` cru;
+- structural_path;
+- canonical_xml;
+- inherited_xml_attrs;
+- physical_hash;
+- blocks.
 
-## Regra de revisão técnica
+IDs reservados/separadores não são filtrados.
+
+### Comments
+
+Story coletiva com `items[]`.
+
+Cada comment preserva `comment_id` cru e blocos.
+
+A ligação range↔comment fica para Analysis View futura.
+
+### Headers / footers
+
+Uma story por part.
+
+Não inferir seção, primeira página ou par/ímpar.
+
+### Textboxes
+
+Ainda não decompostas.
+
+Se `w:txbxContent` aparecer dentro de opaco, gerar `textbox_detected`.
+
+### Identidade
+
+`structural_path` permanece relativo à part.
+
+Identidade global:
+`story_id + structural_path + original_index + physical_hash`.
+
+`original_index` = posição 0-based entre todos os filhos do pai imediato.
+
+`physical_hash` atual = SHA-256 de JSON determinístico com `canonical_xml + inherited_xml_attrs`.
+
+O patcher nunca reconstrói DOCX a partir de canonical XML.
+
+## Testes v0.3
+
+**20/20 aprovados localmente.**
+
+Cobrem:
+- ausência de stories;
+- footnotes/endnotes;
+- IDs especiais;
+- comments;
+- múltiplos headers/footers;
+- missing part;
+- XML malformado contido por story;
+- part órfã;
+- duplicate relationship;
+- mismatch content type;
+- target relativo;
+- textbox detectado;
+- warnings por story;
+- unicidade de story/part;
+- todas as cinco stories juntas;
+- filho root não-item preservado;
+- determinismo mesmo input;
+- determinismo cross-PYTHONHASHSEED;
+- smoke regression do body v0.2;
+- parser_version 0.3.0.
+
+## Auditorias
+
+1. schema corpus: Kimi K3;
+2. corpus adversarial: Claude Opus;
+3. corpus final: Claude Opus;
+4. DocumentIR: Kimi K3;
+5. unidade de trabalho: Kimi K3;
+6. contrato parser: Kimi K3;
+7. estratégia leitura: Kimi K3;
+8. recorte v0.1: Kimi K3;
+9. código v0.1: Kimi K3;
+10. recorte v0.2: Kimi K3;
+11. código v0.2: Kimi K3, APROVAR COM CORREÇÕES;
+12. recorte v0.3: Kimi K3, **APROVAR COM AJUSTES**; ajustes incorporados na implementação.
+
+## Regra de revisão
 
 Decisão técnica relevante:
 1. ChatGPT propõe;
 2. auditor adequado revisa;
 3. ChatGPT integra;
-4. Felipe aprova quando for decisão de produto/arquitetura não rotineira;
-5. decisão é registrada e commitada.
+4. Felipe decide quando necessário;
+5. registrar e commitar.
 
-Auditorias técnicas rotineiras e correções diretamente decorrentes de decisão já aprovada podem ser executadas sem nova autorização intermediária, conforme orientação de Felipe.
+Implementação relevante também passa por revisão técnica antes da próxima fatia.
 
 ## Próximo passo
 
-**v0.3 = stories secundárias**, reutilizando o parser já endurecido de parágrafo/run. Antes do código, fechar o menor recorte de stories e submetê-lo ao Kimi K3. Tabelas ficam para etapa posterior, provavelmente v0.4.
+Submeter a implementação real da v0.3 ao Kimi K3.
+
+**Não iniciar decomposição de tabelas, textboxes ou Analysis View antes dessa revisão.**
