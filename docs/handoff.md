@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-**Fase:** corpus-base v1 congelado; arquitetura/contrato do parser fechados; parser v0.1 e v0.2 endurecidos; **parser v0.3 recebeu o hardening integral pós-auditoria e a última aresta de `suspicious_target` foi corrigida. A suíte validada externamente tinha 55/55; o `main` atual contém 56 testes e aguarda uma última execução externa antes do congelamento formal.**
+**Fase:** corpus-base v1 congelado; arquitetura/contrato do parser fechados; parser v0.1 e v0.2 endurecidos; **parser v0.3 formalmente congelado após revalidação externa completa: 56/56 testes, 0 failures, 0 errors, 0 skips.** Próximo passo: definir e auditar o contrato da **v0.4 = decomposição física segura de tabelas** antes de implementar.
 
 Este é o HANDOFF corrente. O histórico fica no Git; não criar `handoff_vNN`.
 
@@ -108,8 +108,6 @@ Resultado global:
 ### 0009 — Hardening v0.3 após auditoria
 `docs/decisions/0009-parser-v03-hardening.md`
 
-Revisão do código real pelo Kimi K3 encontrou um bloqueante de semântica de stories, gaps de observabilidade e testes não-portáveis. Todos os itens corrigíveis dentro da v0.3 foram incorporados.
-
 Principais ajustes:
 - `story_id = {story_type}:{part}` para toda story secundária;
 - `part` é âncora física obrigatória da identidade;
@@ -121,13 +119,28 @@ Principais ajustes:
 - target que escape da raiz lógica do pacote gera `suspicious_target` e story `rejected`;
 - naming de órfãs uniformizado;
 - `errors[]` global é autoridade; `story.errors[]` é espelho local de conveniência;
-- warning codes passam a ser contrato versionado;
+- warning codes são contrato versionado;
 - limites ZIP permanecem globais/fatais por decisão de segurança;
-- testes v0.2 tornados portáveis entre máquinas e versões posteriores do parser.
+- testes v0.2 portáveis entre máquinas e versões posteriores do parser.
+
+### 0010 — Congelamento formal da v0.3
+`docs/decisions/0010-freeze-parser-v03.md`
+
+Revalidação externa final pelo Kimi K3:
+- **56/56 testes**;
+- 0 failures;
+- 0 errors;
+- 0 skips;
+- `suspicious_target -> rejected` confirmado integralmente;
+- nenhuma regressão nova.
+
+Veredito: **CONGELAR v0.3**.
+
+A v0.3 só reabre por falha de teste, impossibilidade técnica demonstrada, contradição nova, mudança explícita de contrato/escopo ou novo risco de segurança.
 
 ## Parser atual
 
-Versão: **0.3.0**
+Versão congelada: **0.3.0**
 
 Arquivo:
 `src/formatador_academico/docx_parser.py`
@@ -138,7 +151,7 @@ O dispatch usa `_parse_block_sequence`, reutilizado por body, header/footer e it
 
 Parágrafos/runs preservam o contrato v0.2.
 
-Tabelas permanecem integrais e serão a candidata da v0.4.
+Tabelas ainda permanecem integrais e são a fronteira da v0.4.
 
 ### Descoberta de stories
 
@@ -177,7 +190,7 @@ Gera `textbox_detected`.
 
 ### Identidade
 
-Identidade física global deve considerar:
+Identidade física global considera:
 `part + story_id + structural_path + original_index + physical_hash`.
 
 `structural_path` permanece relativo à part.
@@ -198,20 +211,12 @@ Documento `partial` pode futuramente permitir patches somente em stories `ok`, d
 
 ## Testes atuais
 
-A última suíte completa **executada externamente** antes da aresta final passou em **55/55**.
-
-O `main` atual acrescenta:
-- `tests/test_docx_parser_v03_edges.py`;
-- 1 teste dedicado para target suspeito tratado como `rejected`.
-
-Total atual esperado: **56 testes**.
-
-O novo caso exige confirmar:
-- `status = partial` no documento;
-- story `status = rejected`;
-- erro `suspicious_target` no topo e na story;
-- `partial_stories` contendo a story rejeitada;
-- body permanecendo `ok`.
+Suíte completa congelada:
+- v0.1: 11 testes;
+- v0.2: 18 testes;
+- v0.3: 26 testes;
+- edge final: 1 teste;
+- **total: 56/56 aprovados externamente**.
 
 ## Auditorias
 
@@ -228,7 +233,8 @@ O novo caso exige confirmar:
 11. código v0.2: Kimi K3, APROVAR COM CORREÇÕES;
 12. recorte v0.3: Kimi K3, APROVAR COM AJUSTES;
 13. código v0.3: Kimi K3, NÃO CONGELAR antes das correções;
-14. verificação externa pós-hardening: **55/55, CONGELAR v0.3**, com um único menor não bloqueante (`suspicious_target` aparecendo como `missing`); esse menor foi corrigido depois da verificação e agora requer apenas reexecução da suíte de 56 testes.
+14. verificação externa pós-hardening: 55/55, CONGELAR com um menor;
+15. revalidação final pós-aresta: **56/56, CONGELAR v0.3**.
 
 ## Regra de revisão
 
@@ -243,8 +249,6 @@ Implementação relevante também passa por revisão técnica antes da próxima 
 
 ## Próximo passo
 
-Executar a suíte completa atualizada (**56 testes**) em ambiente externo e confirmar o caso `suspicious_target -> rejected`.
+Definir o contrato mínimo da **v0.4 — decomposição física segura de tabelas** e submetê-lo ao Kimi K3 antes de implementação.
 
-Se verde, **congelar formalmente a v0.3** e abrir o escopo da **v0.4 = decomposição física segura de tabelas**.
-
-Não iniciar v0.4 antes dessa última verificação.
+Textboxes continuam fora da v0.4, apenas detectados/protegidos.
