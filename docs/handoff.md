@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-**Fase:** corpus-base v1 congelado; arquitetura/contrato do parser fechados; parser v0.1 e v0.2 endurecidos; **parser v0.3 formalmente congelado após revalidação externa completa: 56/56 testes, 0 failures, 0 errors, 0 skips.** Próximo passo: definir e auditar o contrato da **v0.4 = decomposição física segura de tabelas** antes de implementar.
+**Fase:** corpus-base v1 congelado; parser v0.3 formalmente congelado após revalidação externa completa (**56/56 testes**); **contrato da v0.4 — decomposição física segura de tabelas — auditado pelo Kimi K3 e aprovado com ajustes, todos incorporados na decisão 0011.** Próximo passo: implementar a v0.4 e submetê-la a revisão adversarial do código real.
 
 Este é o HANDOFF corrente. O histórico fica no Git; não criar `handoff_vNN`.
 
@@ -66,24 +66,13 @@ Parser físico/forense, sem análise acadêmica ou transformação. Garantias G1
 ### 0006 — v0.2 parágrafos/runs
 `docs/decisions/0006-parser-v02-paragraph-runs.md`
 
-- `w:pPr`/`w:rPr` crus;
-- runs forenses sem coalescimento;
-- containers recursivos;
-- fragments tipados;
-- opacos protegidos;
-- sem estilo efetivo/herança/análise acadêmica.
-
 ### 0007 — Hardening v0.2
 `docs/decisions/0007-parser-v02-hardening.md`
 
-- `original_index`: posição 0-based entre todos os filhos do pai;
 - `children[]` autoritativo;
-- `run_refs[]`/`fragment_refs[]` são paths;
+- refs auxiliares são paths;
 - cobertura 1:1 por paths;
 - mixed content sinalizado;
-- warnings agregados;
-- `bdo`, `dir`, `customXml`;
-- fixture de hash fixa;
 - determinismo cross-process.
 
 ### 0008 — v0.3 stories secundárias
@@ -91,132 +80,107 @@ Parser físico/forense, sem análise acadêmica ou transformação. Garantias G1
 
 Recorte: footnotes, endnotes, headers, footers e comments.
 
-Decisão estrutural:
-**falha de story secundária não derruba o documento**.
-
-Estados de story:
-- `ok`;
-- `missing`;
-- `failed`;
-- `rejected`.
-
-Resultado global:
-- `ok` se body/pacote e stories secundárias processarem;
-- `partial` se alguma story secundária estiver `missing`, `failed` ou `rejected`;
-- `failed` para falha fatal do pacote/body ou política global de segurança ZIP.
-
-### 0009 — Hardening v0.3 após auditoria
+### 0009 — Hardening v0.3
 `docs/decisions/0009-parser-v03-hardening.md`
-
-Principais ajustes:
-- `story_id = {story_type}:{part}` para toda story secundária;
-- `part` é âncora física obrigatória da identidade;
-- duas parts do mesmo story type são preservadas + `duplicate_story_type`, nunca falha global;
-- `partial_stories[]` no resultado;
-- detecção de `w:txbxContent`, `a:txBody` e `p:txBody`;
-- warnings para IDs de notes/comments duplicados ou ausentes;
-- story schema uniformizado;
-- target que escape da raiz lógica do pacote gera `suspicious_target` e story `rejected`;
-- naming de órfãs uniformizado;
-- `errors[]` global é autoridade; `story.errors[]` é espelho local de conveniência;
-- warning codes são contrato versionado;
-- limites ZIP permanecem globais/fatais por decisão de segurança;
-- testes v0.2 portáveis entre máquinas e versões posteriores do parser.
 
 ### 0010 — Congelamento formal da v0.3
 `docs/decisions/0010-freeze-parser-v03.md`
 
-Revalidação externa final pelo Kimi K3:
+Revalidação externa final:
 - **56/56 testes**;
 - 0 failures;
 - 0 errors;
 - 0 skips;
-- `suspicious_target -> rejected` confirmado integralmente;
-- nenhuma regressão nova.
+- nenhuma regressão.
 
 Veredito: **CONGELAR v0.3**.
 
-A v0.3 só reabre por falha de teste, impossibilidade técnica demonstrada, contradição nova, mudança explícita de contrato/escopo ou novo risco de segurança.
+### 0011 — Contrato da v0.4: tabelas
+`docs/decisions/0011-parser-v04-table-contract.md`
 
-## Parser atual
+Auditoria de contrato pelo Kimi K3: **APROVAR COM AJUSTES**.
 
-Versão congelada: **0.3.0**
+Ajustes incorporados antes do código:
+1. `block_container` para `w:sdt`/`w:sdtContent`/`w:customXml` em nível de bloco, inclusive no dispatch compartilhado de body/stories/cells;
+2. blocos aninhados não usam ids sequenciais locais que possam colidir; `structural_path` é sua identidade física;
+3. `ParserLimits.max_structural_depth = 64` com degradação para opaco + `max_depth_exceeded`;
+4. `structural_path` formalmente estendido a `tbl/tr/tc` e block containers;
+5. validação de grid, `gridSpan`, `vMerge`, merges e layout permanece explicitamente fora do parser.
+
+Modelo:
+`table -> row -> cell -> blocks`
+
+`children[]` permanece autoritativo em table/row/cell. Slots nomeados (`properties_raw`, `grid_raw`) consomem seus nós; refs auxiliares, se usadas, contêm apenas paths.
+
+## Parser congelado v0.3
+
+Versão: **0.3.0**
 
 Arquivo:
 `src/formatador_academico/docx_parser.py`
 
-### Body e blocos
-
-O dispatch usa `_parse_block_sequence`, reutilizado por body, header/footer e itens de notes/comments.
-
-Parágrafos/runs preservam o contrato v0.2.
-
-Tabelas ainda permanecem integrais e são a fronteira da v0.4.
-
-### Descoberta de stories
-
-Relationships de `word/document.xml` são a autoridade de vínculo, identificados por Type URI.
-
-`Target` relativo é resolvido contra a part de origem. Content type é validação cruzada.
-
-Stories conhecidas por content type e sem relationship são preservadas como órfãs com warning.
-
-Target de story que resolve para fora da raiz lógica do pacote não é tratado como mera ausência: a story fica `rejected`, com erro e warning `suspicious_target`, e nenhuma leitura externa é tentada.
-
-### Footnotes / endnotes / comments
-
-Stories coletivas com `items[]`.
-
-IDs são strings cruas. O parser não corrige nem interpreta valores reservados.
-
-Duplicidade/ausência de ID é sinalizada, sem alterar o conteúdo.
-
-A ligação comment range↔comment continua futura, pois ambos os lados físicos permanecem recuperáveis.
-
-### Headers / footers
-
-Uma story por part. Não inferir seção, primeira página ou par/ímpar.
-
-### Textboxes / text bodies
-
-Ainda não decompostos.
-
-Presença detectada em opacos por:
-- `w:txbxContent`;
-- DrawingML `a:txBody`;
-- PresentationML `p:txBody`.
-
-Gera `textbox_detected`.
-
-### Identidade
-
-Identidade física global considera:
+Identidade física global:
 `part + story_id + structural_path + original_index + physical_hash`.
 
-`structural_path` permanece relativo à part.
+Story `missing`, `failed` ou `rejected` é região não editável.
 
-`original_index` = posição 0-based entre todos os filhos do pai imediato.
+Textboxes permanecem opacos detectados por `w:txbxContent`, `a:txBody` e `p:txBody`.
 
-`physical_hash` = SHA-256 de JSON determinístico com `canonical_xml + inherited_xml_attrs`.
+## Contrato da v0.4
 
-O patcher nunca reconstrói DOCX a partir de canonical XML.
+### Table
+- preservar campos físicos do bloco da v0.3;
+- `tblPr` -> `properties_raw`;
+- `tblGrid` -> `grid_raw` + `gridCol` crus;
+- `tr` -> `table_row`;
+- demais filhos -> opacos protegidos;
+- sem validação de grid/layout/merge.
 
-### Parse parcial e Safety Gate futuro
+### Row
+- `trPr` -> `properties_raw`;
+- `tc` -> `table_cell`;
+- wrappers de row/cell não decompostos nesta versão permanecem opacos protegidos.
 
-Story `missing`, `failed` ou `rejected` é região absolutamente não editável.
+### Cell
+- `tcPr` -> `properties_raw`;
+- sequência de blocos preservada;
+- paragraphs reutilizam parser existente;
+- nested tables são recursivas;
+- cell vazia não é corrigida nem sinalizada só por estar vazia.
 
-Documento `partial` pode futuramente permitir patches somente em stories `ok`, desde que o Safety Gate valide identidade/proveniência e ausência de dependência com story indisponível.
+### Block containers
+`w:sdt`, `w:sdtContent`, `w:customXml` em nível de bloco tornam-se `block_container`, preservados/protegidos e decompostos recursivamente para não perder sequência substantiva.
 
-`errors[]` no topo é autoritativo. `story.errors[]` é cópia local imutável de conveniência.
+### Limite estrutural
+Default: **64** níveis.
 
-## Testes atuais
+Ao atingir limite:
+- preservar subtree integral;
+- `protected = true`;
+- warning `max_depth_exceeded`;
+- não permitir `RecursionError` por input profundo.
 
-Suíte completa congelada:
-- v0.1: 11 testes;
-- v0.2: 18 testes;
-- v0.3: 26 testes;
-- edge final: 1 teste;
-- **total: 56/56 aprovados externamente**.
+### Fora da v0.4
+- layout visual;
+- merge resolvido;
+- grid lógico;
+- largura efetiva;
+- repeat header/autofit;
+- estilo/propriedades efetivas;
+- semântica acadêmica;
+- patching/escrita;
+- decomposição de textboxes;
+- validação estrutural de tabela.
+
+## Testes congelados antes da v0.4
+
+- v0.1: 11;
+- v0.2: 18;
+- v0.3: 26;
+- edge final: 1;
+- **56/56 aprovados externamente**.
+
+A implementação v0.4 deve acrescentar testes para cobertura 1:1 de `tbl/tr/tc`, nested tables, block containers, profundidade, grid cru, propriedades duplicadas, mixed content, textboxes em cells e reutilização em stories secundárias.
 
 ## Auditorias
 
@@ -230,11 +194,12 @@ Suíte completa congelada:
 8. recorte v0.1: Kimi K3;
 9. código v0.1: Kimi K3;
 10. recorte v0.2: Kimi K3;
-11. código v0.2: Kimi K3, APROVAR COM CORREÇÕES;
-12. recorte v0.3: Kimi K3, APROVAR COM AJUSTES;
-13. código v0.3: Kimi K3, NÃO CONGELAR antes das correções;
-14. verificação externa pós-hardening: 55/55, CONGELAR com um menor;
-15. revalidação final pós-aresta: **56/56, CONGELAR v0.3**.
+11. código v0.2: Kimi K3;
+12. recorte v0.3: Kimi K3;
+13. código v0.3: Kimi K3;
+14. verificação externa pós-hardening: Kimi K3;
+15. revalidação final v0.3: **56/56, CONGELAR**;
+16. contrato v0.4: Kimi K3, **APROVAR COM AJUSTES**, incorporados na decisão 0011.
 
 ## Regra de revisão
 
@@ -249,6 +214,6 @@ Implementação relevante também passa por revisão técnica antes da próxima 
 
 ## Próximo passo
 
-Definir o contrato mínimo da **v0.4 — decomposição física segura de tabelas** e submetê-lo ao Kimi K3 antes de implementação.
+**Implementar a v0.4** conforme decisão 0011, executar regressões e testes adversariais locais e então submeter o código real ao Kimi K3.
 
-Textboxes continuam fora da v0.4, apenas detectados/protegidos.
+Não iniciar Analysis View antes de congelar a v0.4.
