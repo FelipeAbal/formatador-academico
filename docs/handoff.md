@@ -2,9 +2,9 @@
 
 ## Estado atual
 
-**Fase:** corpus-base v1 congelado; arquitetura física do parser consolidada; **parser v0.4 formalmente congelado após auditoria adversarial, hardening e validação externa completa: 102/102 testes, 0 failures, 0 errors, 0 skips.**
+**Fase:** corpus-base v1 congelado; parser físico v0.4 formalmente congelado após auditoria adversarial e hardening (**102/102 testes, 0 failures, 0 errors, 0 skips**); **contrato da Analysis View v0.1a — Normalized Text View — auditado pelo Kimi K3, refinado e aprovado para implementação.**
 
-Próxima etapa: **Analysis View v0.1**. Abrir **novo chat no Kimi K3** para esse ciclo, usando este HANDOFF + commit atual do `main` como verdade operacional.
+Próximo passo: implementar somente a **Analysis View v0.1a — Normalized Text View**, conforme decisão 0013. Não iniciar Formatting Resolution antes de congelar a v0.1a.
 
 Este é o HANDOFF corrente. O histórico fica no Git; não criar `handoff_vNN`.
 
@@ -130,6 +130,40 @@ Suíte final validada externamente:
 PR #1 mergeado no `main`.
 Merge commit: `10b8ca39c4fa2cef7e2f0638a63cc8683926f691`.
 
+### 0013 — Analysis View v0.1a: Normalized Text View
+`docs/decisions/0013-analysis-v01a-normalized-text-contract.md`
+
+Auditoria arquitetural pelo Kimi K3 recomendou dividir a Analysis View:
+1. **v0.1a — Normalized Text View**;
+2. **v0.1b — Formatting Resolution View**.
+
+A v0.1a foi refinada e aprovada para implementação.
+
+Decisões principais:
+- unidade inicial = parágrafo;
+- `segments[]` é autoritativo;
+- `default_text` é projeção derivada;
+- um segmento por fragmento físico, sem coalescência multi-source;
+- offsets lógicos e físicos textuais em code points da `str` Python, start inclusivo/end exclusivo;
+- não-participantes são zero-width;
+- `w:instrText`, `w:delText`, `w:sym` não entram em `default_text`;
+- `w:sym` permanece cru em metadata, sem U+FFFD ou falsa conversão Unicode;
+- desconhecido => `normalized_unexpected_fragment` + segmento opaco zero-width;
+- sem `span_id`, `analysis_id` ou protection context nesta versão;
+- Analysis View imutável, serializável, determinística, sem lxml vivo e sem mutar PhysicalIR.
+
+Mapeamento da projeção padrão:
+- text -> literal;
+- tab -> `\t`;
+- line break -> `\n`;
+- page/column break -> zero-width estrutural;
+- carriage return -> `\r`;
+- no-break hyphen -> U+2011;
+- soft hyphen -> U+00AD;
+- field/deleted/symbol/opaque -> zero-width.
+
+A Formatting Resolution terá contrato e auditoria próprios somente depois do freeze da v0.1a.
+
 ## Parser físico congelado
 
 Versão: **0.4.0**
@@ -187,15 +221,32 @@ Somente por:
 - mudança explícita de contrato/escopo;
 - novo risco de segurança.
 
-## Próxima etapa — Analysis View v0.1
+## Analysis View v0.1a — implementação
 
-**Abrir novo chat no Kimi K3.**
+Implementar conforme decisão 0013.
 
-Primeiro passo: definir e auditar o contrato da Analysis View antes de código.
+Escopo mínimo:
+- pacote `src/formatador_academico/analysis/`;
+- tipos imutáveis para `SourceAnchor`, `NormalizedSegment`, `NormalizedParagraph`, `SegmentKind`, `TextRole`;
+- builder por parágrafo físico;
+- projeção `default_text` derivada;
+- mapping fechado dos fragment types da v0.4;
+- warning analítico separado;
+- determinismo e serialização;
+- regressão integral dos 102 testes do parser.
 
-Direção preliminar já sugerida pela auditoria do parser:
-1. visão normalizada derivada de runs, com coalescência não destrutiva + mapa de offsets de volta à PhysicalIR;
-2. resolução de formatação efetiva com origem/proveniência (`direct` / `style` / `inherited` / `default`);
-3. classificação semântica (`role_candidates`) fica para etapa posterior.
+Testes novos devem cobrir pelo menos os 31 casos listados na decisão 0013.
 
-Não implementar Analysis View antes de fechar o contrato e submetê-lo à auditoria técnica.
+## Próximo passo
+
+**Implementar a v0.1a** no mesmo chat atual do Kimi K3.
+
+Não abrir novo chat ainda: o contrato e a implementação pertencem ao mesmo ciclo técnico da Normalized Text View.
+
+Ao terminar:
+1. publicar branch/PR ou fornecer diff/arquivos completos;
+2. rodar suíte completa, incluindo os 102 testes congelados do parser;
+3. trazer resultado para revisão adversarial;
+4. corrigir tudo o que couber no escopo;
+5. congelar v0.1a;
+6. só então abrir novo ciclo para v0.1b — Formatting Resolution.
