@@ -19,6 +19,8 @@ STRICT_W_NS = "http://purl.oclc.org/ooxml/wordprocessingml/main"
 CT_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 XML_NS = "http://www.w3.org/XML/1998/namespace"
+A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+P_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
 
 DOCUMENT_XML = "word/document.xml"
 CONTENT_TYPES_XML = "[Content_Types].xml"
@@ -183,9 +185,16 @@ def _aggregate_warnings(warnings):
     return sorted(grouped.values(),key=lambda x:(x.get("story_id",""),x["code"],x["message"]))
 
 def _detect_textbox(node, root, warnings, story_id=None):
-    if not isinstance(node.tag,str): return
-    if node.tag == f"{{{W_NS}}}txbxContent" or node.find(f".//{{{W_NS}}}txbxContent") is not None:
-        _warn(warnings,"textbox_detected","Textbox content detected inside opaque XML and not decomposed.",
+    if not isinstance(node.tag,str):
+        return
+    textbox_tags = (
+        f"{{{W_NS}}}txbxContent",
+        f"{{{A_NS}}}txBody",
+        f"{{{P_NS}}}txBody",
+    )
+    detected = node.tag in textbox_tags or any(node.find(f".//{tag}") is not None for tag in textbox_tags)
+    if detected:
+        _warn(warnings,"textbox_detected","Textbox/text-body content detected inside opaque XML and not decomposed.",
               _structural_path(node,root),story_id)
 
 def _properties_record(node, root):
@@ -366,7 +375,7 @@ def _environment():
 
 def _failed_result(package_sha256,code,message):
     return {"parser_version":PARSER_VERSION,"environment":_environment(),"status":"failed",
-            "package":{"sha256":package_sha256,"parts":[]},"relationships":[],"stories":[],
+            "partial_stories":[],"package":{"sha256":package_sha256,"parts":[]},"relationships":[],"stories":[],
             "errors":[{"code":code,"message":message}],"parse_warnings":[]}
 
 class DocxParser:
@@ -401,8 +410,10 @@ class DocxParser:
 
     def _story_error(self, story_id, story_type, part, relationship_id, code, message, status="failed"):
         return {"story_id":story_id,"story_type":story_type,"part":part,"relationship_id":relationship_id,
-                "status":status,"errors":[{"code":code,"message":message}],"blocks":[] if story_type in ("header","footer") else None,
-                "items":[] if story_type in ("footnotes","endnotes","comments") else None}
+                "status":status,"errors":[{"code":code,"message":message}],
+                "blocks":[] if story_type in ("header","footer") else None,
+                "items":[] if story_type in ("footnotes","endnotes","comments") else None,
+                "opaque_items":[] if story_type in ("footnotes","endnotes","comments") else None}
 
     def _parse_block_story(self,zf,part,story_type,story_id,relationship_id,warnings):
         try:
@@ -414,7 +425,7 @@ class DocxParser:
                 raise ParseFailure("unsupported_story_namespace",f"Unexpected {story_type} root: {ns} {local}")
             blocks=_parse_block_sequence(root,root,warnings,story_id)
             return {"story_id":story_id,"story_type":story_type,"part":part,"relationship_id":relationship_id,
-                    "status":"ok","blocks":blocks,"errors":[]}
+                    "status":"ok","blocks":blocks,"items":None,"opaque_items":None,"errors":[]}
         except ParseFailure as exc:
             return self._story_error(story_id,story_type,part,relationship_id,exc.code,exc.message)
 
@@ -431,12 +442,21 @@ class DocxParser:
                 raise ParseFailure("unsupported_story_namespace",f"Unexpected {story_type} root: {ns} {local}")
             items=[]
             represented_paths=[]
+            seen_item_ids: set[str] = set()
             for child in root:
                 if isinstance(child.tag,str):
                     cns,clocal=_qname_parts(child.tag)
                     if cns==W_NS and clocal==item_local:
                         rec=_raw_node_record(child,root)
                         item_id=child.get(f"{{{W_NS}}}id")
+                        if item_id is None:
+                            code = "missing_comment_id" if story_type == "comments" else "missing_note_id"
+                            _warn(warnings,code,f"{story_type} item is missing w:id.",rec["structural_path"],story_id)
+                        elif item_id in seen_item_ids:
+                            code = "duplicate_comment_id" if story_type == "comments" else "duplicate_note_id"
+                            _warn(warnings,code,f"Duplicate w:id in {story_type}: {item_id}",rec["structural_path"],story_id)
+                        else:
+                            seen_item_ids.add(item_id)
                         item={"structural_path":rec["structural_path"],"original_index":rec["original_index"],
                               "canonical_xml":rec["canonical_xml"],"inherited_xml_attrs":rec["inherited_xml_attrs"],
                               "physical_hash":rec["physical_hash"],id_field:item_id,
@@ -457,7 +477,7 @@ class DocxParser:
                     rec=_raw_node_record(child,root); rec.update({"source_type":"opaque_story_child","protected":True})
                     opaque_items.append(rec)
             return {"story_id":story_id,"story_type":story_type,"part":part,"relationship_id":relationship_id,
-                    "status":"ok","items":items,"opaque_items":opaque_items,"errors":[]}
+                    "status":"ok","blocks":None,"items":items,"opaque_items":opaque_items,"errors":[]}
         except ParseFailure as exc:
             return self._story_error(story_id,story_type,part,relationship_id,exc.code,exc.message)
 
@@ -489,17 +509,24 @@ class DocxParser:
 
                 warnings=[]; errors=[]
                 stories=[{"story_id":"body","story_type":"body","part":DOCUMENT_XML,"relationship_id":None,
-                          "status":"ok","blocks":_parse_block_sequence(body,doc_root,warnings,"body",allow_sectpr=True),"errors":[]}]
+                          "status":"ok","blocks":_parse_block_sequence(body,doc_root,warnings,"body",allow_sectpr=True),
+                          "items":None,"opaque_items":None,"errors":[]}]
 
                 doc_story_rels=[r for r in relationships if r["part"]==DOCUMENT_XML and r["type"] in STORY_REL_TYPES and r.get("target_mode")!="External"]
                 seen_parts=set()
+                seen_story_types: dict[str, str] = {}
                 for rel in doc_story_rels:
                     stype=STORY_REL_TYPES[rel["type"]]
                     part=rel.get("resolved_target")
-                    sid=(f"{stype[:-1]}:{part}" if stype in ("headers","footers") else None)
-                    if stype=="header": sid=f"header:{part}"
-                    elif stype=="footer": sid=f"footer:{part}"
-                    else: sid=stype
+                    sid=f"{stype}:{part}"
+                    previous_part = seen_story_types.get(stype)
+                    if previous_part is not None and previous_part != part:
+                        _warn(warnings,"duplicate_story_type",
+                              f"Multiple parts are related as story type {stype}: {previous_part}, {part}",story_id=sid)
+                    else:
+                        seen_story_types[stype] = part
+                    if part and (part == ".." or part.startswith("../")):
+                        _warn(warnings,"suspicious_target",f"Resolved story target escapes package root: {part}",story_id=sid)
                     if part in seen_parts:
                         _warn(warnings,"duplicate_story_relationship",f"Multiple story relationships target the same part: {part}",story_id=sid)
                         continue
@@ -527,7 +554,7 @@ class DocxParser:
                 for part,ctype in sorted(part_ct.items()):
                     stype=STORY_CONTENT_TYPES.get(ctype)
                     if not stype or part in seen_parts: continue
-                    sid=f"{stype}:{part}" if stype in ("header","footer") else f"{stype}:orphan:{part}"
+                    sid=f"{stype}:{part}"
                     _warn(warnings,"orphan_story_part",f"Known story part exists without document relationship: {part}",story_id=sid)
                     if stype in ("header","footer"):
                         story=self._parse_block_story(zf,part,stype,sid,None,warnings)
@@ -537,11 +564,15 @@ class DocxParser:
                     if story["status"]!="ok": errors.extend({**e,"story_id":sid} for e in story["errors"])
 
                 ids=[s["story_id"] for s in stories]; sparts=[s["part"] for s in stories]
-                if len(ids)!=len(set(ids)) or len(sparts)!=len(set(sparts)):
-                    raise ParseFailure("duplicate_story_identity","Duplicate story_id or part after discovery.")
+                if len(sparts)!=len(set(sparts)):
+                    raise ParseFailure("duplicate_story_part","Duplicate physical story part after discovery.")
+                if len(ids)!=len(set(ids)):
+                    raise ParseFailure("duplicate_story_identity","Unexpected story_id collision after part-based identity derivation.")
 
-                overall_status="partial" if any(s["status"]!="ok" for s in stories[1:]) else "ok"
+                partial_stories=[s["story_id"] for s in stories[1:] if s["status"]!="ok"]
+                overall_status="partial" if partial_stories else "ok"
                 return {"parser_version":PARSER_VERSION,"environment":_environment(),"status":overall_status,
+                        "partial_stories":partial_stories,
                         "package":{"sha256":package_sha256,"parts":parts},"relationships":relationships,
                         "stories":stories,"errors":errors,"parse_warnings":_aggregate_warnings(warnings)}
         except zipfile.BadZipFile:
