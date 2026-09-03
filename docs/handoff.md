@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-**Fase:** corpus-base v1 congelado; arquitetura/contrato do parser fechados; parser v0.1 e v0.2 endurecidos; **parser v0.3 endurecido após revisão adversarial do código real. Suíte completa local: 55/55 testes aprovados.** Próximo passo: verificação dirigida do `main` atualizado pelo Kimi K3 antes do congelamento formal da v0.3.
+**Fase:** corpus-base v1 congelado; arquitetura/contrato do parser fechados; parser v0.1 e v0.2 endurecidos; **parser v0.3 recebeu o hardening integral pós-auditoria e a última aresta de `suspicious_target` foi corrigida. A suíte validada externamente tinha 55/55; o `main` atual contém 56 testes e aguarda uma última execução externa antes do congelamento formal.**
 
 Este é o HANDOFF corrente. O histórico fica no Git; não criar `handoff_vNN`.
 
@@ -97,11 +97,12 @@ Decisão estrutural:
 Estados de story:
 - `ok`;
 - `missing`;
-- `failed`.
+- `failed`;
+- `rejected`.
 
 Resultado global:
 - `ok` se body/pacote e stories secundárias processarem;
-- `partial` se alguma story secundária estiver `missing`/`failed`;
+- `partial` se alguma story secundária estiver `missing`, `failed` ou `rejected`;
 - `failed` para falha fatal do pacote/body ou política global de segurança ZIP.
 
 ### 0009 — Hardening v0.3 após auditoria
@@ -117,7 +118,7 @@ Principais ajustes:
 - detecção de `w:txbxContent`, `a:txBody` e `p:txBody`;
 - warnings para IDs de notes/comments duplicados ou ausentes;
 - story schema uniformizado;
-- `suspicious_target` para target que escape da raiz lógica do pacote;
+- target que escape da raiz lógica do pacote gera `suspicious_target` e story `rejected`;
 - naming de órfãs uniformizado;
 - `errors[]` global é autoridade; `story.errors[]` é espelho local de conveniência;
 - warning codes passam a ser contrato versionado;
@@ -146,6 +147,8 @@ Relationships de `word/document.xml` são a autoridade de vínculo, identificado
 `Target` relativo é resolvido contra a part de origem. Content type é validação cruzada.
 
 Stories conhecidas por content type e sem relationship são preservadas como órfãs com warning.
+
+Target de story que resolve para fora da raiz lógica do pacote não é tratado como mera ausência: a story fica `rejected`, com erro e warning `suspicious_target`, e nenhuma leitura externa é tentada.
 
 ### Footnotes / endnotes / comments
 
@@ -187,7 +190,7 @@ O patcher nunca reconstrói DOCX a partir de canonical XML.
 
 ### Parse parcial e Safety Gate futuro
 
-Story `missing` ou `failed` é região absolutamente não editável.
+Story `missing`, `failed` ou `rejected` é região absolutamente não editável.
 
 Documento `partial` pode futuramente permitir patches somente em stories `ok`, desde que o Safety Gate valide identidade/proveniência e ausência de dependência com story indisponível.
 
@@ -195,22 +198,20 @@ Documento `partial` pode futuramente permitir patches somente em stories `ok`, d
 
 ## Testes atuais
 
-Suíte completa local após hardening:
+A última suíte completa **executada externamente** antes da aresta final passou em **55/55**.
 
-- v0.1: **11 testes**;
-- v0.2: **18 testes**;
-- v0.3: **26 testes**;
-- total: **55/55 aprovados**.
+O `main` atual acrescenta:
+- `tests/test_docx_parser_v03_edges.py`;
+- 1 teste dedicado para target suspeito tratado como `rejected`.
 
-Novos casos pós-auditoria incluem:
-- duas parts do mesmo story type sem falha global;
-- duplicate/missing note IDs;
-- duplicate/missing comment IDs;
-- DrawingML/PML `txBody`;
-- `partial_stories`;
-- schema consistente de stories;
-- cross-`PYTHONHASHSEED` sem path absoluto local;
-- compatibilidade dos testes v0.2 com parser v0.3.
+Total atual esperado: **56 testes**.
+
+O novo caso exige confirmar:
+- `status = partial` no documento;
+- story `status = rejected`;
+- erro `suspicious_target` no topo e na story;
+- `partial_stories` contendo a story rejeitada;
+- body permanecendo `ok`.
 
 ## Auditorias
 
@@ -226,7 +227,8 @@ Novos casos pós-auditoria incluem:
 10. recorte v0.2: Kimi K3;
 11. código v0.2: Kimi K3, APROVAR COM CORREÇÕES;
 12. recorte v0.3: Kimi K3, APROVAR COM AJUSTES;
-13. código v0.3: Kimi K3, **NÃO CONGELAR antes das correções**; um bloqueante + problemas importantes encontrados; patch integral incorporado.
+13. código v0.3: Kimi K3, NÃO CONGELAR antes das correções;
+14. verificação externa pós-hardening: **55/55, CONGELAR v0.3**, com um único menor não bloqueante (`suspicious_target` aparecendo como `missing`); esse menor foi corrigido depois da verificação e agora requer apenas reexecução da suíte de 56 testes.
 
 ## Regra de revisão
 
@@ -241,8 +243,8 @@ Implementação relevante também passa por revisão técnica antes da próxima 
 
 ## Próximo passo
 
-Fazer **verificação dirigida pós-correção da v0.3 no `main`** pelo Kimi K3, incluindo execução da suíte completa fora do ambiente local.
+Executar a suíte completa atualizada (**56 testes**) em ambiente externo e confirmar o caso `suspicious_target -> rejected`.
 
-Se verde, congelar formalmente a v0.3 e abrir o escopo da **v0.4 = decomposição física segura de tabelas**.
+Se verde, **congelar formalmente a v0.3** e abrir o escopo da **v0.4 = decomposição física segura de tabelas**.
 
-Não iniciar v0.4 antes dessa verificação dirigida.
+Não iniciar v0.4 antes dessa última verificação.
