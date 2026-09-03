@@ -2,9 +2,19 @@
 
 ## Estado atual
 
-**Fase:** corpus-base v1 congelado; arquitetura/contrato do parser fechados; parser v0.2 endurecido; **parser v0.3 implementado com stories secundárias e parse parcial por story, 20/20 testes específicos aprovados localmente**. Próximo passo: revisão adversarial do código real da v0.3 pelo Kimi K3.
+**Fase:** corpus-base v1 congelado; arquitetura/contrato do parser fechados; parser v0.1 e v0.2 endurecidos; **parser v0.3 endurecido após revisão adversarial do código real. Suíte completa local: 55/55 testes aprovados.** Próximo passo: verificação dirigida do `main` atualizado pelo Kimi K3 antes do congelamento formal da v0.3.
 
 Este é o HANDOFF corrente. O histórico fica no Git; não criar `handoff_vNN`.
+
+## Regra operacional adicional
+
+**Tudo o que puder ser corrigido com segurança dentro do escopo atual deve ser corrigido antes de avançar.**
+
+Só postergar quando houver:
+- expansão explícita de escopo;
+- dependência ainda não resolvida;
+- impossibilidade técnica demonstrada;
+- nova decisão arquitetural que exija auditoria própria.
 
 ## Objetivo do MVP
 
@@ -79,7 +89,7 @@ Parser físico/forense, sem análise acadêmica ou transformação. Garantias G1
 ### 0008 — v0.3 stories secundárias
 `docs/decisions/0008-parser-v03-secondary-stories.md`
 
-Recorte aprovado pelo Kimi K3: footnotes, endnotes, headers, footers e comments na mesma versão.
+Recorte: footnotes, endnotes, headers, footers e comments.
 
 Decisão estrutural:
 **falha de story secundária não derruba o documento**.
@@ -92,7 +102,27 @@ Estados de story:
 Resultado global:
 - `ok` se body/pacote e stories secundárias processarem;
 - `partial` se alguma story secundária estiver `missing`/`failed`;
-- `failed` para falha fatal do pacote/body.
+- `failed` para falha fatal do pacote/body ou política global de segurança ZIP.
+
+### 0009 — Hardening v0.3 após auditoria
+`docs/decisions/0009-parser-v03-hardening.md`
+
+Revisão do código real pelo Kimi K3 encontrou um bloqueante de semântica de stories, gaps de observabilidade e testes não-portáveis. Todos os itens corrigíveis dentro da v0.3 foram incorporados.
+
+Principais ajustes:
+- `story_id = {story_type}:{part}` para toda story secundária;
+- `part` é âncora física obrigatória da identidade;
+- duas parts do mesmo story type são preservadas + `duplicate_story_type`, nunca falha global;
+- `partial_stories[]` no resultado;
+- detecção de `w:txbxContent`, `a:txBody` e `p:txBody`;
+- warnings para IDs de notes/comments duplicados ou ausentes;
+- story schema uniformizado;
+- `suspicious_target` para target que escape da raiz lógica do pacote;
+- naming de órfãs uniformizado;
+- `errors[]` global é autoridade; `story.errors[]` é espelho local de conveniência;
+- warning codes passam a ser contrato versionado;
+- limites ZIP permanecem globais/fatais por decisão de segurança;
+- testes v0.2 tornados portáveis entre máquinas e versões posteriores do parser.
 
 ## Parser atual
 
@@ -103,108 +133,84 @@ Arquivo:
 
 ### Body e blocos
 
-O dispatch foi extraído para `_parse_block_sequence`, reutilizado por body, header/footer e itens de notes/comments.
+O dispatch usa `_parse_block_sequence`, reutilizado por body, header/footer e itens de notes/comments.
 
-Parágrafos/runs preservam comportamento v0.2.
+Parágrafos/runs preservam o contrato v0.2.
 
-Tabelas permanecem integrais.
+Tabelas permanecem integrais e serão a candidata da v0.4.
 
 ### Descoberta de stories
 
-Relationships de `word/document.xml` são a autoridade de vínculo, identificados pelo Type URI.
+Relationships de `word/document.xml` são a autoridade de vínculo, identificados por Type URI.
 
-`Target` relativo é resolvido contra a part de origem.
+`Target` relativo é resolvido contra a part de origem. Content type é validação cruzada.
 
-Content type funciona como validação cruzada.
+Stories conhecidas por content type e sem relationship são preservadas como órfãs com warning.
 
-Warnings:
-- `story_type_mismatch`;
-- `orphan_story_part`;
-- `duplicate_story_relationship`;
-- `textbox_detected`.
-
-Missing related part:
-- story registrada `missing`;
-- `missing_related_part`;
-- documento `partial`.
-
-Part relacionada malformada:
-- apenas a story fica `failed`;
-- documento `partial`.
-
-### Footnotes / endnotes
+### Footnotes / endnotes / comments
 
 Stories coletivas com `items[]`.
 
-Cada item preserva:
-- `note_id` como string crua;
-- `note_type` cru;
-- structural_path;
-- canonical_xml;
-- inherited_xml_attrs;
-- physical_hash;
-- blocks.
+IDs são strings cruas. O parser não corrige nem interpreta valores reservados.
 
-IDs reservados/separadores não são filtrados.
+Duplicidade/ausência de ID é sinalizada, sem alterar o conteúdo.
 
-### Comments
-
-Story coletiva com `items[]`.
-
-Cada comment preserva `comment_id` cru e blocos.
-
-A ligação range↔comment fica para Analysis View futura.
+A ligação comment range↔comment continua futura, pois ambos os lados físicos permanecem recuperáveis.
 
 ### Headers / footers
 
-Uma story por part.
+Uma story por part. Não inferir seção, primeira página ou par/ímpar.
 
-Não inferir seção, primeira página ou par/ímpar.
+### Textboxes / text bodies
 
-### Textboxes
+Ainda não decompostos.
 
-Ainda não decompostas.
+Presença detectada em opacos por:
+- `w:txbxContent`;
+- DrawingML `a:txBody`;
+- PresentationML `p:txBody`.
 
-Se `w:txbxContent` aparecer dentro de opaco, gerar `textbox_detected`.
+Gera `textbox_detected`.
 
 ### Identidade
 
-`structural_path` permanece relativo à part.
+Identidade física global deve considerar:
+`part + story_id + structural_path + original_index + physical_hash`.
 
-Identidade global:
-`story_id + structural_path + original_index + physical_hash`.
+`structural_path` permanece relativo à part.
 
 `original_index` = posição 0-based entre todos os filhos do pai imediato.
 
-`physical_hash` atual = SHA-256 de JSON determinístico com `canonical_xml + inherited_xml_attrs`.
+`physical_hash` = SHA-256 de JSON determinístico com `canonical_xml + inherited_xml_attrs`.
 
 O patcher nunca reconstrói DOCX a partir de canonical XML.
 
-## Testes v0.3
+### Parse parcial e Safety Gate futuro
 
-**20/20 aprovados localmente.**
+Story `missing` ou `failed` é região absolutamente não editável.
 
-Cobrem:
-- ausência de stories;
-- footnotes/endnotes;
-- IDs especiais;
-- comments;
-- múltiplos headers/footers;
-- missing part;
-- XML malformado contido por story;
-- part órfã;
-- duplicate relationship;
-- mismatch content type;
-- target relativo;
-- textbox detectado;
-- warnings por story;
-- unicidade de story/part;
-- todas as cinco stories juntas;
-- filho root não-item preservado;
-- determinismo mesmo input;
-- determinismo cross-PYTHONHASHSEED;
-- smoke regression do body v0.2;
-- parser_version 0.3.0.
+Documento `partial` pode futuramente permitir patches somente em stories `ok`, desde que o Safety Gate valide identidade/proveniência e ausência de dependência com story indisponível.
+
+`errors[]` no topo é autoritativo. `story.errors[]` é cópia local imutável de conveniência.
+
+## Testes atuais
+
+Suíte completa local após hardening:
+
+- v0.1: **11 testes**;
+- v0.2: **18 testes**;
+- v0.3: **26 testes**;
+- total: **55/55 aprovados**.
+
+Novos casos pós-auditoria incluem:
+- duas parts do mesmo story type sem falha global;
+- duplicate/missing note IDs;
+- duplicate/missing comment IDs;
+- DrawingML/PML `txBody`;
+- `partial_stories`;
+- schema consistente de stories;
+- cross-`PYTHONHASHSEED` sem path absoluto local;
+- compatibilidade dos testes v0.2 com parser v0.3.
 
 ## Auditorias
 
@@ -219,7 +225,8 @@ Cobrem:
 9. código v0.1: Kimi K3;
 10. recorte v0.2: Kimi K3;
 11. código v0.2: Kimi K3, APROVAR COM CORREÇÕES;
-12. recorte v0.3: Kimi K3, **APROVAR COM AJUSTES**; ajustes incorporados na implementação.
+12. recorte v0.3: Kimi K3, APROVAR COM AJUSTES;
+13. código v0.3: Kimi K3, **NÃO CONGELAR antes das correções**; um bloqueante + problemas importantes encontrados; patch integral incorporado.
 
 ## Regra de revisão
 
@@ -234,6 +241,8 @@ Implementação relevante também passa por revisão técnica antes da próxima 
 
 ## Próximo passo
 
-Submeter a implementação real da v0.3 ao Kimi K3.
+Fazer **verificação dirigida pós-correção da v0.3 no `main`** pelo Kimi K3, incluindo execução da suíte completa fora do ambiente local.
 
-**Não iniciar decomposição de tabelas, textboxes ou Analysis View antes dessa revisão.**
+Se verde, congelar formalmente a v0.3 e abrir o escopo da **v0.4 = decomposição física segura de tabelas**.
+
+Não iniciar v0.4 antes dessa verificação dirigida.
