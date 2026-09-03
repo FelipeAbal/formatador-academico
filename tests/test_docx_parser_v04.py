@@ -426,4 +426,5 @@ class V04Tables(unittest.TestCase):
         types_by_path={c["structural_path"]:c["source_type"] for c in cont["children"]}
         self.assertEqual([types_by_path[ref] for ref in cont["block_refs"]],["paragraph","table"])
 
-if __name__=="__main__": unittest.main()
+if __name__=="__main__":
+    unittest.main()
