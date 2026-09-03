@@ -22,7 +22,7 @@ Felipe estabeleceu também a regra operacional de que tudo o que puder ser corri
 
 3. **Parse parcial preservado**
    - Defeito de story secundária continua limitado à story.
-   - `status = partial` permanece válido quando alguma story está `missing` ou `failed`.
+   - `status = partial` permanece válido quando alguma story está `missing`, `failed` ou `rejected`.
    - `partial_stories[]` lista diretamente os `story_id` não-ok.
 
 4. **Testes legados portáveis**
@@ -48,11 +48,13 @@ Felipe estabeleceu também a regra operacional de que tudo o que puder ser corri
 
 8. **Schema de stories uniformizado**
    - Stories expõem consistentemente `blocks`, `items` e `opaque_items`, usando `None` quando o campo não se aplica.
-   - Isso vale também para stories `failed`/`missing`.
+   - Isso vale também para stories `failed`, `missing` e `rejected`.
 
 9. **Targets suspeitos**
-   - Target de story que, após resolução, escapa da raiz lógica do pacote gera `suspicious_target`.
-   - Se a part não existe, o comportamento continua sendo `missing_related_part` e parse parcial.
+   - Target de story que, após resolução, escapa da raiz lógica do pacote gera warning `suspicious_target`.
+   - A story é registrada como `status = rejected`, com erro `suspicious_target`, em vez de ser confundida com uma part meramente ausente.
+   - O documento fica `partial`, o body permanece utilizável e nenhuma leitura fora do pacote é tentada.
+   - Part genuinamente ausente continua `status = missing` + `missing_related_part`.
 
 10. **Naming de stories órfãs uniformizado**
     - Stories órfãs usam o mesmo esquema `{story_type}:{part}` das stories relacionadas.
@@ -68,26 +70,29 @@ Felipe estabeleceu também a regra operacional de que tudo o que puder ser corri
 
 ## Safety Gate e patcher
 
-- Story `failed` ou `missing` é região absolutamente não editável.
+- Story `failed`, `missing` ou `rejected` é região absolutamente não editável.
 - Um documento `partial` pode futuramente permitir operações apenas em stories `ok`, desde que o Safety Gate valide também `part + structural_path + physical_hash` e não exista dependência estrutural com a story indisponível.
 - O patcher deve endereçar fisicamente `part + structural_path`; `story_id` é identificador lógico estável, não substituto da part.
 
 ## Testes
 
-Após o hardening:
+Após o hardening inicial:
 
 - suíte específica da v0.3: **26 testes**;
 - suíte v0.2: **18 testes**;
 - suíte v0.1: **11 testes**;
-- suíte completa local: **55/55 aprovados**.
+- suíte completa validada externamente: **55/55 aprovados**.
 
-A suíte cobre agora, entre outros:
+Após a verificação final do Kimi K3, a única aresta restante (`suspicious_target` aparecendo como `missing`) foi corrigida e recebeu teste dedicado em `tests/test_docx_parser_v03_edges.py`. A suíte passa, portanto, a conter **56 testes** e deve ser reexecutada antes do congelamento formal final.
+
+A cobertura inclui, entre outros:
 - duas parts do mesmo story type sem falha global;
 - ids de note/comment duplicados e ausentes;
 - `a:txBody`/`p:txBody`;
 - `partial_stories`;
 - schema consistente de story;
-- determinismo cross-processo sem path absoluto de máquina.
+- determinismo cross-processo sem path absoluto de máquina;
+- target que escapa da raiz do pacote tratado como story `rejected`.
 
 ## Regra operacional do projeto
 
@@ -102,6 +107,6 @@ Só se posterga algo por expansão explícita de escopo, dependência ainda não
 
 ## Estado
 
-A implementação corrigida é candidata a congelamento da v0.3. Como a revisão original revelou falhas que só apareceram em outro ambiente, o fechamento final exige uma verificação dirigida do Kimi K3 sobre o `main` atualizado e a suíte completa.
+A v0.3 recebeu também o último ajuste menor apontado na verificação externa. Falta somente executar a suíte completa de **56 testes** no `main` atualizado e confirmar especificamente o novo estado `rejected` para `suspicious_target`.
 
-Após essa verificação, a próxima etapa proposta é v0.4: decomposição física segura de tabelas.
+Se verde, a v0.3 deve ser congelada formalmente e a próxima etapa proposta é v0.4: decomposição física segura de tabelas.
