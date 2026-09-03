@@ -210,14 +210,15 @@ class V04Tables(unittest.TestCase):
         r=parser.parse_bytes(package(doc([t])))
         self.assertEqual(r["status"],"ok")
         self.assertIn("max_depth_exceeded",self.warnings(r))
-        node=r["stories"][0]["blocks"][0]
-        limited=0
-        while node.get("children"):
-            if node.get("depth_limited"): limited+=1
-            node=node["children"][0]
-            if node["source_type"]=="table_cell": node=node
-            if node.get("children") and node["children"][0]["source_type"]=="table_cell": node=node["children"][0]
-        self.assertGreaterEqual(limited,0)  # degradação ocorreu em algum nível
+        # Busca real em toda a árvore: ao menos um registro degradado localmente.
+        def walk(rec):
+            yield rec
+            for slot in ("properties_raw","grid_raw"):
+                if rec.get(slot): yield from walk(rec[slot])
+            for ch in rec.get("children",[]): yield from walk(ch)
+        degraded=[n for n in walk(r["stories"][0]["blocks"][0]) if n.get("depth_limited") is True]
+        self.assertGreaterEqual(len(degraded),1)
+        self.assertEqual(degraded[0]["source_type"],"table")
     def test_21_no_recursion_error_on_pathological_depth(self):
         # 75 níveis de tabela: profundidade XML ~225 (abaixo do teto do libxml2 ~256),
         # mas acima de max_structural_depth (64) — exercita a degradação do parser, não a do libxml2.
@@ -266,9 +267,7 @@ class V04Tables(unittest.TestCase):
         self.assertEqual(b["source_type"],"block_container")
         self.assertEqual(b["children"][0]["source_type"],"paragraph")
     # 26/27. SDT/tracked change envolvendo row permanecem opacos
-    def test_26_sdt_wrapping_row_stays_opaque(self):
-        sdt=etree.Element(qn(W,"sdt")); content=etree.SubElement(sdt,qn(W,"sdtContent")); content.append(row())
-        r,b=self.parse_body_table(table(rows=None))
+    # (test_26 sem asserções removido na revisão do PR #1: duplicado estrito de test_26b)
     def test_26b_sdt_row_opaque(self):
         t=table(rows=[])
         sdt=etree.Element(qn(W,"sdt")); content=etree.SubElement(sdt,qn(W,"sdtContent")); content.append(row())

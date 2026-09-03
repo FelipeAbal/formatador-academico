@@ -100,7 +100,13 @@ class V03(unittest.TestCase):
     def test_textbox_detected_inside_opaque_drawing(self):
         drawing=etree.Element(qn(W,"drawing")); tx=etree.SubElement(drawing,qn(W,"txbxContent")); tx.append(p("inside")); head=etree.fromstring(hf("header",[p("x")])); head[0][0].append(drawing); part="word/header1.xml"; r=self.parser.parse_bytes(package({part:etree.tostring(head)},[("a","header","header1.xml")],{part:CTS["header"]})); ws=[w for w in r["parse_warnings"] if w["code"]=="textbox_detected"]; self.assertTrue(ws); self.assertEqual(ws[0]["story_id"],"header:word/header1.xml")
     def test_warnings_are_story_scoped(self):
-        part="word/header1.xml"; root=etree.fromstring(hf("header",[p("x")])); root.append(etree.Element(qn(W,"bookmarkStart"),{qn(W,"id"):"1",qn(W,"name"):"x"}))  # 0011: w:sdt virou block_container decomposto; bookmarkStart permanece opaco; r=self.parser.parse_bytes(package({part:etree.tostring(root)},[("a","header","header1.xml")],{part:CTS["header"]})); w=[x for x in r["parse_warnings"] if x["code"]=="unsupported_story_child"][0]; self.assertEqual(w["story_id"],"header:word/header1.xml")
+        # 0011: w:sdt virou block_container decomposto; bookmarkStart permanece opaco.
+        part="word/header1.xml"
+        root=etree.fromstring(hf("header",[p("x")]))
+        root.append(etree.Element(qn(W,"bookmarkStart"),{qn(W,"id"):"1",qn(W,"name"):"x"}))
+        r=self.parser.parse_bytes(package({part:etree.tostring(root)},[("a","header","header1.xml")],{part:CTS["header"]}))
+        w=[x for x in r["parse_warnings"] if x["code"]=="unsupported_story_child"][0]
+        self.assertEqual(w["story_id"],"header:word/header1.xml")
     def test_unique_story_ids_and_parts(self):
         part="word/comments.xml"; r=self.parser.parse_bytes(package({part:comments([("1",[p("x")])])},[("c","comments","comments.xml")],{part:CTS["comments"]})); self.assertEqual(len({s["story_id"] for s in r["stories"]}),len(r["stories"])); self.assertEqual(len({s["part"] for s in r["stories"]}),len(r["stories"]))
     def test_determinism_same_input(self):
