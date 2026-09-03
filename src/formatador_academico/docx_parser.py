@@ -525,12 +525,19 @@ class DocxParser:
                               f"Multiple parts are related as story type {stype}: {previous_part}, {part}",story_id=sid)
                     else:
                         seen_story_types[stype] = part
-                    if part and (part == ".." or part.startswith("../")):
+                    suspicious_target = bool(part and (part == ".." or part.startswith("../")))
+                    if suspicious_target:
                         _warn(warnings,"suspicious_target",f"Resolved story target escapes package root: {part}",story_id=sid)
                     if part in seen_parts:
                         _warn(warnings,"duplicate_story_relationship",f"Multiple story relationships target the same part: {part}",story_id=sid)
                         continue
                     seen_parts.add(part)
+                    if suspicious_target:
+                        message=f"Relationship {rel['id']} resolves outside package root: {part}."
+                        story=self._story_error(sid,stype,part,rel["id"],"suspicious_target",message,status="rejected")
+                        stories.append(story)
+                        errors.append({"code":"suspicious_target","message":message,"story_id":sid})
+                        continue
                     if part not in names:
                         story=self._story_error(sid,stype,part,rel["id"],"missing_related_part",
                                                 f"Relationship {rel['id']} points to missing part {part}.",status="missing")
