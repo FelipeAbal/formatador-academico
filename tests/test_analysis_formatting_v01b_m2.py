@@ -238,6 +238,48 @@ class BoldToggleTests(unittest.TestCase):
         fmt, *_ = _resolve(styles=s)
         self.assertEqual(fmt.bold.status, RES.ABSENT)
 
+    def test_32_evidence_chain_order_docdefaults_para_root_specific_char(self):
+        s = _styles('<w:docDefaults><w:rPrDefault><w:rPr><w:b/></w:rPr></w:rPrDefault></w:docDefaults>'
+                    '<w:style w:type="paragraph" w:styleId="PA"><w:rPr><w:b/></w:rPr></w:style>'
+                    '<w:style w:type="paragraph" w:styleId="PB"><w:basedOn w:val="PA"/><w:rPr><w:b/></w:rPr></w:style>'
+                    '<w:style w:type="character" w:styleId="CA"><w:rPr><w:b w:val="0"/></w:rPr></w:style>'
+                    '<w:style w:type="character" w:styleId="CB"><w:basedOn w:val="CA"/><w:rPr><w:b/></w:rPr></w:style>')
+        fmt, *_ = _resolve(run_rpr=_rstyle("CB"), ppr=_pstyle("PB"), styles=s)
+        order = [(l.level, l.detail.split(":")[0],
+                  l.evidence.style_id if l.evidence else None) for l in fmt.bold.evidence_chain]
+        self.assertEqual(order, [
+            ("doc_defaults", "toggle_on", None),
+            ("paragraph_style", "toggle_on", "PA"),
+            ("paragraph_style", "toggle_on", "PB"),
+            ("character_style", "toggle_noop_false", "CA"),
+            ("character_style", "toggle_on", "CB"),
+        ])
+        self.assertIsNone(fmt.bold.winning_evidence)
+        # docDefaults on, PA on, PB on, CA false (no-op), CB on => False
+        self.assertFalse(fmt.bold.value)
+
+    def test_33_cycle_after_default_style_without_id(self):
+        s = _styles('<w:style w:type="paragraph" w:default="1"><w:basedOn w:val="A"/><w:rPr><w:b/></w:rPr></w:style>'
+                    '<w:style w:type="paragraph" w:styleId="A"><w:basedOn w:val="B"/></w:style>'
+                    '<w:style w:type="paragraph" w:styleId="B"><w:basedOn w:val="A"/></w:style>')
+        fmt, *_ = _resolve(styles=s)
+        # cycle parity is unknowable, so the toggle degrades to unresolved
+        # even though the default style itself is not a cycle member
+        self.assertEqual((fmt.bold.status, fmt.bold.reason), (RES.UNRESOLVED, "style_cycle"))
+        self.assertEqual([l.detail for l in fmt.bold.evidence_chain],
+                         ["not_declared", "style_cycle"])
+        self.assertIn("formatting_style_cycle", [w.code for w in fmt.analysis_warnings])
+        # but a non-toggle property declared by the non-cycle default style
+        # must still resolve from that style (cycle members excluded, chain kept)
+        from formatador_academico.analysis.formatting import resolve_paragraph_formatting
+        s2 = _styles('<w:style w:type="paragraph" w:default="1"><w:basedOn w:val="A"/><w:pPr><w:jc w:val="center"/></w:pPr></w:style>'
+                     '<w:style w:type="paragraph" w:styleId="A"><w:basedOn w:val="B"/></w:style>'
+                     '<w:style w:type="paragraph" w:styleId="B"><w:basedOn w:val="A"/></w:style>')
+        _, ir, _, catalog = _resolve(styles=s2)
+        p = ir["stories"][0]["blocks"][0]
+        pfmt = resolve_paragraph_formatting(p, catalog, "word/document.xml")
+        self.assertEqual((pfmt.alignment.status, pfmt.alignment.value), (RES.RESOLVED, "center"))
+
 
 class ItalicToggleTests(unittest.TestCase):
     def test_01_absent(self):
