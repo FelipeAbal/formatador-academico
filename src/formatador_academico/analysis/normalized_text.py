@@ -28,12 +28,22 @@ _MAPPING: dict[str, tuple[SegmentKind, TextRole, bool, str | None]] = {
 }
 
 
-def _break_type(canonical_xml: str) -> str:
+_OPAQUE_SOURCE_TYPES = {
+    "opaque_fragment",
+    "non_element_fragment",
+    "opaque_container_child",
+    "opaque_paragraph_child",
+    "non_element_paragraph_child",
+}
+
+
+def _break_type(canonical_xml: str) -> str | None:
+    """Return the raw w:type of a break, "" when absent, None when unreadable."""
     try:
         node = etree.fromstring(canonical_xml.encode("utf-8"), parser=etree.XMLParser(resolve_entities=False, no_network=True, recover=False))
     except (etree.XMLSyntaxError, ValueError):
-        return "line"
-    return node.get(f"{{{W_NS}}}type") or "line"
+        return None
+    return node.get(f"{{{W_NS}}}type") or ""
 
 
 def _anchor(fragment: dict[str, Any], story_id: str, part: str, fragment_type: str, raw_text: str | None) -> SourceAnchor:
@@ -72,12 +82,22 @@ def _segment(fragment: dict[str, Any], story_id: str, part: str, cursor: int, wa
         projected_text = raw_text
     elif projection == "__break__":
         btype = _break_type(fragment.get("canonical_xml", ""))
-        if btype == "page":
+        if btype in {"", "textWrapping"}:
+            kind, role, contributes, projected_text = SegmentKind.LINE_BREAK, TextRole.CONTENT, True, "\n"
+        elif btype == "page":
             kind, role, contributes, projected_text = SegmentKind.PAGE_BREAK, TextRole.STRUCTURAL, False, None
         elif btype == "column":
             kind, role, contributes, projected_text = SegmentKind.COLUMN_BREAK, TextRole.STRUCTURAL, False, None
         else:
-            kind, role, contributes, projected_text = SegmentKind.LINE_BREAK, TextRole.CONTENT, True, "\n"
+            # Conservative policy: unknown/unreadable break type never becomes
+            # a silent LINE_BREAK (no false precision). Zero-width opaque + warning.
+            detail = "unreadable canonical_xml" if btype is None else f"unknown w:type {btype!r}"
+            warnings.append(AnalysisWarning(
+                code="normalized_unknown_break_type",
+                message=f"Break fragment not projected: {detail}.",
+                structural_path=fragment["structural_path"],
+            ))
+            kind, role, contributes, projected_text = SegmentKind.OPAQUE, TextRole.OPAQUE, False, None
     else:
         projected_text = projection
 
@@ -109,13 +129,25 @@ def _walk(node: dict[str, Any], story_id: str, part: str, segments: list[Normali
         seg = _segment(node, story_id, part, cursor, warnings)
         segments.append(seg)
         return seg.logical_end
-    if source_type in {"opaque_fragment", "non_element_fragment"}:
+    if source_type in _OPAQUE_SOURCE_TYPES:
         seg = NormalizedSegment(
             SegmentKind.OPAQUE, TextRole.OPAQUE, None, None, cursor, cursor, False,
             _anchor(node, story_id, part, node.get("fragment_type") or source_type, None), None,
         )
         segments.append(seg)
         return cursor
+    # Unknown node in the paragraph tree: never drop silently.
+    if node.get("structural_path") and node.get("physical_hash"):
+        warnings.append(AnalysisWarning(
+            code="normalized_unexpected_fragment",
+            message=f"PhysicalIR node with source_type {source_type!r} not recognized by v0.1a traversal.",
+            structural_path=node["structural_path"],
+        ))
+        seg = NormalizedSegment(
+            SegmentKind.OPAQUE, TextRole.OPAQUE, None, None, cursor, cursor, False,
+            _anchor(node, story_id, part, source_type or "unknown", None), None,
+        )
+        segments.append(seg)
     return cursor
 
 
