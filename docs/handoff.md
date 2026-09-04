@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-**Fase:** corpus-base v1 congelado; parser físico v0.4 formalmente congelado; **Analysis View v0.1a — Normalized Text View — implementada, auditada, endurecida, mergeada e formalmente congelada**; **contrato da Analysis View v0.1b — Formatting Resolution View — auditado, corrigido e aprovado na decisão 0015.**
+**Fase:** corpus-base v1 congelado; parser físico v0.4 formalmente congelado; **Analysis View v0.1a — Normalized Text View — implementada, auditada, endurecida, mergeada e formalmente congelada**; **contrato da Analysis View v0.1b — Formatting Resolution View — aprovado na decisão 0015 e corrigido normativamente pela decisão 0016.**
 
 Validação corrente congelada:
 - parser v0.4: **102/102** regressões preservadas;
@@ -11,7 +11,11 @@ Validação corrente congelada:
 - errors: 0;
 - skips: 0.
 
-Próximo passo: implementar **somente o Marco 1 da Analysis View v0.1b**, conforme decisão 0015. NÃO iniciar `w:b`/`w:i` (Marco 2) antes da revisão adversarial do Marco 1.
+Implementação corrente:
+- PR #3 — `analysis-v01b-formatting-m1` — Marco 1 da v0.1b;
+- head auditado antes da errata: `550db1a6335e32da29af04252439128536af9a71`;
+- suíte reportada antes da errata: **213/213**;
+- **NÃO mergear ainda**: corrigir o PR #3 conforme decisão 0016 e reexecutar auditoria adversarial.
 
 Este é o HANDOFF corrente. O histórico fica no Git; não criar `handoff_vNN`.
 
@@ -145,119 +149,108 @@ Suíte final:
 
 Contrato único, implementação em dois marcos internos.
 
-Decisões centrais:
-- `styles.xml` permanece fora da PhysicalIR;
-- `StyleCatalog` derivado dos bytes imutáveis do OriginalPackage e verificado contra `part_name + sha256` da PhysicalIR;
-- `RawPropertyBag` é o único extrator local de XML de propriedades;
-- `ResolvedValue` usa statuses fechados: `resolved`, `absent`, `unresolved`, `invalid`, `ambiguous`;
-- `invalid` é terminal por propriedade/slot;
-- `ambiguous` apenas para conflitos documentais sem precedência normativa segura;
-- evidence/provenance completa é obrigatória;
+Decisões centrais mantidas:
+- `styles.xml` fora da PhysicalIR;
+- `StyleCatalog` derivado do OriginalPackage e verificado contra `part_name + sha256` da PhysicalIR;
+- `RawPropertyBag` como único extrator local de XML de propriedades;
+- statuses fechados `resolved`, `absent`, `unresolved`, `invalid`, `ambiguous`;
+- `invalid` terminal por propriedade/slot;
+- evidence/provenance completa obrigatória;
 - `docDefaults` participa da cascade;
-- missing/wrong-type style refs são ignoradas de modo determinístico + warning, não viram `unresolved` por si;
-- duplicate `style_id` relevante => `ambiguous`, nunca `first wins` inventado;
-- `w:link` é preservado, mas não participa da cascade;
-- theme refs são valores documentais `resolved`, sem resolver theme visual;
-- fonts resolvidas por slots, nunca como `effective_font` visual;
-- Decimal para half-points/twips, nunca float;
-- enums OOXML preservados sem redução agressiva;
+- missing/wrong-type refs => ignore determinístico + warning;
+- `w:link` preservado, fora da cascade;
+- theme refs são valores documentais `resolved`;
+- fonts por slots, sem `effective_font` visual;
+- Decimal para unidades exatas;
 - falha parcial por `(target, propriedade/slot)`;
-- v0.1b permanece ortogonal à v0.1a e independente de perfil acadêmico.
+- v0.1b ortogonal à v0.1a e independente de perfil acadêmico.
 
-### Toggle `w:b`/`w:i` — correção normativa incorporada
+### 0016 — Errata normativa da seleção de styles
+`docs/decisions/0016-analysis-v01b-style-selection-errata.md`
 
-Dois contextos obrigatoriamente distintos:
+Corrige a 0015 antes do merge do Marco 1:
+
+#### Multiple default styles
+- se múltiplos styles do mesmo tipo têm `w:default=true`, **a última ocorrência documental vence**;
+- manter `formatting_multiple_default_styles` como warning;
+- não usar `ambiguous`.
+
+#### Duplicate `styleId`
+- **a primeira ocorrência documental conserva o ID**;
+- referências `pStyle`/`rStyle`/`basedOn` ao ID original resolvem pela primeira definição;
+- ocorrências posteriores permanecem no catálogo por identidade física, mas não são endereçáveis por aquele ID;
+- manter `formatting_duplicate_style_id` como warning;
+- não usar `ambiguous`.
+
+#### `styleId` ausente
+- `StyleEntry.style_id: str | None`;
+- `None` significa ausência física;
+- não inventar ID;
+- múltiplos `None` não contam como duplicidade;
+- `w:styleId=""` explicitamente declarado continua distinto de ausência.
+
+#### Default sem `styleId`
+- continua elegível como default;
+- seleção de default é por identidade física/tipo/ordem, não por `find_styles(style_id)`.
+
+#### `w:type` ausente
+- default normativo = `paragraph`.
+
+#### `ambiguous` revisado
+No Marco 1 fica legitimamente usado apenas para duplicate property conflitante no mesmo container/slot sem precedência normativa segura.
+
+### Toggle `w:b`/`w:i`
+
+Marco 2 apenas.
 
 **Style hierarchy composition** (`docDefaults` + style chains):
-- true/1/omitido => toggle do estado acumulado;
-- false/0 => no-op sobre o estado acumulado.
+- true/1/omitido => toggle;
+- false/0 => no-op.
 
-**Direct formatting no run:**
+**Direct formatting:**
 - true/1/omitido => `true` absoluto;
 - false/0 => `false` absoluto;
-- direct é terminal e NÃO participa da paridade.
-
-Vetores críticos congelados no contrato:
-- parent on + child on => false;
-- parent on + child false => true;
-- paragraph style on + character style on => false;
-- style on + direct on => **true**;
-- style on + direct false => false.
-
-Toggle será implementado somente no **Marco 2**.
+- direct terminal.
 
 ### Numbering ↔ indent
 
-Numbering completo fica fora, mas indents não podem fingir precisão:
+Numbering completo fora do Marco 1, mas:
 - direct indent resolve;
 - paragraph-style indent com precedência resolve;
-- somente quando o valor efetivo do slot pode depender de numbering não implementado => `unresolved(reason=numbering_indent_unsupported)` + `formatting_numbering_present`.
-
-Não contaminar slots já determinados por fonte mais específica.
+- somente slot que possa depender de numbering não implementado => `unresolved(reason=numbering_indent_unsupported)` + `formatting_numbering_present`.
 
 ## Parser físico congelado
 
-Versão: **0.4.0**
+Versão: **0.4.0**.
 
-Arquivo:
-`src/formatador_academico/docx_parser.py`
-
-A PhysicalIR cobre package/ZIP/OPC, body, paragraphs, runs, run containers, fragments, block containers, tables/rows/cells, nested tables, propriedades cruas, tblGrid/gridCol, footnotes, endnotes, headers, footers, comments, stories ausentes/órfãs/falhadas/rejeitadas, parse parcial e textboxes detectados como opacos.
-
-Identidade física global:
-`part + story_id + structural_path + original_index + physical_hash`.
-
-`children[]` é árvore autoritativa. Refs auxiliares não substituem a árvore.
-
-Story `missing`, `failed` ou `rejected` é região não editável.
+`children[]` é árvore autoritativa. Stories missing/failed/rejected são não editáveis.
 
 ## Analysis View v0.1a congelada
 
-Arquivos:
-- `src/formatador_academico/analysis/__init__.py`
-- `src/formatador_academico/analysis/model.py`
-- `src/formatador_academico/analysis/normalized_text.py`
-- `tests/test_analysis_normalized_text_v01a.py`
-- `tests/test_analysis_normalized_text_v01a_e2e.py`
-
 Garantias:
-- provenance por fragmento físico;
+- provenance física;
 - nenhum opaco relevante desaparece silenciosamente;
-- sem falsa precisão em break desconhecido;
-- offsets monotônicos e zero-width para não participantes;
-- `default_text` reconstruível dos segmentos;
+- sem falsa precisão em breaks;
+- offsets determinísticos;
 - serialização determinística;
-- sem objetos lxml vivos na saída;
+- sem lxml vivo;
 - PhysicalIR não modificada.
-
-Regra de reabertura da v0.1a: somente falha de teste, impossibilidade técnica demonstrada, contradição nova, mudança explícita de contrato/escopo ou novo risco de segurança.
 
 ## Analysis View v0.1b — Marco 1
 
-Implementar somente:
+Escopo:
 1. modelos públicos de resolução/evidence/specs;
 2. `RawPropertyBag`;
 3. `StyleCatalog` + `docDefaults`;
 4. cascade de parágrafo;
-5. propriedades de run NÃO-toggle:
-   - `w:sz`;
-   - `w:rFonts` por slots;
-   - `w:lang` por slots;
-   - `w:u`;
-   - `w:vertAlign`;
-6. paragraph formatting inicial:
-   - pStyle id;
-   - `w:jc`;
-   - `w:spacing` spec;
-   - `w:ind` por slots, com cláusula numbering;
+5. run NÃO-toggle: `w:sz`, `w:rFonts`, `w:lang`, `w:u`, `w:vertAlign`;
+6. paragraph: pStyle, `w:jc`, `w:spacing`, `w:ind`;
 7. serialização determinística;
 8. testes unitários + E2E;
 9. regressão integral dos **154 testes congelados**.
 
 ### Fora do Marco 1
-- `w:b`;
-- `w:i`;
-- demais toggles;
+- `w:b`, `w:i`, demais toggles;
 - theme resolution real;
 - numbering completo;
 - table styles;
@@ -269,20 +262,13 @@ Implementar somente:
 
 ## Próximo passo
 
-Usar o chat atual do Kimi K3 para **implementar somente o Marco 1 da v0.1b** em branch própria.
-
-Antes de implementar, o Kimi deve ler:
-- este HANDOFF;
-- decisão 0015;
-- decisões 0012–0014;
-- parser v0.4;
-- Analysis View v0.1a;
-- suíte atual.
+**Corrigir o PR #3 na mesma branch `analysis-v01b-formatting-m1` conforme decisão 0016.**
 
 Ao terminar:
-1. publicar branch/PR real;
-2. executar suíte completa;
-3. preservar 154/154 regressões existentes;
-4. trazer PR e resultados para auditoria adversarial;
-5. corrigir tudo no escopo;
-6. só então congelar o Marco 1 e iniciar o Marco 2.
+1. publicar novo head no mesmo PR;
+2. ajustar testes de multiple defaults e duplicate style id;
+3. adicionar testes para styleId ausente, default sem ID, type ausente e caso combinado;
+4. executar suíte completa real;
+5. preservar os 154 testes congelados;
+6. trazer novo head e resultados para auditoria adversarial;
+7. não mergear nem iniciar Marco 2 antes da revisão final.
