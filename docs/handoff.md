@@ -2,9 +2,16 @@
 
 ## Estado atual
 
-**Fase:** corpus-base v1 congelado; parser físico v0.4 formalmente congelado após auditoria adversarial e hardening (**102/102 testes, 0 failures, 0 errors, 0 skips**); **contrato da Analysis View v0.1a — Normalized Text View — auditado pelo Kimi K3, refinado e aprovado para implementação.**
+**Fase:** corpus-base v1 congelado; parser físico v0.4 formalmente congelado; **Analysis View v0.1a — Normalized Text View — implementada, auditada, endurecida, mergeada e formalmente congelada.**
 
-Próximo passo: implementar somente a **Analysis View v0.1a — Normalized Text View**, conforme decisão 0013. Não iniciar Formatting Resolution antes de congelar a v0.1a.
+Validação corrente:
+- parser v0.4: **102/102** regressões preservadas;
+- suíte total após v0.1a: **154/154**;
+- failures: 0;
+- errors: 0;
+- skips: 0.
+
+Próxima etapa: **Analysis View v0.1b — Formatting Resolution View**. Abrir novo ciclo técnico, com contrato e auditoria próprios antes de código.
 
 Este é o HANDOFF corrente. O histórico fica no Git; não criar `handoff_vNN`.
 
@@ -12,11 +19,7 @@ Este é o HANDOFF corrente. O histórico fica no Git; não criar `handoff_vNN`.
 
 **Tudo o que puder ser corrigido com segurança dentro do escopo atual deve ser corrigido antes de avançar.**
 
-Só postergar quando houver:
-- expansão explícita de escopo;
-- dependência ainda não resolvida;
-- impossibilidade técnica demonstrada;
-- nova decisão arquitetural que exija auditoria própria.
+Só postergar quando houver expansão explícita de escopo, dependência ainda não resolvida, impossibilidade técnica demonstrada ou nova decisão arquitetural que exija auditoria própria.
 
 Para trabalho com Kimi:
 - mesmo projeto;
@@ -64,38 +67,17 @@ OriginalPackage imutável; IR derivada/serializável; saída nunca reconstruída
 `DocumentContext -> BlockWorkItem -> Field/Aspect Decisions -> OperationPlan -> SafetyGate -> TransformLog -> XML Patches`
 
 ### 0003 — Contrato do parser
-Parser físico/forense, sem análise acadêmica ou transformação. Garantias G1–G7: imutabilidade, nenhuma perda silenciosa, rastreabilidade, opacos protegidos, determinismo e convenções compartilhadas com o patcher.
+Parser físico/forense, sem análise acadêmica ou transformação. Garantias: imutabilidade, nenhuma perda silenciosa, rastreabilidade, opacos protegidos, determinismo e convenções compartilhadas com o patcher.
 
 ### 0004 — Estratégia DOCX
 **OOXML + lxml autoritativo.** `python-docx` apenas auxiliar.
 
-### 0005 — Hardening v0.1
-`docs/decisions/0005-parser-v01-hardening.md`
-
-### 0006 — v0.2 parágrafos/runs
-`docs/decisions/0006-parser-v02-paragraph-runs.md`
-
-### 0007 — Hardening v0.2
-`docs/decisions/0007-parser-v02-hardening.md`
-
-- `children[]` autoritativo;
-- refs auxiliares são paths;
-- cobertura 1:1 por paths;
-- mixed content sinalizado;
-- determinismo cross-process.
-
-### 0008 — v0.3 stories secundárias
-`docs/decisions/0008-parser-v03-secondary-stories.md`
-
-Footnotes, endnotes, headers, footers e comments; parse parcial; falha de story secundária não derruba body/pacote.
-
-### 0009 — Hardening v0.3
-`docs/decisions/0009-parser-v03-hardening.md`
-
-### 0010 — Freeze v0.3
-`docs/decisions/0010-freeze-parser-v03.md`
-
-**56/56 testes externos**, sem regressões.
+### 0005–0010 — Parser v0.1 a v0.3
+- hardening do parser inicial;
+- decomposição de parágrafos/runs;
+- stories secundárias;
+- parse parcial;
+- freeze v0.3 em `docs/decisions/0010-freeze-parser-v03.md`.
 
 ### 0011 — Contrato v0.4: tabelas
 `docs/decisions/0011-parser-v04-table-contract.md`
@@ -106,63 +88,69 @@ Incluiu:
 - nested tables;
 - `max_structural_depth = 64`;
 - grid/merges crus, sem validação/interpretação;
-- IDs apenas em blocos raiz; blocos aninhados usam identidade física por path.
+- identidade física de blocos aninhados por path.
 
-### 0012 — Freeze v0.4
+### 0012 — Freeze parser v0.4
 `docs/decisions/0012-freeze-parser-v04.md`
 
-Implementação recuperada da sandbox do Kimi e publicada no PR #1. Auditoria adversarial encontrou dois menores, ambos corrigidos antes do merge:
-- `tcPr` duplicado uniformizado como `opaque_cell_child`;
-- `block_refs` limitado a `paragraph`, `table`, `block_container`.
-
-Revisão pré-merge encontrou e corrigiu três falhas de qualidade dos testes:
-- teste v0.3 parcialmente comentado;
-- teste de profundidade com asserção tautológica;
-- teste sem asserções e duplicado removido.
-
-Suíte final validada externamente:
+Suíte congelada:
 - **102 testes**;
 - **102 passes**;
-- **0 failures**;
-- **0 errors**;
-- **0 skips**.
+- 0 failures/errors/skips.
 
-PR #1 mergeado no `main`.
-Merge commit: `10b8ca39c4fa2cef7e2f0638a63cc8683926f691`.
+Parser versão: **0.4.0**.
 
-### 0013 — Analysis View v0.1a: Normalized Text View
+### 0013 — Contrato Analysis View v0.1a
 `docs/decisions/0013-analysis-v01a-normalized-text-contract.md`
 
-Auditoria arquitetural pelo Kimi K3 recomendou dividir a Analysis View:
-1. **v0.1a — Normalized Text View**;
-2. **v0.1b — Formatting Resolution View**.
+A Analysis View foi dividida em:
+1. v0.1a — Normalized Text View;
+2. v0.1b — Formatting Resolution View.
 
-A v0.1a foi refinada e aprovada para implementação.
+Contrato da v0.1a:
+- unidade = parágrafo;
+- `segments[]` autoritativo;
+- `default_text` derivado;
+- um segmento por fragmento físico;
+- offsets em code points da `str` Python;
+- não participantes zero-width;
+- `instrText`, `delText`, `sym` fora da projeção padrão;
+- `w:sym` cru, sem U+FFFD;
+- Analysis View imutável, determinística, serializável e sem mutar PhysicalIR.
 
-Decisões principais:
-- unidade inicial = parágrafo;
-- `segments[]` é autoritativo;
-- `default_text` é projeção derivada;
-- um segmento por fragmento físico, sem coalescência multi-source;
-- offsets lógicos e físicos textuais em code points da `str` Python, start inclusivo/end exclusivo;
-- não-participantes são zero-width;
-- `w:instrText`, `w:delText`, `w:sym` não entram em `default_text`;
-- `w:sym` permanece cru em metadata, sem U+FFFD ou falsa conversão Unicode;
-- desconhecido => `normalized_unexpected_fragment` + segmento opaco zero-width;
-- sem `span_id`, `analysis_id` ou protection context nesta versão;
-- Analysis View imutável, serializável, determinística, sem lxml vivo e sem mutar PhysicalIR.
+### 0014 — Freeze Analysis View v0.1a
+`docs/decisions/0014-freeze-analysis-v01a.md`
 
-Mapeamento da projeção padrão:
-- text -> literal;
-- tab -> `\t`;
-- line break -> `\n`;
-- page/column break -> zero-width estrutural;
-- carriage return -> `\r`;
-- no-break hyphen -> U+2011;
-- soft hyphen -> U+00AD;
-- field/deleted/symbol/opaque -> zero-width.
+PR #2:
+- branch: `analysis-v01a-normalized-text`;
+- base auditada: `8c4a1ab46d15f753e617aa34b9e72ef429f9e775`;
+- head final auditado: `0e1c31ab04735aea7e9f2c688560172203e5e94c`;
+- merge commit: `88359be93f68a2ee664d16144f87ee7a3fdc9425`.
 
-A Formatting Resolution terá contrato e auditoria próprios somente depois do freeze da v0.1a.
+Auditoria adversarial pelo Kimi K3 encontrou e corrigiu antes do freeze:
+- `opaque_paragraph_child`, `non_element_paragraph_child` e `opaque_container_child` desapareciam silenciosamente;
+- break desconhecido/ilegível podia virar `LINE_BREAK` por falsa precisão;
+- faltavam testes end-to-end com PhysicalIR real.
+
+Hardening final:
+- opacos estruturais => `OPAQUE` zero-width com provenance;
+- unknown node com provenance => `normalized_unexpected_fragment` + OPAQUE;
+- `w:br` sem type ou `textWrapping` => `\n`;
+- page/column => zero-width estrutural;
+- break desconhecido/ilegível => OPAQUE zero-width + `normalized_unknown_break_type`;
+- adicionados testes `DOCX sintético -> DocxParser -> PhysicalIR real -> normalize_paragraph`.
+
+Suíte final:
+- **154 testes**;
+- **154 passes**;
+- **0 failures**;
+- **0 errors**;
+- **0 skips**;
+- **102/102 testes congelados do parser preservados**.
+
+Determinismo cross-process/hashseed confirmado pelo auditor.
+
+Dívida aceita: `raw_text=""` em vez de `None` quando a chave textual falta em fragmento manualmente malformado; caso não produzido pelo parser real.
 
 ## Parser físico congelado
 
@@ -171,38 +159,16 @@ Versão: **0.4.0**
 Arquivo:
 `src/formatador_academico/docx_parser.py`
 
-A PhysicalIR cobre:
-- package/ZIP/OPC;
-- body;
-- paragraphs;
-- runs;
-- run containers;
-- fragments;
-- block containers;
-- tables/rows/cells;
-- nested tables;
-- propriedades cruas de table/row/cell;
-- tblGrid/gridCol crus;
-- footnotes;
-- endnotes;
-- headers;
-- footers;
-- comments;
-- stories ausentes, órfãs, falhadas e rejeitadas;
-- parse parcial;
-- textboxes detectados e preservados como opacos.
+A PhysicalIR cobre package/ZIP/OPC, body, paragraphs, runs, run containers, fragments, block containers, tables/rows/cells, nested tables, propriedades cruas, tblGrid/gridCol, footnotes, endnotes, headers, footers, comments, stories ausentes/órfãs/falhadas/rejeitadas, parse parcial e textboxes detectados como opacos.
 
 Identidade física global:
 `part + story_id + structural_path + original_index + physical_hash`.
 
-`children[]` é árvore autoritativa. Refs auxiliares contêm apenas `structural_path` e nunca substituem a árvore.
+`children[]` é árvore autoritativa. Refs auxiliares não substituem a árvore.
 
 Story `missing`, `failed` ou `rejected` é região não editável.
 
-Textboxes continuam fora da decomposição, detectados por `w:txbxContent`, `a:txBody` e `p:txBody`.
-
 ### Fora do parser
-
 - layout visual;
 - merge resolvido;
 - grid lógico;
@@ -212,41 +178,48 @@ Textboxes continuam fora da decomposição, detectados por `w:txbxContent`, `a:t
 - patching/escrita;
 - decomposição de textboxes.
 
-## Regra de reabertura do parser v0.4
+## Analysis View v0.1a congelada
 
-Somente por:
-- falha de teste;
-- impossibilidade técnica demonstrada;
-- contradição nova;
-- mudança explícita de contrato/escopo;
-- novo risco de segurança.
+Arquivos:
+- `src/formatador_academico/analysis/__init__.py`
+- `src/formatador_academico/analysis/model.py`
+- `src/formatador_academico/analysis/normalized_text.py`
+- `tests/test_analysis_normalized_text_v01a.py`
+- `tests/test_analysis_normalized_text_v01a_e2e.py`
 
-## Analysis View v0.1a — implementação
+Garantias:
+- provenance por fragmento físico;
+- nenhum opaco relevante desaparece silenciosamente;
+- sem falsa precisão em break desconhecido;
+- offsets monotônicos e zero-width para não participantes;
+- `default_text` reconstruível dos segmentos;
+- serialização determinística;
+- sem objetos lxml vivos na saída;
+- PhysicalIR não modificada.
 
-Implementar conforme decisão 0013.
+Regra de reabertura da v0.1a: somente falha de teste, impossibilidade técnica demonstrada, contradição nova, mudança explícita de contrato/escopo ou novo risco de segurança.
 
-Escopo mínimo:
-- pacote `src/formatador_academico/analysis/`;
-- tipos imutáveis para `SourceAnchor`, `NormalizedSegment`, `NormalizedParagraph`, `SegmentKind`, `TextRole`;
-- builder por parágrafo físico;
-- projeção `default_text` derivada;
-- mapping fechado dos fragment types da v0.4;
-- warning analítico separado;
-- determinismo e serialização;
-- regressão integral dos 102 testes do parser.
+## Próxima etapa — Analysis View v0.1b: Formatting Resolution View
 
-Testes novos devem cobrir pelo menos os 31 casos listados na decisão 0013.
+**Abrir novo chat no Kimi K3.**
 
-## Próximo passo
+Primeiro passo: contrato e auditoria arquitetural, sem código.
 
-**Implementar a v0.1a** no mesmo chat atual do Kimi K3.
+Questões centrais a fechar:
+- fronteira correta para `styles.xml`;
+- `StyleCatalog` derivado;
+- `docDefaults`;
+- paragraph/character styles e `basedOn`;
+- cycles e referências quebradas;
+- precedência/cascade OOXML real;
+- boolean/toggle properties;
+- font specs vs theme resolution;
+- tamanho em half-points -> pt com provenance;
+- propriedades mínimas de run/parágrafo;
+- estados `resolved/unresolved/ambiguous/absent`;
+- provenance da formatação efetiva;
+- falha parcial por propriedade;
+- warnings analíticos separados;
+- manter v0.1b independente de perfil acadêmico e sem autorização de mutação.
 
-Não abrir novo chat ainda: o contrato e a implementação pertencem ao mesmo ciclo técnico da Normalized Text View.
-
-Ao terminar:
-1. publicar branch/PR ou fornecer diff/arquivos completos;
-2. rodar suíte completa, incluindo os 102 testes congelados do parser;
-3. trazer resultado para revisão adversarial;
-4. corrigir tudo o que couber no escopo;
-5. congelar v0.1a;
-6. só então abrir novo ciclo para v0.1b — Formatting Resolution.
+Não implementar v0.1b antes de fechar o contrato e auditá-lo.
