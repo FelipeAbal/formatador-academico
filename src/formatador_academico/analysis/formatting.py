@@ -173,3 +173,288 @@ def _style_chain_levels(catalog: StyleCatalog, start: StyleEntry, expected_type:
             break
         current = parent
     return levels
+
+
+def _resolve_start_style(catalog: StyleCatalog, style_id: str | None, expected_type: str,
+                         level_name: str, bag_kind: str, warnings: list[AnalysisWarning],
+                         use_default: bool, anchor_path: str) -> list[_Level]:
+    if catalog.part_status == "unreadable":
+        return [_Level(level_name, "style", catalog.part_name, None, None, blocked=R_STYLES_UNAVAILABLE)]
+    start: StyleEntry | None = None
+    start_note: str | None = None
+    if style_id is not None:
+        candidates = find_styles(catalog, style_id)
+        if not candidates:
+            _warn(warnings, W_MISSING_STYLE, f"Referenced style {style_id!r} not found; reference ignored.", anchor_path)
+            return []
+        start = candidates[0]
+        if len(candidates) > 1:
+            start_note = "duplicate_style_id_first_definition"
+        if start.style_type != expected_type:
+            _warn(warnings, W_WRONG_STYLE_TYPE, f"Referenced style {style_id!r} has type {start.style_type!r}, expected {expected_type!r}; ignored.", anchor_path)
+            return []
+    elif use_default:
+        defaults = default_styles(catalog, expected_type)
+        if defaults:
+            start = defaults[-1]
+            if len(defaults) > 1:
+                start_note = "multiple_defaults_last_instance"
+    if start is None:
+        return []
+    return _style_chain_levels(catalog, start, expected_type, level_name, bag_kind, warnings, start_note=start_note)
+
+
+def _doc_defaults_level(catalog: StyleCatalog, bag_kind: str) -> _Level:
+    if catalog.part_status == "unreadable":
+        return _Level("doc_defaults", "doc_defaults", catalog.part_name, None, None, blocked=R_STYLES_UNAVAILABLE)
+    bag = getattr(catalog.doc_defaults, bag_kind) if catalog.doc_defaults is not None else None
+    return _Level("doc_defaults", "doc_defaults", catalog.part_name, None, bag)
+
+
+def _bag_of(record: dict[str, Any] | None) -> Any:
+    return None if record is None else bag_from_properties_raw(record.get("properties_raw"))
+
+
+def _style_ref_id(bag: Any, prop_name: str) -> str | None:
+    if bag is None:
+        return None
+    for e in bag.entries:
+        if e.property_name == prop_name:
+            return _attr(e, "w:val")
+    return None
+
+
+def _conv_font_size(prop) -> Length:
+    raw = _attr(prop, "w:val"); half = _int_lexical(raw)
+    if half < 0: raise _InvalidLexical()
+    return Length(value=Decimal(half) / 2, unit="pt", raw_value=raw, raw_unit="half_point")
+
+
+def _conv_twips(attr: str) -> Callable[[Any], Length]:
+    def convert(prop) -> Length:
+        raw = _attr(prop, attr); twips = _int_lexical(raw)
+        return Length(value=Decimal(twips) / 20, unit="pt", raw_value=raw, raw_unit="twip")
+    return convert
+
+
+def _conv_hundredths_of_line(attr: str) -> Callable[[Any], Decimal]:
+    def convert(prop) -> Decimal:
+        return Decimal(_int_lexical(_attr(prop, attr))) / 100
+    return convert
+
+
+def _conv_line_spacing(prop) -> LineSpacing:
+    raw_line = _attr(prop, "w:line"); raw_rule = _attr(prop, "w:lineRule"); rule = raw_rule or "auto"
+    if raw_line is None: return LineSpacing(rule=rule, value=None, unit=None, raw_line=None, raw_rule=raw_rule)
+    line = _int_lexical(raw_line)
+    if rule == "auto": return LineSpacing(rule=rule, value=Decimal(line) / 240, unit="multiple", raw_line=raw_line, raw_rule=raw_rule)
+    if rule in ("atLeast", "exact"): return LineSpacing(rule=rule, value=Decimal(line) / 20, unit="pt", raw_line=raw_line, raw_rule=raw_rule)
+    return LineSpacing(rule=rule, value=None, unit=None, raw_line=raw_line, raw_rule=raw_rule)
+
+
+def _conv_token(prop) -> str:
+    raw = _attr(prop, "w:val")
+    if raw is None: raise _InvalidLexical()
+    return raw
+
+
+def _conv_underline(prop) -> str:
+    return _attr(prop, "w:val") or "single"
+
+
+def _conv_slot_attr(attr: str) -> Callable[[Any], str]:
+    def convert(prop) -> str:
+        raw = _attr(prop, attr)
+        if raw is None: raise _InvalidLexical()
+        return raw
+    return convert
+
+
+def _conv_font_slot(attr: str, theme: bool) -> Callable[[Any], Any]:
+    def convert(prop) -> Any:
+        raw = _attr(prop, attr)
+        if raw is None: raise _InvalidLexical()
+        return ThemeRef(theme_slot=raw) if theme else raw
+    return convert
+
+
+def _declares_attr(attr: str) -> Callable[[Any], bool]:
+    return lambda prop: _attr(prop, attr) is not None
+
+
+def _always(prop) -> bool:
+    return True
+
+
+def _parse_onoff(prop) -> tuple[bool | None, str | None]:
+    present, raw = _attr_present(prop, "w:val")
+    if not present: return True, None
+    if raw is None: return None, None
+    token = raw.strip().lower()
+    if token in _TRUE_TOKENS: return True, raw
+    if token in _FALSE_TOKENS: return False, raw
+    return None, raw
+
+
+def _toggle_level_semantic(level: _Level, prop_name: str, warnings: list[AnalysisWarning]):
+    props = [] if level.bag is None else [e for e in level.bag.entries if e.property_name == prop_name]
+    if not props: return "absent", None, None, ()
+    parsed = [(prop, *_parse_onoff(prop)) for prop in props]
+    if any(semantic is None for _, semantic, _ in parsed):
+        prop, _, raw = next(item for item in parsed if item[1] is None)
+        ev = _evidence(level, prop, raw)
+        _warn(warnings, W_INVALID_VALUE, f"Invalid lexical value for {prop_name}: {raw!r}.", prop.structural_path)
+        return "invalid", None, ev, (LevelEvidence(level.name, True, "invalid", ev),)
+    semantics = {semantic for _, semantic, _ in parsed}
+    if len(semantics) > 1:
+        evidence = tuple(LevelEvidence(level.name, True, "duplicate_conflict", _evidence(level, prop, raw)) for prop, _, raw in parsed)
+        _warn(warnings, W_DUPLICATE_PROPERTY, f"Duplicate property {prop_name} with conflicting toggle semantics.", props[1].structural_path)
+        return "ambiguous", None, None, evidence
+    chosen, semantic, raw = parsed[0]
+    if len(parsed) > 1:
+        _warn(warnings, W_DUPLICATE_PROPERTY, f"Duplicate property {prop_name} with identical toggle semantics; applied once.", props[1].structural_path)
+    return "declared", bool(semantic), _evidence(level, chosen, raw), ()
+
+
+def _resolve_toggle(prop_name: str, direct_level: _Level, para_levels: list[_Level],
+                    char_levels: list[_Level], doc_defaults: _Level,
+                    warnings: list[AnalysisWarning]) -> ResolvedValue:
+    direct_status, direct_semantic, direct_ev, extra = _toggle_level_semantic(direct_level, prop_name, warnings)
+    if direct_status == "invalid": return ResolvedValue(ResolutionStatus.INVALID, None, None, extra, None)
+    if direct_status == "ambiguous": return ResolvedValue(ResolutionStatus.AMBIGUOUS, None, None, extra, None)
+    if direct_status == "declared":
+        detail = "direct_true" if direct_semantic else "direct_false"
+        return ResolvedValue(ResolutionStatus.RESOLVED, bool(direct_semantic), direct_ev,
+                             (LevelEvidence(direct_level.name, True, detail, direct_ev),), None)
+
+    hierarchy = [doc_defaults, *reversed(para_levels), *reversed(char_levels)]
+    chain: list[LevelEvidence] = []
+    state = False
+    declared_evidence: list[FormattingEvidence] = []
+    for level in hierarchy:
+        if level.blocked is not None:
+            chain.append(LevelEvidence(level.name, False, level.blocked, None))
+            return ResolvedValue(ResolutionStatus.UNRESOLVED, None, None, tuple(chain), level.blocked)
+        status, semantic, ev, extra = _toggle_level_semantic(level, prop_name, warnings)
+        if status == "absent":
+            chain.append(LevelEvidence(level.name, False, "not_declared", None)); continue
+        if status == "invalid":
+            chain.extend(extra); return ResolvedValue(ResolutionStatus.INVALID, None, None, tuple(chain), None)
+        if status == "ambiguous":
+            chain.extend(extra); return ResolvedValue(ResolutionStatus.AMBIGUOUS, None, None, tuple(chain), None)
+        declared_evidence.append(ev)
+        if semantic:
+            state = not state; detail = "toggle_on"
+        else:
+            detail = "toggle_noop_false"
+        if level.detail_override: detail = f"{detail}:{level.detail_override}"
+        chain.append(LevelEvidence(level.name, True, detail, ev))
+    if not declared_evidence: return ResolvedValue(ResolutionStatus.ABSENT, None, None, tuple(chain), None)
+    winner = declared_evidence[0] if len(declared_evidence) == 1 else None
+    return ResolvedValue(ResolutionStatus.RESOLVED, state, winner, tuple(chain), None)
+
+
+_INDENT_SLOTS = (("left","w:left","w:leftChars"),("right","w:right","w:rightChars"),("start","w:start","w:startChars"),("end","w:end","w:endChars"),("first_line","w:firstLine","w:firstLineChars"),("hanging","w:hanging","w:hangingChars"))
+
+
+def _has_property(bag: Any, prop_name: str) -> bool:
+    return bag is not None and any(e.property_name == prop_name for e in bag.entries)
+
+
+def _ind_declaring(bag: Any, attr: str, chars_attr: str) -> list:
+    if bag is None: return []
+    return [e for e in bag.entries if e.property_name == "w:ind" and (_attr(e, attr) is not None or _attr(e, chars_attr) is not None)]
+
+
+def _resolve_indent_slot(slot: str, attr: str, chars_attr: str, levels: tuple[_Level,...],
+                         numbering_relevant: bool, part: str, warnings: list[AnalysisWarning]) -> ResolvedValue:
+    chain: list[LevelEvidence] = []; doc_defaults = levels[-1]
+    for level in levels:
+        if level is doc_defaults and numbering_relevant:
+            _warn(warnings, W_NUMBERING_PRESENT, f"Indent slot {slot} may depend on numbering.xml (numPr present), which is out of scope for v0.1b Marco 1.", part)
+            return ResolvedValue(ResolutionStatus.UNRESOLVED,None,None,tuple(chain),R_NUMBERING_INDENT)
+        if level.blocked is not None:
+            chain.append(LevelEvidence(level.name,False,level.blocked,None)); return ResolvedValue(ResolutionStatus.UNRESOLVED,None,None,tuple(chain),level.blocked)
+        inds = _ind_declaring(level.bag,attr,chars_attr)
+        if not inds: chain.append(LevelEvidence(level.name,False,"not_declared",None)); continue
+        chosen=inds[0]
+        if len(inds)>1:
+            values={(_attr(p,attr),_attr(p,chars_attr)) for p in inds}
+            if len(values)==1: _warn(warnings,W_DUPLICATE_PROPERTY,f"Duplicate w:ind with identical {attr} value; first used.",inds[1].structural_path)
+            else:
+                for p in inds: chain.append(LevelEvidence(level.name,True,"duplicate_conflict",_evidence(level,p,_attr(p,attr) or _attr(p,chars_attr))))
+                _warn(warnings,W_DUPLICATE_PROPERTY,"Duplicate w:ind with conflicting values.",inds[1].structural_path); return ResolvedValue(ResolutionStatus.AMBIGUOUS,None,None,tuple(chain),None)
+        ev=_evidence(level,chosen,_attr(chosen,attr) or _attr(chosen,chars_attr))
+        if _attr(chosen,attr) is None:
+            chain.append(LevelEvidence(level.name,True,"unsupported_unit",ev)); return ResolvedValue(ResolutionStatus.UNRESOLVED,None,None,tuple(chain),R_UNSUPPORTED_UNIT)
+        try: value=_conv_twips(attr)(chosen)
+        except _InvalidLexical:
+            chain.append(LevelEvidence(level.name,True,"invalid",ev)); _warn(warnings,W_INVALID_VALUE,f"Invalid lexical value for w:ind {attr}: {_attr(chosen,attr)!r}.",chosen.structural_path); return ResolvedValue(ResolutionStatus.INVALID,None,None,tuple(chain),None)
+        chain.append(LevelEvidence(level.name,True,level.detail_override or "declared",ev)); return ResolvedValue(ResolutionStatus.RESOLVED,value,ev,tuple(chain),None)
+    return ResolvedValue(ResolutionStatus.ABSENT,None,None,tuple(chain),None)
+
+
+def _resolve_spacing_slot(slot_attrs: tuple[str,...], auto_attr: str|None, convert: Callable[[Any],Any],
+                          raw_of: Callable[[Any],str|None], levels: tuple[_Level,...], warnings: list[AnalysisWarning]) -> ResolvedValue:
+    chain: list[LevelEvidence]=[]
+    for level in levels:
+        if level.blocked is not None:
+            chain.append(LevelEvidence(level.name,False,level.blocked,None)); return ResolvedValue(ResolutionStatus.UNRESOLVED,None,None,tuple(chain),level.blocked)
+        spacings=[] if level.bag is None else [e for e in level.bag.entries if e.property_name=="w:spacing"]
+        target=next((sp for sp in spacings if any(_attr(sp,a) is not None for a in slot_attrs)),None)
+        if target is None and auto_attr is not None:
+            for sp in spacings:
+                if _truthy(_attr(sp,auto_attr)):
+                    chain.append(LevelEvidence(level.name,True,"autospacing",_evidence(level,sp,_attr(sp,auto_attr)))); return ResolvedValue(ResolutionStatus.UNRESOLVED,None,None,tuple(chain),R_AUTOSPACING)
+        if target is None: chain.append(LevelEvidence(level.name,False,"not_declared",None)); continue
+        ev=_evidence(level,target,raw_of(target))
+        try: value=convert(target)
+        except _InvalidLexical:
+            chain.append(LevelEvidence(level.name,True,"invalid",ev)); _warn(warnings,W_INVALID_VALUE,f"Invalid lexical value for w:spacing {slot_attrs[0]}: {raw_of(target)!r}.",target.structural_path); return ResolvedValue(ResolutionStatus.INVALID,None,None,tuple(chain),None)
+        chain.append(LevelEvidence(level.name,True,level.detail_override or "declared",ev)); return ResolvedValue(ResolutionStatus.RESOLVED,value,ev,tuple(chain),None)
+    return ResolvedValue(ResolutionStatus.ABSENT,None,None,tuple(chain),None)
+
+
+def _dedupe_warnings(warnings: list[AnalysisWarning]) -> tuple[AnalysisWarning,...]:
+    seen=set(); out=[]
+    for w in warnings:
+        key=(w.code,w.message,w.structural_path)
+        if key not in seen: seen.add(key); out.append(w)
+    return tuple(out)
+
+
+def resolve_paragraph_formatting(paragraph: dict[str,Any], catalog: StyleCatalog, part: str) -> ResolvedParagraphFormatting:
+    if paragraph.get("source_type")!="paragraph": raise ValueError("resolve_paragraph_formatting requires a PhysicalIR paragraph record")
+    if not paragraph.get("structural_path") or not paragraph.get("physical_hash"): raise ValueError("paragraph lacks provenance required by Analysis View")
+    warnings=[]; direct_bag=_bag_of(paragraph); anchor=paragraph["structural_path"]; direct_level=_Level("direct","direct",part,None,direct_bag)
+    paragraph_style_id=_cascade((direct_level,),"w:pStyle",_conv_token,warnings,raw_of=lambda p:_attr(p,"w:val"),declares=_always)
+    pstyle_id=paragraph_style_id.value if paragraph_style_id.status is ResolutionStatus.RESOLVED else None
+    style_levels=_resolve_start_style(catalog,pstyle_id,"paragraph","paragraph_style","ppr_bag",warnings,True,anchor)
+    doc_defaults=_doc_defaults_level(catalog,"ppr_bag"); all_levels=(direct_level,*style_levels,doc_defaults)
+    alignment=_cascade(all_levels,"w:jc",_conv_token,warnings,raw_of=lambda p:_attr(p,"w:val"),declares=_always)
+    spacing=SpacingSpec(before=_resolve_spacing_slot(("w:before",),"w:beforeAutospacing",_conv_twips("w:before"),lambda p:_attr(p,"w:before"),all_levels,warnings),after=_resolve_spacing_slot(("w:after",),"w:afterAutospacing",_conv_twips("w:after"),lambda p:_attr(p,"w:after"),all_levels,warnings),before_lines=_resolve_spacing_slot(("w:beforeLines",),None,_conv_hundredths_of_line("w:beforeLines"),lambda p:_attr(p,"w:beforeLines"),all_levels,warnings),after_lines=_resolve_spacing_slot(("w:afterLines",),None,_conv_hundredths_of_line("w:afterLines"),lambda p:_attr(p,"w:afterLines"),all_levels,warnings),line=_resolve_spacing_slot(("w:line","w:lineRule"),None,_conv_line_spacing,lambda p:_attr(p,"w:line") or _attr(p,"w:lineRule"),all_levels,warnings))
+    numbering_relevant=_has_property(direct_bag,"w:numPr") or any(_has_property(level.bag,"w:numPr") for level in style_levels)
+    indents=IndentSpec(**{slot:_resolve_indent_slot(slot,attr,chars,all_levels,numbering_relevant,part,warnings) for slot,attr,chars in _INDENT_SLOTS})
+    return ResolvedParagraphFormatting(paragraph["structural_path"],paragraph["physical_hash"],paragraph_style_id,alignment,spacing,indents,_dedupe_warnings(warnings))
+
+
+_FONT_SLOTS=(("ascii","w:ascii",False),("h_ansi","w:hAnsi",False),("east_asia","w:eastAsia",False),("cs","w:cs",False),("ascii_theme","w:asciiTheme",True),("h_ansi_theme","w:hAnsiTheme",True),("east_asia_theme","w:eastAsiaTheme",True),("cs_theme","w:cstheme",True))
+_LANG_SLOTS=(("val","w:val"),("east_asia","w:eastAsia"),("bidi","w:bidi"))
+
+
+def resolve_run_formatting(run: dict[str,Any], paragraph: dict[str,Any], catalog: StyleCatalog, part: str) -> ResolvedRunFormatting:
+    if run.get("source_type")!="run_raw": raise ValueError("resolve_run_formatting requires a PhysicalIR run_raw record")
+    if paragraph.get("source_type")!="paragraph": raise ValueError("paragraph context must be a PhysicalIR paragraph record")
+    if not run.get("structural_path") or not run.get("physical_hash"): raise ValueError("run lacks provenance required by Analysis View")
+    warnings=[]; direct_bag=_bag_of(run); anchor=run["structural_path"]; paragraph_direct_bag=_bag_of(paragraph); pstyle_id=_style_ref_id(paragraph_direct_bag,"w:pStyle"); rstyle_id=_style_ref_id(direct_bag,"w:rStyle")
+    char_levels=_resolve_start_style(catalog,rstyle_id,"character","character_style","rpr_bag",warnings,False,anchor)
+    para_levels=_resolve_start_style(catalog,pstyle_id,"paragraph","paragraph_style","rpr_bag",warnings,True,anchor)
+    doc_defaults=_doc_defaults_level(catalog,"rpr_bag"); direct_level=_Level("direct","direct",part,None,direct_bag); all_levels=(direct_level,*char_levels,*para_levels,doc_defaults)
+    font_size=_cascade(all_levels,"w:sz",_conv_font_size,warnings,raw_of=lambda p:_attr(p,"w:val"),declares=_always)
+    font_spec=FontSpec(**{field:_cascade(all_levels,"w:rFonts",_conv_font_slot(attr,theme),warnings,raw_of=lambda p,a=attr:_attr(p,a),declares=_declares_attr(attr)) for field,attr,theme in _FONT_SLOTS})
+    language=LanguageSpec(**{field:_cascade(all_levels,"w:lang",_conv_slot_attr(attr),warnings,raw_of=lambda p,a=attr:_attr(p,a),declares=_declares_attr(attr)) for field,attr in _LANG_SLOTS})
+    underline=_cascade(all_levels,"w:u",_conv_underline,warnings,raw_of=lambda p:_attr(p,"w:val") or "single",declares=_always)
+    vert_align=_cascade(all_levels,"w:vertAlign",_conv_token,warnings,raw_of=lambda p:_attr(p,"w:val"),declares=_always)
+    bold=_resolve_toggle("w:b",direct_level,para_levels,char_levels,doc_defaults,warnings)
+    italic=_resolve_toggle("w:i",direct_level,para_levels,char_levels,doc_defaults,warnings)
+    return ResolvedRunFormatting(run["structural_path"],run["physical_hash"],font_size,font_spec,language,underline,vert_align,bold,italic,_dedupe_warnings(warnings))
