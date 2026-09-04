@@ -1,6 +1,7 @@
 """Analysis View v0.1b — Formatting Resolution View: public models (Marco 1).
 
 Contract: docs/decisions/0015-analysis-v01b-formatting-resolution-contract.md
+as amended by docs/decisions/0016-analysis-v01b-style-selection-errata.md
 
 All structures are immutable, serializable, deterministic and hold no live
 lxml objects. The v0.1b never mutates the PhysicalIR or package bytes.
@@ -152,7 +153,12 @@ class RawPropertyBag:
 
 @dataclass(frozen=True)
 class StyleEntry:
-    style_id: str
+    # None = w:styleId physically absent (decision 0016); "" = explicitly
+    # declared empty string, distinct from absence. Styles without an id stay
+    # in the catalog (physical identity via structural_path/position) but are
+    # not addressable by pStyle/rStyle/basedOn and never count as duplicates.
+    style_id: str | None
+    # w:type normalized: absence defaults to "paragraph" (normative, 0016 §6).
     style_type: str
     is_default: bool
     custom_style: bool

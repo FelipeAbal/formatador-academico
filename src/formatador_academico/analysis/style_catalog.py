@@ -86,8 +86,11 @@ def _style_entry(node: etree._Element, index: int) -> StyleEntry:
         elif local == "rPr" and rpr_bag is None:
             rpr_bag = _bag_from_element(child, f"{base_path}/w:rPr[1]")
     return StyleEntry(
-        style_id=_attr(node, "styleId") or "",
-        style_type=_attr(node, "type") or "",
+        # Decision 0016: absence stays None (never an invented id, never "");
+        # an explicitly declared empty styleId stays "" and is distinct from
+        # absence. w:type absence normalizes to the normative "paragraph".
+        style_id=_attr(node, "styleId"),
+        style_type=_attr(node, "type") or "paragraph",
         is_default=_truthy(_attr(node, "default")),
         custom_style=_truthy(_attr(node, "customStyle")),
         based_on_id=based_on_id,
@@ -183,10 +186,13 @@ def build_style_catalog(package_bytes: bytes, physical_ir: dict) -> StyleCatalog
 
     seen: dict[str, int] = {}
     for entry in styles:
+        if entry.style_id is None:
+            continue  # 0016: styles without an id never count as duplicates
         if entry.style_id in seen:
             warnings.append(AnalysisWarning(
                 code=W_DUPLICATE_STYLE_ID,
-                message=f"Duplicate style id {entry.style_id!r} in styles.xml.",
+                message=f"Duplicate style id {entry.style_id!r} in styles.xml; "
+                        "the first definition is the normative referent of the id.",
                 structural_path=entry.structural_path,
             ))
         else:
@@ -200,9 +206,10 @@ def build_style_catalog(package_bytes: bytes, physical_ir: dict) -> StyleCatalog
         if len(entries) > 1:
             warnings.append(AnalysisWarning(
                 code=W_MULTIPLE_DEFAULT_STYLES,
-                message=f"Multiple default styles of type {style_type!r}: "
-                        f"{sorted(e.style_id for e in entries)}.",
-                structural_path=entries[0].structural_path,
+                message=f"Multiple default styles of type {style_type!r} at "
+                        f"{', '.join(e.structural_path for e in entries)}; "
+                        "the last instance is the applicable default (documentary warning).",
+                structural_path=entries[-1].structural_path,
             ))
 
     return StyleCatalog(
@@ -216,9 +223,20 @@ def build_style_catalog(package_bytes: bytes, physical_ir: dict) -> StyleCatalog
 
 
 def find_styles(catalog: StyleCatalog, style_id: str) -> tuple[StyleEntry, ...]:
-    """All catalog entries with the given id (document order). >1 => duplicate."""
-    return tuple(s for s in catalog.styles if s.style_id == style_id)
+    """All catalog entries with the given id, in document order.
+
+    Decision 0016: on duplicates, the FIRST definition is the normative
+    referent of the id (later occurrences are not addressable by id).
+    Entries with style_id=None are never returned.
+    """
+    return tuple(s for s in catalog.styles if s.style_id is not None and s.style_id == style_id)
 
 
 def default_styles(catalog: StyleCatalog, style_type: str) -> tuple[StyleEntry, ...]:
+    """Default styles of the given type, in document order.
+
+    Selection is by physical identity (type + document position), never via
+    styleId lookup (decision 0016): the LAST entry is the applicable default,
+    and a style without styleId participates normally.
+    """
     return tuple(s for s in catalog.styles if s.is_default and s.style_type == style_type)
