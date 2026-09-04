@@ -2,16 +2,16 @@
 
 ## Estado atual
 
-**Fase:** corpus-base v1 congelado; parser físico v0.4 formalmente congelado; **Analysis View v0.1a — Normalized Text View — implementada, auditada, endurecida, mergeada e formalmente congelada.**
+**Fase:** corpus-base v1 congelado; parser físico v0.4 formalmente congelado; **Analysis View v0.1a — Normalized Text View — implementada, auditada, endurecida, mergeada e formalmente congelada**; **contrato da Analysis View v0.1b — Formatting Resolution View — auditado, corrigido e aprovado na decisão 0015.**
 
-Validação corrente:
+Validação corrente congelada:
 - parser v0.4: **102/102** regressões preservadas;
 - suíte total após v0.1a: **154/154**;
 - failures: 0;
 - errors: 0;
 - skips: 0.
 
-Próxima etapa: **Analysis View v0.1b — Formatting Resolution View**. Abrir novo ciclo técnico, com contrato e auditoria próprios antes de código.
+Próximo passo: implementar **somente o Marco 1 da Analysis View v0.1b**, conforme decisão 0015. NÃO iniciar `w:b`/`w:i` (Marco 2) antes da revisão adversarial do Marco 1.
 
 Este é o HANDOFF corrente. O histórico fica no Git; não criar `handoff_vNN`.
 
@@ -128,17 +128,9 @@ PR #2:
 - merge commit: `88359be93f68a2ee664d16144f87ee7a3fdc9425`.
 
 Auditoria adversarial pelo Kimi K3 encontrou e corrigiu antes do freeze:
-- `opaque_paragraph_child`, `non_element_paragraph_child` e `opaque_container_child` desapareciam silenciosamente;
+- opacos estruturais desapareciam silenciosamente;
 - break desconhecido/ilegível podia virar `LINE_BREAK` por falsa precisão;
 - faltavam testes end-to-end com PhysicalIR real.
-
-Hardening final:
-- opacos estruturais => `OPAQUE` zero-width com provenance;
-- unknown node com provenance => `normalized_unexpected_fragment` + OPAQUE;
-- `w:br` sem type ou `textWrapping` => `\n`;
-- page/column => zero-width estrutural;
-- break desconhecido/ilegível => OPAQUE zero-width + `normalized_unknown_break_type`;
-- adicionados testes `DOCX sintético -> DocxParser -> PhysicalIR real -> normalize_paragraph`.
 
 Suíte final:
 - **154 testes**;
@@ -148,9 +140,60 @@ Suíte final:
 - **0 skips**;
 - **102/102 testes congelados do parser preservados**.
 
-Determinismo cross-process/hashseed confirmado pelo auditor.
+### 0015 — Contrato Analysis View v0.1b: Formatting Resolution
+`docs/decisions/0015-analysis-v01b-formatting-resolution-contract.md`
 
-Dívida aceita: `raw_text=""` em vez de `None` quando a chave textual falta em fragmento manualmente malformado; caso não produzido pelo parser real.
+Contrato único, implementação em dois marcos internos.
+
+Decisões centrais:
+- `styles.xml` permanece fora da PhysicalIR;
+- `StyleCatalog` derivado dos bytes imutáveis do OriginalPackage e verificado contra `part_name + sha256` da PhysicalIR;
+- `RawPropertyBag` é o único extrator local de XML de propriedades;
+- `ResolvedValue` usa statuses fechados: `resolved`, `absent`, `unresolved`, `invalid`, `ambiguous`;
+- `invalid` é terminal por propriedade/slot;
+- `ambiguous` apenas para conflitos documentais sem precedência normativa segura;
+- evidence/provenance completa é obrigatória;
+- `docDefaults` participa da cascade;
+- missing/wrong-type style refs são ignoradas de modo determinístico + warning, não viram `unresolved` por si;
+- duplicate `style_id` relevante => `ambiguous`, nunca `first wins` inventado;
+- `w:link` é preservado, mas não participa da cascade;
+- theme refs são valores documentais `resolved`, sem resolver theme visual;
+- fonts resolvidas por slots, nunca como `effective_font` visual;
+- Decimal para half-points/twips, nunca float;
+- enums OOXML preservados sem redução agressiva;
+- falha parcial por `(target, propriedade/slot)`;
+- v0.1b permanece ortogonal à v0.1a e independente de perfil acadêmico.
+
+### Toggle `w:b`/`w:i` — correção normativa incorporada
+
+Dois contextos obrigatoriamente distintos:
+
+**Style hierarchy composition** (`docDefaults` + style chains):
+- true/1/omitido => toggle do estado acumulado;
+- false/0 => no-op sobre o estado acumulado.
+
+**Direct formatting no run:**
+- true/1/omitido => `true` absoluto;
+- false/0 => `false` absoluto;
+- direct é terminal e NÃO participa da paridade.
+
+Vetores críticos congelados no contrato:
+- parent on + child on => false;
+- parent on + child false => true;
+- paragraph style on + character style on => false;
+- style on + direct on => **true**;
+- style on + direct false => false.
+
+Toggle será implementado somente no **Marco 2**.
+
+### Numbering ↔ indent
+
+Numbering completo fica fora, mas indents não podem fingir precisão:
+- direct indent resolve;
+- paragraph-style indent com precedência resolve;
+- somente quando o valor efetivo do slot pode depender de numbering não implementado => `unresolved(reason=numbering_indent_unsupported)` + `formatting_numbering_present`.
+
+Não contaminar slots já determinados por fonte mais específica.
 
 ## Parser físico congelado
 
@@ -167,16 +210,6 @@ Identidade física global:
 `children[]` é árvore autoritativa. Refs auxiliares não substituem a árvore.
 
 Story `missing`, `failed` ou `rejected` é região não editável.
-
-### Fora do parser
-- layout visual;
-- merge resolvido;
-- grid lógico;
-- largura efetiva;
-- estilo/formatação efetiva;
-- semântica acadêmica;
-- patching/escrita;
-- decomposição de textboxes.
 
 ## Analysis View v0.1a congelada
 
@@ -199,27 +232,57 @@ Garantias:
 
 Regra de reabertura da v0.1a: somente falha de teste, impossibilidade técnica demonstrada, contradição nova, mudança explícita de contrato/escopo ou novo risco de segurança.
 
-## Próxima etapa — Analysis View v0.1b: Formatting Resolution View
+## Analysis View v0.1b — Marco 1
 
-**Abrir novo chat no Kimi K3.**
+Implementar somente:
+1. modelos públicos de resolução/evidence/specs;
+2. `RawPropertyBag`;
+3. `StyleCatalog` + `docDefaults`;
+4. cascade de parágrafo;
+5. propriedades de run NÃO-toggle:
+   - `w:sz`;
+   - `w:rFonts` por slots;
+   - `w:lang` por slots;
+   - `w:u`;
+   - `w:vertAlign`;
+6. paragraph formatting inicial:
+   - pStyle id;
+   - `w:jc`;
+   - `w:spacing` spec;
+   - `w:ind` por slots, com cláusula numbering;
+7. serialização determinística;
+8. testes unitários + E2E;
+9. regressão integral dos **154 testes congelados**.
 
-Primeiro passo: contrato e auditoria arquitetural, sem código.
+### Fora do Marco 1
+- `w:b`;
+- `w:i`;
+- demais toggles;
+- theme resolution real;
+- numbering completo;
+- table styles;
+- section/page;
+- renderer/layout;
+- profile acadêmico;
+- SafetyGate;
+- patching.
 
-Questões centrais a fechar:
-- fronteira correta para `styles.xml`;
-- `StyleCatalog` derivado;
-- `docDefaults`;
-- paragraph/character styles e `basedOn`;
-- cycles e referências quebradas;
-- precedência/cascade OOXML real;
-- boolean/toggle properties;
-- font specs vs theme resolution;
-- tamanho em half-points -> pt com provenance;
-- propriedades mínimas de run/parágrafo;
-- estados `resolved/unresolved/ambiguous/absent`;
-- provenance da formatação efetiva;
-- falha parcial por propriedade;
-- warnings analíticos separados;
-- manter v0.1b independente de perfil acadêmico e sem autorização de mutação.
+## Próximo passo
 
-Não implementar v0.1b antes de fechar o contrato e auditá-lo.
+Usar o chat atual do Kimi K3 para **implementar somente o Marco 1 da v0.1b** em branch própria.
+
+Antes de implementar, o Kimi deve ler:
+- este HANDOFF;
+- decisão 0015;
+- decisões 0012–0014;
+- parser v0.4;
+- Analysis View v0.1a;
+- suíte atual.
+
+Ao terminar:
+1. publicar branch/PR real;
+2. executar suíte completa;
+3. preservar 154/154 regressões existentes;
+4. trazer PR e resultados para auditoria adversarial;
+5. corrigir tudo no escopo;
+6. só então congelar o Marco 1 e iniciar o Marco 2.
