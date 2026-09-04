@@ -334,14 +334,16 @@ class RunCascadeTests(unittest.TestCase):
         details = [e.detail for e in rf.font_size.evidence_chain]
         self.assertIn("duplicate_conflict", details)
 
-    def test_duplicate_style_id_relevant_becomes_ambiguous(self):
+    def test_duplicate_style_id_first_definition_wins(self):
+        # Decision 0016: first documental definition is the normative referent.
         s = styles_part(
             '<w:style w:type="character" w:styleId="C"><w:rPr><w:sz w:val="20"/></w:rPr></w:style>'
             '<w:style w:type="character" w:styleId="C"><w:rPr><w:sz w:val="28"/></w:rPr></w:style>')
         rf = resolve_run(
             '<w:p><w:r><w:rPr><w:rStyle w:val="C"/></w:rPr><w:t>a</w:t></w:r></w:p>', s)
-        self.assertEqual(rf.font_size.status, RES.AMBIGUOUS)
-        self.assertIn("ambiguous_duplicate_style_id",
+        self.assertEqual(rf.font_size.status, RES.RESOLVED)
+        self.assertEqual(rf.font_size.value.value, Decimal("10"))
+        self.assertIn("duplicate_style_id_first_definition",
                       [e.detail for e in rf.font_size.evidence_chain])
 
     def test_duplicate_style_id_not_referenced_has_no_effect(self):
@@ -433,14 +435,22 @@ class ParagraphCascadeTests(unittest.TestCase):
         self.assertEqual(rp.alignment.value, "both")
         self.assertEqual(rp.alignment.winning_evidence.style_id, "Normal")
 
-    def test_multiple_defaults_relevant_ambiguous(self):
+    def test_multiple_defaults_last_instance_wins(self):
+        # Decision 0016: deterministic last-instance selection + documentary warning.
         s = styles_part(
             '<w:style w:type="paragraph" w:default="1" w:styleId="A">'
             '<w:pPr><w:jc w:val="left"/></w:pPr></w:style>'
             '<w:style w:type="paragraph" w:default="1" w:styleId="B">'
             '<w:pPr><w:jc w:val="right"/></w:pPr></w:style>')
-        rp = resolve_par('<w:p><w:r><w:t>a</w:t></w:r></w:p>', s)
-        self.assertEqual(rp.alignment.status, RES.AMBIGUOUS)
+        _, _, catalog, blocks = parse('<w:p><w:r><w:t>a</w:t></w:r></w:p>', s)
+        rp = resolve_paragraph_formatting(blocks[0], catalog, "word/document.xml")
+        self.assertEqual(rp.alignment.status, RES.RESOLVED)
+        self.assertEqual(rp.alignment.value, "right")
+        self.assertEqual(rp.alignment.winning_evidence.style_id, "B")
+        self.assertEqual(rp.alignment.evidence_chain[-1].detail,
+                         "multiple_defaults_last_instance")
+        self.assertIn("formatting_multiple_default_styles",
+                      [w.code for w in catalog.catalog_warnings])
 
     def test_alignment_start_not_mapped(self):
         rp = resolve_par('<w:p><w:pPr><w:jc w:val="start"/></w:pPr><w:r><w:t>a</w:t></w:r></w:p>')
@@ -543,6 +553,146 @@ class ParagraphCascadeTests(unittest.TestCase):
                          'w:hanging="0" w:start="100" w:end="100"/></w:pPr>'
                          '<w:r><w:t>a</w:t></w:r></w:p>')
         self.assertNotIn("formatting_numbering_present", [w.code for w in rp.analysis_warnings])
+
+
+# ---------------------------------------------------------------------------
+# Decision 0016 — style selection errata
+# ---------------------------------------------------------------------------
+
+def _walk_resolved(obj):
+    """Yield every ResolvedValue reachable from a resolved formatting object."""
+    from formatador_academico.analysis.formatting_model import ResolvedValue as RV
+    if isinstance(obj, RV):
+        yield obj
+    elif hasattr(obj, "__dataclass_fields__"):
+        for f in obj.__dataclass_fields__:
+            yield from _walk_resolved(getattr(obj, f))
+    elif isinstance(obj, tuple):
+        for v in obj:
+            yield from _walk_resolved(v)
+
+
+class StyleSelectionErrata0016Tests(unittest.TestCase):
+    def test_three_defaults_last_wins(self):
+        s = styles_part(
+            '<w:style w:type="paragraph" w:default="1" w:styleId="A">'
+            '<w:pPr><w:jc w:val="left"/></w:pPr></w:style>'
+            '<w:style w:type="paragraph" w:default="1" w:styleId="B">'
+            '<w:pPr><w:jc w:val="right"/></w:pPr></w:style>'
+            '<w:style w:type="paragraph" w:default="1" w:styleId="C">'
+            '<w:pPr><w:jc w:val="center"/></w:pPr></w:style>')
+        rp = resolve_par('<w:p><w:r><w:t>a</w:t></w:r></w:p>', s)
+        self.assertEqual(rp.alignment.status, RES.RESOLVED)
+        self.assertEqual(rp.alignment.value, "center")
+        self.assertEqual(rp.alignment.winning_evidence.style_id, "C")
+        self.assertNotEqual(rp.alignment.status, RES.AMBIGUOUS)
+
+    def test_duplicate_style_id_via_basedon_first_wins(self):
+        s = styles_part(
+            '<w:style w:type="character" w:styleId="C"><w:basedOn w:val="X"/></w:style>'
+            '<w:style w:type="character" w:styleId="X"><w:rPr><w:sz w:val="20"/></w:rPr></w:style>'
+            '<w:style w:type="character" w:styleId="X"><w:rPr><w:sz w:val="28"/></w:rPr></w:style>')
+        rf = resolve_run(
+            '<w:p><w:r><w:rPr><w:rStyle w:val="C"/></w:rPr><w:t>a</w:t></w:r></w:p>', s)
+        self.assertEqual(rf.font_size.status, RES.RESOLVED)
+        self.assertEqual(rf.font_size.value.value, Decimal("10"))  # first X, not 14pt
+        self.assertIn("duplicate_style_id_first_definition",
+                      [e.detail for e in rf.font_size.evidence_chain])
+        self.assertNotEqual(rf.font_size.status, RES.AMBIGUOUS)
+
+    def test_two_styles_without_styleid_no_duplicate_warning(self):
+        s = styles_part(
+            '<w:style w:type="paragraph"><w:pPr><w:jc w:val="left"/></w:pPr></w:style>'
+            '<w:style w:type="paragraph"><w:pPr><w:jc w:val="right"/></w:pPr></w:style>')
+        _, _, catalog, _ = parse('<w:p/>', s)
+        self.assertEqual(len(catalog.styles), 2)
+        self.assertNotIn("formatting_duplicate_style_id",
+                         [w.code for w in catalog.catalog_warnings])
+
+    def test_absent_styleid_is_none(self):
+        s = styles_part('<w:style w:type="paragraph"><w:pPr><w:jc w:val="left"/></w:pPr></w:style>')
+        _, _, catalog, _ = parse('<w:p/>', s)
+        self.assertIsNone(catalog.styles[0].style_id)
+
+    def test_default_without_styleid_applies(self):
+        s = styles_part(
+            '<w:style w:type="paragraph" w:default="1">'
+            '<w:pPr><w:jc w:val="center"/></w:pPr></w:style>')
+        rp = resolve_par('<w:p><w:r><w:t>a</w:t></w:r></w:p>', s)
+        self.assertEqual(rp.alignment.status, RES.RESOLVED)
+        self.assertEqual(rp.alignment.value, "center")
+        self.assertIsNone(rp.alignment.winning_evidence.style_id)
+        self.assertIn("/w:styles/w:style[1]", rp.alignment.winning_evidence.structural_path)
+
+    def test_missing_type_defaults_to_paragraph(self):
+        s = styles_part('<w:style w:styleId="P"><w:pPr><w:jc w:val="right"/></w:pPr></w:style>')
+        _, _, catalog, _ = parse('<w:p/>', s)
+        self.assertEqual(catalog.styles[0].style_type, "paragraph")
+        # and it is reachable as a paragraph style
+        rp = resolve_par(
+            '<w:p><w:pPr><w:pStyle w:val="P"/></w:pPr><w:r><w:t>a</w:t></w:r></w:p>', s)
+        self.assertEqual(rp.alignment.status, RES.RESOLVED)
+        self.assertEqual(rp.alignment.value, "right")
+
+    def test_explicit_empty_styleid_stays_empty_string(self):
+        s = styles_part('<w:style w:type="paragraph" w:styleId=""/>')
+        _, _, catalog, _ = parse('<w:p/>', s)
+        self.assertEqual(catalog.styles[0].style_id, "")
+        self.assertIsNotNone(catalog.styles[0].style_id)
+
+    def test_duplicate_id_plus_multiple_defaults_combined(self):
+        s = styles_part(
+            '<w:style w:type="paragraph" w:default="1" w:styleId="A">'
+            '<w:pPr><w:jc w:val="left"/></w:pPr></w:style>'
+            '<w:style w:type="paragraph" w:styleId="X">'
+            '<w:pPr><w:ind w:left="720"/></w:pPr></w:style>'
+            '<w:style w:type="paragraph" w:default="1" w:styleId="X">'
+            '<w:pPr><w:jc w:val="right"/></w:pPr></w:style>'
+            '<w:style w:type="paragraph" w:default="1" w:styleId="B">'
+            '<w:pPr><w:jc w:val="both"/></w:pPr></w:style>')
+        _, _, catalog, _ = parse('<w:p/>', s)
+        codes = [w.code for w in catalog.catalog_warnings]
+        self.assertIn("formatting_duplicate_style_id", codes)
+        self.assertIn("formatting_multiple_default_styles", codes)
+        # no pStyle: default selection picks B (last default), not the
+        # duplicated-id default X#2 — selection is by physical identity.
+        rp = resolve_par('<w:p><w:r><w:t>a</w:t></w:r></w:p>', s)
+        self.assertEqual(rp.alignment.value, "both")
+        self.assertEqual(rp.alignment.winning_evidence.style_id, "B")
+        self.assertNotEqual(rp.alignment.status, RES.AMBIGUOUS)
+        # pStyle="X" references the FIRST definition of X (indent, no jc).
+        rp2 = resolve_par(
+            '<w:p><w:pPr><w:pStyle w:val="X"/></w:pPr><w:r><w:t>a</w:t></w:r></w:p>', s)
+        self.assertEqual(rp2.indents.left.status, RES.RESOLVED)
+        self.assertEqual(rp2.indents.left.value.value, Decimal("36"))
+        self.assertEqual(rp2.alignment.status, RES.ABSENT)
+        self.assertNotEqual(rp2.indents.left.status, RES.AMBIGUOUS)
+
+    def test_no_ambiguous_anywhere_in_errata_scenarios(self):
+        scenarios = [
+            ('<w:p><w:r><w:t>a</w:t></w:r></w:p>', styles_part(
+                '<w:style w:type="paragraph" w:default="1" w:styleId="A">'
+                '<w:pPr><w:jc w:val="left"/></w:pPr></w:style>'
+                '<w:style w:type="paragraph" w:default="1" w:styleId="B">'
+                '<w:pPr><w:jc w:val="right"/></w:pPr></w:style>')),
+            ('<w:p><w:pPr><w:pStyle w:val="X"/></w:pPr>'
+             '<w:r><w:rPr><w:rStyle w:val="X"/></w:rPr><w:t>a</w:t></w:r></w:p>',
+             styles_part(
+                 '<w:style w:type="character" w:styleId="X"><w:rPr><w:sz w:val="20"/></w:rPr></w:style>'
+                 '<w:style w:type="character" w:styleId="X"><w:rPr><w:sz w:val="28"/></w:rPr></w:style>')),
+            ('<w:p><w:r><w:t>a</w:t></w:r></w:p>', styles_part(
+                '<w:style w:type="paragraph" w:default="1">'
+                '<w:pPr><w:jc w:val="center"/></w:pPr></w:style>')),
+        ]
+        for body, styles in scenarios:
+            pkg, ir, catalog, blocks = parse(body, styles)
+            p = next(b for b in blocks if b["source_type"] == "paragraph")
+            run = first_run(p)
+            pf = resolve_paragraph_formatting(p, catalog, "word/document.xml")
+            rf = resolve_run_formatting(run, p, catalog, "word/document.xml")
+            for rv in list(_walk_resolved(pf)) + list(_walk_resolved(rf)):
+                self.assertNotEqual(rv.status, RES.AMBIGUOUS,
+                                    f"unexpected ambiguous in scenario {body!r}")
 
 
 # ---------------------------------------------------------------------------
