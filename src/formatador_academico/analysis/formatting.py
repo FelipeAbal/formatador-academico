@@ -61,7 +61,10 @@ class _Level:
     style_id: str | None
     bag: Any  # RawPropertyBag | None
     blocked: str | None = None  # e.g. R_STYLES_UNAVAILABLE
-    ambiguous_candidates: tuple[StyleEntry, ...] = ()
+    # Optional evidence detail override for the winning LevelEvidence at this
+    # level (decision 0016): "duplicate_style_id_first_definition" |
+    # "multiple_defaults_last_instance".
+    detail_override: str | None = None
 
 
 def _attr(prop, name: str) -> str | None:
@@ -99,21 +102,6 @@ def _warn(warnings: list[AnalysisWarning], code: str, message: str, path: str) -
     warnings.append(AnalysisWarning(code=code, message=message, structural_path=path))
 
 
-def _ambiguous_level(chain: list[LevelEvidence], level: _Level,
-                     prop_name: str) -> ResolvedValue:
-    for cand in level.ambiguous_candidates:
-        chain.append(LevelEvidence(
-            level=level.name, declared=True,
-            detail="ambiguous_duplicate_style_id",
-            evidence=FormattingEvidence(
-                source_kind="style", part=level.part,
-                structural_path=cand.structural_path,
-                style_id=cand.style_id, property_name=prop_name, raw_value=None,
-            ),
-        ))
-    return ResolvedValue(ResolutionStatus.AMBIGUOUS, None, None, tuple(chain), None)
-
-
 def _cascade(
     levels: tuple[_Level, ...],
     prop_name: str,
@@ -130,8 +118,6 @@ def _cascade(
     """
     chain: list[LevelEvidence] = []
     for level in levels:
-        if level.ambiguous_candidates:
-            return _ambiguous_level(chain, level, prop_name)
         if level.blocked is not None:
             chain.append(LevelEvidence(level.name, False, level.blocked, None))
             return ResolvedValue(
@@ -169,7 +155,8 @@ def _cascade(
                   f"Invalid lexical value for {prop_name}: {raw_value!r}.",
                   chosen.structural_path)
             return ResolvedValue(ResolutionStatus.INVALID, None, None, tuple(chain), None)
-        chain.append(LevelEvidence(level.name, True, "declared", ev))
+        chain.append(LevelEvidence(level.name, True,
+                                   level.detail_override or "declared", ev))
         return ResolvedValue(ResolutionStatus.RESOLVED, value, ev, tuple(chain), None)
     return ResolvedValue(ResolutionStatus.ABSENT, None, None, tuple(chain), None)
 
@@ -185,18 +172,23 @@ def _style_chain_levels(
     level_name: str,
     bag_kind: str,  # "ppr_bag" | "rpr_bag"
     warnings: list[AnalysisWarning],
+    start_note: str | None = None,
 ) -> list[_Level]:
     """Walk start -> basedOn ancestors (most specific first).
 
     Cycle members are excluded; the prefix before the cycle remains usable and
     the chain ends with a blocked level (R_STYLE_CYCLE) so dependent
     properties degrade to unresolved(style_cycle) — decision 0015.
+    Duplicate styleId references resolve to the first documental definition
+    and the chain continues (decision 0016), marked via detail_override.
     """
     levels: list[_Level] = []
     visited: list[str] = []
     current: StyleEntry | None = start
+    # Evidence detail note attached to the level appended for `current`.
+    pending_note = start_note
     while current is not None:
-        if current.style_id in visited:
+        if current.style_id is not None and current.style_id in visited:
             first = visited.index(current.style_id)
             del levels[first:]
             _warn(warnings, W_STYLE_CYCLE,
@@ -205,12 +197,15 @@ def _style_chain_levels(
             levels.append(_Level(level_name, "style", catalog.part_name,
                                  current.style_id, None, blocked=R_STYLE_CYCLE))
             return levels
-        visited.append(current.style_id)
+        if current.style_id is not None:
+            visited.append(current.style_id)
         levels.append(_Level(
             name=level_name, source_kind="style", part=catalog.part_name,
             style_id=current.style_id,
             bag=getattr(current, bag_kind),
+            detail_override=pending_note,
         ))
+        pending_note = None
         parent_id = current.based_on_id
         if not parent_id:
             break
@@ -220,13 +215,11 @@ def _style_chain_levels(
                   f"basedOn parent {parent_id!r} not found; style {current.style_id!r} treated as chain root.",
                   current.structural_path)
             break
-        if len(candidates) > 1:
-            levels.append(_Level(
-                name=level_name, source_kind="style", part=catalog.part_name,
-                style_id=parent_id, bag=None, ambiguous_candidates=candidates,
-            ))
-            break
+        # Decision 0016: duplicate styleId resolves to the FIRST documental
+        # definition (also via basedOn); the chain continues normally.
         parent = candidates[0]
+        if len(candidates) > 1:
+            pending_note = "duplicate_style_id_first_definition"
         if parent.style_type != expected_type:
             _warn(warnings, W_WRONG_STYLE_TYPE,
                   f"basedOn parent {parent_id!r} has type {parent.style_type!r}, expected {expected_type!r}; ignored.",
@@ -248,14 +241,17 @@ def _resolve_start_style(
 ) -> list[_Level]:
     """Resolve a starting style reference into cascade levels.
 
-    Policies (decision 0015): missing/wrong-type references are ignored with a
-    warning (never unresolved by themselves); duplicate ids relevant to the
-    resolution become an ambiguous marker level.
+    Policies (decisions 0015 + 0016): missing/wrong-type references are
+    ignored with a warning (never unresolved by themselves); a duplicate
+    styleId resolves deterministically to the FIRST documental definition;
+    multiple default styles of the same type resolve to the LAST documental
+    definition. Neither case is ambiguous anymore.
     """
     if catalog.part_status == "unreadable":
         return [_Level(level_name, "style", catalog.part_name, None, None,
                        blocked=R_STYLES_UNAVAILABLE)]
     start: StyleEntry | None = None
+    start_note: str | None = None
     if style_id is not None:
         candidates = find_styles(catalog, style_id)
         if not candidates:
@@ -263,10 +259,9 @@ def _resolve_start_style(
                   f"Referenced style {style_id!r} not found; reference ignored.",
                   anchor_path)
             return []
-        if len(candidates) > 1:
-            return [_Level(level_name, "style", catalog.part_name, style_id, None,
-                           ambiguous_candidates=candidates)]
         start = candidates[0]
+        if len(candidates) > 1:
+            start_note = "duplicate_style_id_first_definition"
         if start.style_type != expected_type:
             _warn(warnings, W_WRONG_STYLE_TYPE,
                   f"Referenced style {style_id!r} has type {start.style_type!r}, expected {expected_type!r}; ignored.",
@@ -274,14 +269,16 @@ def _resolve_start_style(
             return []
     elif use_default:
         defaults = default_styles(catalog, expected_type)
-        if len(defaults) > 1:
-            return [_Level(level_name, "style", catalog.part_name, None, None,
-                           ambiguous_candidates=defaults)]
         if defaults:
-            start = defaults[0]
+            # Decision 0016: last documental instance is the applicable
+            # default; selection is by physical identity, not by styleId.
+            start = defaults[-1]
+            if len(defaults) > 1:
+                start_note = "multiple_defaults_last_instance"
     if start is None:
         return []
-    return _style_chain_levels(catalog, start, expected_type, level_name, bag_kind, warnings)
+    return _style_chain_levels(catalog, start, expected_type, level_name,
+                               bag_kind, warnings, start_note=start_note)
 
 
 def _doc_defaults_level(catalog: StyleCatalog, bag_kind: str) -> _Level:
@@ -449,8 +446,6 @@ def _resolve_indent_slot(
                   part)
             return ResolvedValue(ResolutionStatus.UNRESOLVED, None, None,
                                  tuple(chain), R_NUMBERING_INDENT)
-        if level.ambiguous_candidates:
-            return _ambiguous_level(chain, level, "w:ind")
         if level.blocked is not None:
             chain.append(LevelEvidence(level.name, False, level.blocked, None))
             return ResolvedValue(ResolutionStatus.UNRESOLVED, None, None,
@@ -488,7 +483,8 @@ def _resolve_indent_slot(
                   f"Invalid lexical value for w:ind {attr}: {_attr(chosen, attr)!r}.",
                   chosen.structural_path)
             return ResolvedValue(ResolutionStatus.INVALID, None, None, tuple(chain), None)
-        chain.append(LevelEvidence(level.name, True, "declared", ev))
+        chain.append(LevelEvidence(level.name, True,
+                                   level.detail_override or "declared", ev))
         return ResolvedValue(ResolutionStatus.RESOLVED, value, ev, tuple(chain), None)
     return ResolvedValue(ResolutionStatus.ABSENT, None, None, tuple(chain), None)
 
@@ -504,8 +500,6 @@ def _resolve_spacing_slot(
     """Spacing slot cascade with per-level autospacing degradation."""
     chain: list[LevelEvidence] = []
     for level in levels:
-        if level.ambiguous_candidates:
-            return _ambiguous_level(chain, level, "w:spacing")
         if level.blocked is not None:
             chain.append(LevelEvidence(level.name, False, level.blocked, None))
             return ResolvedValue(ResolutionStatus.UNRESOLVED, None, None,
@@ -538,7 +532,8 @@ def _resolve_spacing_slot(
                   f"Invalid lexical value for w:spacing {slot_attrs[0]}: {raw_of(target)!r}.",
                   target.structural_path)
             return ResolvedValue(ResolutionStatus.INVALID, None, None, tuple(chain), None)
-        chain.append(LevelEvidence(level.name, True, "declared", ev))
+        chain.append(LevelEvidence(level.name, True,
+                                   level.detail_override or "declared", ev))
         return ResolvedValue(ResolutionStatus.RESOLVED, value, ev, tuple(chain), None)
     return ResolvedValue(ResolutionStatus.ABSENT, None, None, tuple(chain), None)
 
