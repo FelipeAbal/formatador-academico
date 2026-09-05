@@ -50,7 +50,7 @@ SOURCE = SourceDocumentRef("a" * 64, "0.4.0")
 
 
 def _target(target_type="run", aspect="P1", slot="bold", path="p[0]/r[0]",
-            physical_hash="h" * 16, target_class="body"):
+            physical_hash="a" * 64, target_class="body"):
     return DecisionTarget(target_type, path, physical_hash, target_class, aspect, slot)
 
 
@@ -261,7 +261,7 @@ class TestContractErrors(unittest.TestCase):
             PlannedOperation(
                 kind=OperationKind.SET_PROPERTY,
                 key=DecisionKey("run", "P2", "font_size"),
-                target=OperationTarget("run", "p[0]/r[0]", "h" * 16, "body", "P1", "bold"),
+                target=OperationTarget("run", "p[0]/r[0]", "a" * 64, "body", "P1", "bold"),
                 precondition_observed=True,
                 desired_value=False,
                 decision_ref="b" * 64,
@@ -483,6 +483,112 @@ class TestSerializationDeterminism(unittest.TestCase):
         self.assertEqual(plan.operation_vocabulary_version, OPERATION_VOCABULARY_VERSION)
         self.assertEqual(plan.upstream_versions.decision_version, "0.1")
         self.assertEqual(plan.source_document.parser_version, "0.4.0")
+
+
+class TestAdversarialAuditFindings(unittest.TestCase):
+    """Tests added by the adversarial audit of PR #7."""
+
+    # cross-order determinism of the WHOLE plan, not only source_decisions_hash:
+    # same logical input in different caller orders -> byte-identical bytes.
+    def test_full_plan_serialization_is_caller_order_independent(self):
+        bold = _bold_deterministic()
+        font = _font_deterministic()
+        spacing = _spacing_no_action()
+        review = _alignment_review()
+        base = serialize_operation_plan(
+            build_operation_plan(SOURCE, UPSTREAM, (bold, font, spacing, review)))
+        import itertools
+        for perm in itertools.permutations((bold, font, spacing, review)):
+            self.assertEqual(
+                serialize_operation_plan(build_operation_plan(SOURCE, UPSTREAM, perm)),
+                base,
+            )
+
+    def test_planning_results_order_is_canonical(self):
+        bold = _bold_deterministic()
+        font = _font_deterministic()
+        plan1 = build_operation_plan(SOURCE, UPSTREAM, (bold, font))
+        plan2 = build_operation_plan(SOURCE, UPSTREAM, (font, bold))
+        self.assertEqual(plan1.planning_results, plan2.planning_results)
+        # the trail is preserved: every decision still has a result
+        self.assertEqual(len(plan1.planning_results), 2)
+
+    # target_class divergent on the same physical target+slot is an upstream
+    # contradiction, not two targets: it must not yield two operations.
+    def test_divergent_target_class_same_physical_slot_rejected(self):
+        d_body = _font_deterministic()
+        d_head = _decision(
+            Actionability.DETERMINISTIC_CHANGE, DecisionReason.PREFERRED_VARIANT_DIFFERS,
+            observed=Decimal("11"), desired=Decimal("12"), rule_ref=_rule_ref("P2", "r-x"),
+            target=_target("run", "P2", "font_size", target_class="heading"),
+        )
+        with self.assertRaises(OperationPlanAggregationError):
+            build_operation_plan(SOURCE, UPSTREAM, (d_body, d_head))
+
+    def test_divergent_target_class_same_desired_is_duplicate_error(self):
+        d_body = _bold_deterministic()
+        d_head = _decision(
+            Actionability.DETERMINISTIC_CHANGE, DecisionReason.PREFERRED_VARIANT_DIFFERS,
+            observed=True, desired=False, rule_ref=_rule_ref("P1", "r-y"),
+            target=_target("run", "P1", "bold", target_class="heading"),
+        )
+        with self.assertRaises(OperationPlanAggregationError):
+            build_operation_plan(SOURCE, UPSTREAM, (d_body, d_head))
+
+    # physical_hash is the SafetyGate fingerprint: tighten to parser format.
+    def test_operation_target_requires_64_lowercase_hex_physical_hash(self):
+        with self.assertRaises(ValueError):
+            OperationTarget("run", "p[0]/r[0]", "not-hex!", "body", "P1", "bold")
+        with self.assertRaises(ValueError):
+            OperationTarget("run", "p[0]/r[0]", "A" * 64, "body", "P1", "bold")
+        with self.assertRaises(ValueError):
+            OperationTarget("run", "p[0]/r[0]", "a" * 63, "body", "P1", "bold")
+
+    def test_planner_rejects_decision_with_non_hex_physical_hash(self):
+        decision = _decision(
+            Actionability.DETERMINISTIC_CHANGE, DecisionReason.DIFFERS_FROM_RULE,
+            observed=True, desired=False, rule_ref=_rule_ref("P1"),
+            target=_target(physical_hash="h" * 16),
+        )
+        with self.assertRaises(OperationPlanContractError):
+            plan_decision(decision)
+
+    def test_operation_target_rejects_empty_target_class(self):
+        with self.assertRaises(ValueError):
+            OperationTarget("run", "p[0]/r[0]", "a" * 64, "", "P1", "bold")
+
+    # int 1/0 must not pass as bool (bool subclasses int in Python)
+    def test_int_not_accepted_as_bool(self):
+        for bad in (1, 0):
+            decision = _decision(
+                Actionability.DETERMINISTIC_CHANGE, DecisionReason.DIFFERS_FROM_RULE,
+                observed=bad, desired=False, rule_ref=_rule_ref("P1"),
+            )
+            with self.assertRaises(OperationPlanContractError):
+                plan_decision(decision)
+        decision = _decision(
+            Actionability.DETERMINISTIC_CHANGE, DecisionReason.DIFFERS_FROM_RULE,
+            observed=True, desired=0, rule_ref=_rule_ref("P1"),
+        )
+        with self.assertRaises(OperationPlanContractError):
+            plan_decision(decision)
+
+    # planner never "corrects" observed: precondition follows decision.observed
+    def test_planner_preserves_changed_observed(self):
+        d11 = _font_deterministic()
+        d13 = _decision(
+            Actionability.DETERMINISTIC_CHANGE, DecisionReason.DIFFERS_FROM_RULE,
+            observed=Decimal("13"), desired=Decimal("12"), rule_ref=_rule_ref("P2"),
+            target=_target("run", "P2", "font_size"),
+        )
+        op = plan_decision(d13).operation
+        self.assertEqual(op.precondition_observed, LengthValue(Decimal("13"), "pt"))
+        self.assertEqual(op.desired_value, LengthValue(Decimal("12"), "pt"))
+        self.assertNotEqual(plan_decision(d11).decision_ref,
+                            plan_decision(d13).decision_ref)
+        h11 = build_operation_plan(SOURCE, UPSTREAM, (d11,)).source_decisions_hash
+        h13 = build_operation_plan(SOURCE, UPSTREAM, (d13,)).source_decisions_hash
+        self.assertNotEqual(h11, h13)
 
 
 if __name__ == "__main__":
