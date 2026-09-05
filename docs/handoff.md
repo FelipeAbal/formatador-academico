@@ -2,22 +2,29 @@
 
 ## Estado atual
 
-**Fase:** corpus-base v1 congelado; parser físico v0.4 congelado; Analysis View v0.1a congelada; **Analysis View v0.1b — Formatting Resolution View — Marco 1 (não-toggle) implementado, auditado, corrigido pelas decisões 0015/0016, mergeado e formalmente congelado pela decisão 0017.**
+**Fase:** corpus-base v1 congelado; parser físico v0.4 congelado; Analysis View v0.1a congelada; **Analysis View v0.1b — Formatting Resolution View — Marcos 1 e 2 implementados, auditados, mergeados e formalmente congelados.**
 
 Validação corrente:
-- parser v0.4 congelado: **102/102**;
-- baseline congelado parser + v0.1a: **154/154**;
-- suíte total após Marco 1 v0.1b: **222/222** reportada em clone fresco do head remoto;
+- parser v0.4: **102/102**;
+- baseline parser + v0.1a: **154/154**;
+- após Marco 1 v0.1b: **222/222**;
+- após Marco 2 v0.1b: **267/267**;
 - failures: 0;
 - errors: 0;
 - skips: 0.
 
-PR #3:
+PR #3 — Marco 1:
 - branch: `analysis-v01b-formatting-m1`;
 - head final auditado: `294316174624f7ece7b15d0f12b525a0f538f16d`;
-- merge commit: `4850dc264d28b50f5f480888a13662331772417e`.
+- merge commit: `4850dc264d28b50f5f480888a13662331772417e`;
+- freeze: decisão 0017.
 
-Próximo passo: implementar **somente o Marco 2 da Analysis View v0.1b**, limitado a `w:b` e `w:i` com semântica toggle correta. Não iniciar outras propriedades nem nova camada antes de congelar o Marco 2.
+PR #4 — Marco 2:
+- branch: `analysis-v01b-formatting-m2`;
+- base: `48b1a08468c076a3891e8592ca804623556ca847`;
+- head final auditado: `d681e49512932d127840f1102ed8f18b272d2c6e`;
+- merge por squash: `db5a2f98445c80a686d209e635710f72dc36b72f`;
+- freeze: decisão 0018.
 
 Este é o HANDOFF corrente. O histórico fica no Git; não criar `handoff_vNN`.
 
@@ -27,13 +34,20 @@ Este é o HANDOFF corrente. O histórico fica no Git; não criar `handoff_vNN`.
 
 Só postergar quando houver expansão explícita de escopo, dependência não resolvida, impossibilidade técnica demonstrada, contradição normativa/arquitetural nova ou novo risco de segurança.
 
+Fluxo formal:
+1. ChatGPT propõe;
+2. modelo apropriado audita;
+3. ChatGPT integra;
+4. Felipe aprova quando necessário;
+5. HANDOFF + decisão/commit.
+
 Para trabalho com Kimi:
 - mesmo projeto;
 - novo chat por etapa técnica grande;
-- no início do chat: HANDOFF corrente + commit exato do `main` + tarefa fechada;
-- implementação só conta como entregue com branch/commit/PR real ou diff completo;
+- no início: HANDOFF + SHA exato do `main` + tarefa fechada;
+- implementação só conta com branch/commit/PR real ou diff completo;
 - estado do GitHub prevalece sobre sandbox/conversa;
-- após implementação, auditoria adversarial antes de merge/freeze.
+- auditoria adversarial antes de merge/freeze.
 
 ## Objetivo do MVP
 
@@ -69,145 +83,137 @@ Princípio: **Na dúvida, marcar.**
 - OriginalPackage imutável;
 - PhysicalIR derivada, serializável e forense;
 - saída nunca reconstruída da IR;
-- OOXML + lxml autoritativo; python-docx auxiliar;
+- OOXML + lxml autoritativo;
 - `children[]` autoritativo;
-- stories secundárias e parse parcial;
-- tabelas/nested tables/block containers;
+- stories secundárias, parse parcial, tabelas, nested tables e block containers;
 - parser v0.4.0 congelado em `0012-freeze-parser-v04.md`;
-- suíte congelada do parser: **102/102**.
+- suíte do parser: **102/102**.
 
 ### 0013–0014 — Analysis View v0.1a: Normalized Text
-Contrato e freeze da Normalized Text View.
-
-Garantias:
+Congelada com:
 - um segmento por fragmento físico;
 - `segments[]` autoritativo;
 - `default_text` derivado;
 - offsets em code points Python;
 - zero-width para não participantes;
-- opacos relevantes preservados;
-- break desconhecido/ilegível não ganha precisão inventada;
+- opacos preservados;
+- sem falsa precisão em breaks;
 - serialização determinística;
 - sem lxml vivo;
-- PhysicalIR não modificada.
-
-Freeze v0.1a: **154/154** total, incluindo **102/102** parser.
+- PhysicalIR imutável.
 
 ### 0015 — Contrato Analysis View v0.1b
-`docs/decisions/0015-analysis-v01b-formatting-resolution-contract.md`
-
-Contrato único dividido em dois marcos internos.
-
-Princípios:
 - `styles.xml` fora da PhysicalIR;
 - `StyleCatalog` derivado do OriginalPackage e verificado por `part_name + sha256`;
-- `RawPropertyBag` como único extrator local de propriedades;
-- statuses: `resolved`, `absent`, `unresolved`, `invalid`, `ambiguous`;
-- `invalid` terminal por propriedade/slot;
+- `RawPropertyBag` único extrator de propriedades;
+- statuses `resolved`, `absent`, `unresolved`, `invalid`, `ambiguous`;
 - evidence/provenance completa;
 - `docDefaults` na cascade;
-- theme refs como valores documentais `resolved`;
+- theme refs documentais `resolved`;
 - fonts por slots, sem `effective_font` visual;
 - Decimal, nunca float;
-- falha parcial por `(target, propriedade/slot)`;
+- falha parcial por propriedade/slot;
 - v0.1b ortogonal à v0.1a.
 
 ### 0016 — Errata normativa de seleção de styles
-`docs/decisions/0016-analysis-v01b-style-selection-errata.md`
-
-Prevalece sobre conflitos da 0015:
-- multiple defaults do mesmo tipo: **última ocorrência documental vence** + warning;
-- duplicate `styleId`: **primeira ocorrência documental é o referencial normativo** + warning;
-- `styleId` ausente = `None`, sem inventar ID;
+- multiple defaults do mesmo tipo: última ocorrência documental vence + warning;
+- duplicate `styleId`: primeira ocorrência documental é o referencial normativo + warning;
+- `styleId` ausente = `None`;
 - style sem ID pode ser default;
 - `w:type` ausente => `paragraph`;
-- `ambiguous` no Marco 1 fica reservado a duplicate property conflitante sem precedência normativa segura.
+- `ambiguous` não é usado para essas anomalias.
 
-### 0017 — Freeze Analysis View v0.1b Marco 1
-`docs/decisions/0017-freeze-analysis-v01b-m1.md`
+### 0017 — Freeze v0.1b Marco 1
+Congeladas propriedades:
 
-Marco 1 congelado após auditoria do PR #3 e incorporação da 0016.
-
-Implementado:
-- `formatting_model.py`;
-- `property_bag.py`;
-- `style_catalog.py`;
-- `formatting.py`;
-- testes unitários e E2E.
-
-Propriedades de run congeladas no Marco 1:
+Run:
 - `w:sz`;
-- `w:rFonts` por 8 slots;
-- `w:lang` por 3 slots;
+- `w:rFonts` 8 slots;
+- `w:lang` 3 slots;
 - `w:u`;
 - `w:vertAlign`.
 
-Propriedades de parágrafo congeladas no Marco 1:
+Paragraph:
 - `pStyle`;
 - `w:jc`;
 - `w:spacing`;
 - `w:ind` com cláusula numbering↔indent.
 
-Auditoria final também verificou que a ausência de `rStyle` significa que nenhum character style é aplicado; o resolver não deve aplicar automaticamente o default character style a runs sem `rStyle`.
+Também congelado: run sem `rStyle` não recebe default character style automaticamente.
 
-## Marco 2 — próximo ciclo
+### 0018 — Freeze v0.1b Marco 2
+`docs/decisions/0018-freeze-analysis-v01b-m2.md`
 
-Escopo EXCLUSIVO:
+Congelados:
 - `w:b`;
 - `w:i`.
 
-Semântica contratual já fechada:
+Semântica:
 
-### Style hierarchy composition
-Ordem do menos específico ao mais específico:
-`docDefaults -> paragraph style chain (root→child) -> character style chain (root→child)`.
+#### Styles/docDefaults
+Ordem:
+`docDefaults -> paragraph root→specific -> character root→specific`
 
-Dentro de styles/docDefaults:
-- `true`, `1` ou atributo omitido => **toggle** do estado acumulado;
-- `false` ou `0` => **no-op**;
-- ausente => herda.
+- omitido/`1`/`true`/`on` => toggle;
+- `0`/`false`/`off` => no-op;
+- lexical inválido, inclusive `w:val=""`, => `invalid`.
 
-### Direct formatting
-No `w:rPr` direto do run:
-- `true`, `1` ou omitido => `true` absoluto;
-- `false` ou `0` => `false` absoluto;
-- direct é terminal e NÃO participa da paridade.
+#### Direct formatting
+- omitido/`1`/`true`/`on` => `true` absoluto;
+- `0`/`false`/`off` => `false` absoluto;
+- direct é terminal e nunca participa da paridade.
 
-Vetores mínimos obrigatórios:
-- docDefaults on -> true;
-- parent on + child on -> false;
-- parent on + child false -> true;
-- paragraph style on + character style on -> false;
-- paragraph style on + character style false -> true;
-- docDefaults on + paragraph style on -> false;
-- docDefaults + paragraph + character on -> true;
-- style on + direct on -> true;
-- style on + direct false -> false;
-- direct inválido -> invalid;
-- tudo ausente -> absent.
+#### Outros invariantes
+- tudo ausente => `absent`, nunca `resolved false`;
+- duplicate semanticamente idêntico => aplica uma vez + warning;
+- duplicate conflitante => `ambiguous`;
+- cycle relevante sem direct => `unresolved(style_cycle)`;
+- direct terminal pode resolver apesar de cycle inferior;
+- evidence segue ordem real de composição;
+- multi-evidence não recebe falsa causalidade em `winning_evidence`.
 
-## Fora do próximo ciclo
+Auditoria do PR #4 encontrou e corrigiu desalinhamento `visited`/`levels` em cycle com style sem `styleId`.
+
+Suíte final: **267/267**; regressões anteriores **222/222 preservadas**.
+
+## Estado da Analysis View
+
+Para o escopo contratado, a Analysis View está agora fechada:
+
+1. v0.1a — texto normalizado;
+2. v0.1b Marco 1 — formatação não-toggle;
+3. v0.1b Marco 2 — bold/italic toggle.
+
+Ela responde a fatos documentais; não decide conformidade acadêmica e não autoriza mutação.
+
+## Fora do escopo atual
 
 Continuam fora:
-- demais toggles;
-- theme resolution real;
+- demais toggles (`bCs`, `iCs`, strike, caps etc.);
+- theme resolution visual real;
 - numbering.xml completo;
 - table styles;
 - section/page;
 - renderer/layout;
-- profile acadêmico;
-- SafetyGate;
-- patching.
+- patching;
+- profile acadêmico aplicado;
+- SafetyGate aplicado.
 
-## Próximo passo operacional
+## Próximo passo
 
-Abrir **novo chat no Kimi K3** para o Marco 2, porque é um novo marco técnico com semântica qualitativamente diferente.
+**Abrir o ciclo da camada de decisão/comparação entre fatos documentais resolvidos e o perfil formal ativo.**
 
-No novo chat:
-1. ler este HANDOFF;
-2. ler decisões 0015, 0016 e 0017;
-3. confirmar SHA exato do `main`;
-4. implementar apenas `w:b`/`w:i` em branch própria;
-5. preservar os **222 testes** correntes e adicionar vetores adversariais de toggle;
-6. publicar PR real;
-7. trazer para auditoria antes de merge/freeze.
+Primeiro passo obrigatório: contrato/arquitetura, sem código.
+
+Questões centrais da próxima etapa:
+- unidade de decisão (`target + aspect`);
+- como ligar PhysicalIR/Analysis View ao perfil P1–P27;
+- diferença entre fato documental, regra ativa, decisão e autorização;
+- statuses de decisão (`compliant`, `needs_change`, `flag`, `abstain`, etc.) sem antecipar OperationPlan;
+- regras ausentes/ambíguas/variantes aceitas;
+- provenance da regra e da evidência documental;
+- separação estrita entre Decision Engine e SafetyGate;
+- como preservar IA1–IA13 e IB1–IB2;
+- testes mínimos contra o corpus-base congelado.
+
+Não implementar mutação nem patching antes desse contrato ser fechado e auditado.
