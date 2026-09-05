@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-**Fase:** corpus-base v1 congelado; parser físico v0.4 congelado; Analysis View v0.1a/v0.1b congeladas; Decision Vocabulary v0.1 congelado; Decision Layer v0.1 congelada em 0021; **Classification Layer v0.1 contratada em 0022 e pronta para implementação do primeiro slice.**
+**Fase:** corpus-base v1 congelado; parser físico v0.4 congelado; Analysis View v0.1a/v0.1b congeladas; Decision Vocabulary v0.1 congelado; Decision Layer v0.1 congelada em 0021; Classification Layer v0.1 contratada em 0022 e **implementada, auditada, mergeada e congelada em 0023**.
 
 Validação corrente:
 - parser v0.4: **102/102**;
@@ -10,6 +10,7 @@ Validação corrente:
 - Analysis até v0.1b Marco 1: **222/222**;
 - Analysis completa: **267/267**;
 - após Decision Layer v0.1: **290/290**;
+- após Classification Layer v0.1: **335/335**;
 - failures: 0;
 - errors: 0;
 - skips: 0.
@@ -17,7 +18,8 @@ Validação corrente:
 PRs/freeze principais:
 - PR #3 — Analysis v0.1b Marco 1; freeze 0017;
 - PR #4 — Analysis v0.1b Marco 2; freeze 0018;
-- PR #5 — Decision Layer v0.1; head auditado `c340d1ab2c94b7c4af802419d0e414c4019be246`; squash `b81f628a0358cbc9483e9207d4f749ea4a2ca475`; freeze 0021.
+- PR #5 — Decision Layer v0.1; head auditado `c340d1ab2c94b7c4af802419d0e414c4019be246`; squash `b81f628a0358cbc9483e9207d4f749ea4a2ca475`; freeze 0021;
+- PR #6 — Classification Layer v0.1; head final auditado `94fb797fec1f44508274ec47ba87409da8e4537d`; squash `736c33036224562549b1b5cb026bd6bfdfd2e112`; freeze 0023.
 
 Este é o HANDOFF corrente. O histórico fica no Git; não criar `handoff_vNN`.
 
@@ -96,12 +98,12 @@ Congelada:
 
 ## Analysis View v0.1b — 0015–0018
 
-Marco 1 congelado:
+Marco 1:
 - run: `w:sz`, `w:rFonts` 8 slots, `w:lang` 3 slots, `w:u`, `w:vertAlign`;
 - paragraph: `pStyle`, `w:jc`, `w:spacing`, `w:ind` com cláusula numbering↔indent;
 - regras de defaults/styleId conforme 0016.
 
-Marco 2 congelado:
+Marco 2:
 - `w:b`, `w:i`;
 - styles/docDefaults: `docDefaults -> paragraph root→specific -> character root→specific`;
 - toggle correto em styles; direct absoluto e terminal;
@@ -133,7 +135,7 @@ Pipeline:
 
 ```text
 Analysis View
-+ TargetClassification explícita
++ TargetClassification
 + profile/rule context validado
 -> Decision
 ```
@@ -180,240 +182,154 @@ Estados seguros:
 - `absent` nunca equivale a false;
 - set/preferred/human_choice conforme 0020/0021.
 
-E2E congelado:
+Suíte após Decision: **290/290**.
+
+## Classification Layer v0.1 — 0022 + freeze 0023
+
+Pipeline congelado:
 
 ```text
-DOCX
--> Parser
--> Analysis
--> Decision
-```
-
-com classificação `body` ainda fornecida manualmente.
-
-Suíte final Decision: **290/290**.
-
-## Classification Layer v0.1 — 0022
-
-Status: **APPROVED FOR IMPLEMENTATION**.
-
-Pipeline:
-
-```text
-PhysicalIR
-+ Normalized Text
-+ Formatting Analysis / StyleCatalog
-+ contexto estrutural/sequencial
+PhysicalIR + StyleCatalog
+-> Analysis pública determinística (derivada internamente)
 -> ClassificationResult
--> projeção segura para TargetClassification
+-> TargetClassification elegível
 -> Decision Layer
 ```
 
-### Fronteira
-
-Classification NÃO:
-- decide conformidade;
-- consulta perfil normativo como verdade classificatória;
-- gera desired_value;
-- cria OperationPlan;
-- chama SafetyGate;
-- altera DOCX/XML;
-- lê OOXML cru por conta própria;
-- usa LLM/probabilidade/random/clock/locale na v0.1.
-
-### Unidade e taxonomia
-
-Parágrafo é unidade primária.
-
-Vocabulário v0.1:
+### Escopo executável
 
 ```text
 body
 heading
+abstain / not_applicable
+```
+
+No vocabulário, mas ainda não executáveis:
+
+```text
 long_quote
 reference
 ```
 
-`unknown` NÃO é classe.
+`unknown` NÃO é `target_class`.
 
-`heading` usa `metadata.level = int | None`, não classes `heading_N`.
-
-`reference` = entrada individual; cabeçalho da seção = heading.
-
-Runs recebem classe apenas por projeção explícita do parágrafo pai.
-
-### Status
+### Status / basis
 
 ```text
-classified
-abstained
-not_applicable
+ClassificationStatus:
+    classified
+    abstained
+    not_applicable
+
+ClassificationBasis:
+    explicit
+    structural
+    heuristic
 ```
 
-`ambiguous` é reason de abstention (`conflicting_evidence`), não status.
-
-Invariante:
-
-```text
-status == classified  IFF  target_class is not None
-```
-
-Abstained/not_applicable nunca projetam para TargetClassification.
-
-### Basis / elegibilidade
-
-```text
-explicit
-structural
-heuristic
-```
-
-Elegibilidade automática é derivada, não um campo separado:
+Elegibilidade automática é derivada:
 
 ```text
 status == classified
 AND basis in {explicit, structural}
 ```
 
-Sem confidence numérica.
+Sem confidence numérico e sem `safe_for_automatic_use` redundante.
 
-### Evidence
+### Style identity map v0.1
 
-`ClassificationEvidence` registra fatos com:
-- source_kind;
-- source_ref;
-- feature;
-- observed_value;
-- polarity (`supports|contradicts`);
-- strength (`explicit|structural|weak`).
+Mapa congelado:
 
-Aparência (bold, font size, center, indent, uppercase, texto curto) é weak e NÃO classifica sozinha.
+```text
+Normal -> body
+Heading1..Heading9 -> heading level N
+```
 
-### Style identity map
+`BodyText` ficou fora por ausência de evidência real suficiente.
 
-`classification_style_identity_version = "0.1"`.
+Regras:
+- styleId exato;
+- `style_type=paragraph` obrigatório;
+- `customStyle=true` impede identidade built-in direta;
+- style name sozinho nunca classifica;
+- custom style pode herdar via `basedOn` válida;
+- cycle/dangling/wrong-type hop não classificam.
 
-Mapa versionado pertence à Classification Layer e usa identidade documental verificável, não matching ad hoc de nome.
+### Default paragraph style
 
-Primeiro slice:
-- identidades HeadingN verificáveis -> `heading`, level N;
-- Normal/BodyText verificáveis -> `body` quando contexto permitido;
-- custom style pode herdar classe via cadeia basedOn verificável;
-- nome custom/localizado semelhante a heading/body NÃO classifica sozinho;
-- futura localização/renomeação exigirá `ClassificationHints` próprio, versionado e separado do perfil normativo.
+`pStyle` ausente pode usar o default paragraph style aplicável do StyleCatalog como evidência positiva.
+
+Esse sinal é `basis=explicit`, com evidence própria `default_paragraph_style`.
 
 ### Body
 
 Nunca fallback residual.
 
-Exige evidência positiva de identidade + contexto permitido.
+Sem identidade reconhecida, o documento pode resultar em 100% abstention.
 
 ### Heading
 
-Exige identidade reconhecida no slice 1.
+`HeadingN`:
 
-Formatação direta parecida com heading não classifica.
+```text
+target_class = heading
+metadata.level = N
+basis = explicit
+reason = explicit_style_signal
+```
 
-### Long quote / Reference
+Aparência tipográfica não classifica.
 
-Estão no vocabulário, mas fora do primeiro slice executável.
+### Context policies
 
-Ativação futura depende de evidência mínima formal + corpus anotado.
-
-### Context policies do slice 1
-
-- story principal apenas;
 - secondary stories -> not_applicable/unsupported_story;
-- tabelas/células/block containers -> abstained/unsupported_context;
+- table/cell/nested/block_container -> abstained/unsupported_context;
 - numbering warning -> abstained/unsupported_context;
 - empty paragraph -> abstained/empty_content;
-- nenhum fallback por vizinhança.
+- empty_content tem prioridade sobre unsupported_context.
 
-### Reasons fechados
+### Run inheritance
 
-Classificação:
+Runs só recebem classe por projeção explícita do parágrafo pai.
+
+Após auditoria, ficou congelado:
+- run path deve ser descendente estrito do paragraph path;
+- run de outro parágrafo = erro de contrato;
+- prefix siblings não contam como parentesco;
+- run herdado preserva path/hash próprios, parent_anchor e provenance distinta.
+
+### basedOn type-boundary
+
+A auditoria encontrou e corrigiu cadeia que atravessava style de tipo errado.
+
+Regra congelada:
+- qualquer hop `style_type != paragraph` quebra a cadeia;
+- identidade além dessa fronteira é proibida.
+
+### API
+
 ```text
-explicit_style_signal
-structural_context_signal
-inherited_from_paragraph
+classify_document(physical_ir, style_catalog)
+project_run_classification(run, paragraph_result)
+project_target_classification(result)
 ```
 
-Abstenção:
-```text
-insufficient_evidence
-conflicting_evidence
-empty_content
-unsupported_context
-```
+`classify_document` deriva Normalized Text e Formatting Analysis internamente via APIs públicas congeladas da Analysis. A opção foi auditada e aceita: mesmas entradas → mesmos fatos; binding fica garantido por construção; não há parsing OOXML ad hoc.
 
-Não aplicabilidade:
-```text
-unsupported_story
-unsupported_target
-parent_not_classified
-```
+### Projection
 
-Prioridade determinística:
-1. unsupported_story / unsupported_target;
-2. parent_not_classified;
-3. empty_content;
-4. unsupported_context;
-5. conflicting_evidence;
-6. insufficient_evidence;
-7. razões positivas.
+Somente resultados elegíveis projetam para `decision.TargetClassification`.
 
-### Provenance
+Provenance fechada:
 
-Modelo rico:
-```text
-direct
-inherited_from_paragraph
-```
-
-TargetClassification projetada usa strings fechadas:
 ```text
 classification:direct
 classification:inherited_from_paragraph
 ```
 
-parent anchor completo permanece no modelo rico.
+### E2E congelado
 
-### API prevista
-
-```text
-classify_document(...)
-project_run_classification(...)
-project_target_classification(...)
-```
-
-API pública primária é por documento/story, não paragraph isolado.
-
-### Analysis debts registradas, não bloqueadoras
-
-- `w:outlineLvl` ainda não exposto;
-- numeração estruturada ainda não exposta, apenas warning;
-- hints para style names localizados/renomeados ainda inexistentes.
-
-Regra: se fato físico faltar, expandir Analysis factual antes; classifier não lê OOXML cru.
-
-### Primeiro vertical slice a implementar
-
-```text
-body
-heading
-abstain
-```
-
-Deve provar:
-- discriminação entre duas classes;
-- abstention segura;
-- ausência de fallback;
-- heading level metadata;
-- paragraph→run inheritance;
-- projeção segura para TargetClassification;
-- E2E completo sem fixture manual de target_class.
-
-E2E-alvo:
+Sem `TargetClassification` manual:
 
 ```text
 DOCX
@@ -424,67 +340,58 @@ DOCX
 -> Decision P1–P4
 ```
 
-### Fixtures obrigatórias mínimas
+Resultados auditados:
+- bold true vs false -> non_compliant/deterministic_change;
+- font 11pt vs 12pt -> non_compliant/deterministic_change;
+- spacing 1.5 -> compliant/no_action;
+- alignment both -> compliant/no_action.
 
-1. Normal/body identity reconhecida -> body;
-2. Heading1 -> heading level 1;
-3. custom style basedOn Heading1 -> heading;
-4. formatação direta parecida com heading sem identidade -> abstain;
-5. vazio -> abstain;
-6. tabela com body style -> abstain;
-7. numbering warning -> abstain;
-8. run herdado de body -> inherited_from_paragraph + parent anchor;
-9. custom style com nome semelhante sem basedOn -> abstain;
-10. referências continuam sem ativação automática no slice 1.
-
-### Corpus e métricas
-
-Criar corpus de classificação separado do corpus-base de formatação após o contrato/slice sintético.
-
-Freeze futuro deve reportar:
-- precision por classe;
-- false-positive rate por classe;
-- coverage;
-- abstention rate.
-
-Não usar accuracy isolada.
-
-Nenhum threshold de produção antes de corpus anotado.
-
-Versionamento:
+Também:
 
 ```text
-CLASSIFICATION_VERSION = "0.1"
-CLASSIFICATION_VOCABULARY_VERSION = "0.1"
-classification_style_identity_version = "0.1"
+Heading1 -> heading level=1 -> projection paragraph/run
 ```
+
+### Auditoria PR #6
+
+Achados corrigidos antes do freeze:
+1. **BLOQUEADOR:** parent/run binding ausente permitia herança de classe estrangeira;
+2. **IMPORTANTE:** `basedOn` podia atravessar style-type boundary.
+
+Foram adicionados testes adversariais para parent mismatch, prefix siblings, multi-hop basedOn, wrong-type hop e pStyle→character style.
+
+Suíte final: **335/335**, com **290/290 regressões preservadas**.
+
+### Dívidas registradas, não bloqueadoras
+
+- `long_quote` executável;
+- `reference` executável;
+- ClassificationHints/localização de styles;
+- `outlineLvl` factual;
+- numeração estruturada;
+- title/subtitle;
+- short_quote/classes inline;
+- LLM separado para abstentions;
+- corpus real anotado de classificação;
+- métricas por classe e thresholds somente após corpus.
 
 ## Fora do próximo ciclo
 
 Continuam fora:
-- long_quote executável;
-- reference executável;
-- title/subtitle;
-- short_quote e classes inline;
-- ClassificationHints/localização de styles;
-- outlineLvl/numeração estruturada na Analysis;
-- LLM classifier;
 - OperationPlan;
 - SafetyGate;
-- patching;
+- XML patches;
 - DOCX clean/review;
-- UI/API web.
+- UI/API web;
+- long_quote/reference executáveis;
+- expansão de Analysis sem necessidade comprovada.
 
 ## Próximo passo operacional
 
-**Implementar o primeiro vertical slice da Classification Layer v0.1 (`body + heading + abstain`) em branch própria.**
+**Abrir uma nova etapa arquitetural pequena para decidir o próximo elo do pipeline, sem reabrir automaticamente Classification/Decision.**
 
-Antes de merge/freeze:
-1. preservar integralmente os **290 testes congelados**;
-2. implementar modelos frozen + style identity map + contexto mínimo + projeção paragraph→run;
-3. testar nenhum fallback para body;
-4. testar custom styles adversariais;
-5. adicionar E2E `DOCX → Parser → Analysis → Classification → Decision` sem target_class manual;
-6. rodar determinismo cross-process/hashseed;
-7. auditoria adversarial Kimi;
-8. só depois merge + decisão de freeze + atualização deste HANDOFF.
+Candidatos naturais agora:
+1. `OperationPlan` — transformar `Decision` determinística em intenção operacional sem ainda tocar XML;
+2. ou ampliar cobertura/classificação (`long_quote`/`reference`) apenas se houver evidência de que isso é mais prioritário para o MVP.
+
+Antes de qualquer implementação do próximo elo: contrato primeiro, auditoria depois, código só então.
