@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-**Fase:** corpus-base v1 congelado; parser físico v0.4 congelado; Analysis View v0.1a congelada; **Analysis View v0.1b — Formatting Resolution View — Marcos 1 e 2 implementados, auditados, mergeados e formalmente congelados.**
+**Fase:** corpus-base v1 congelado; parser físico v0.4 congelado; Analysis View v0.1a congelada; Analysis View v0.1b Marcos 1 e 2 congelados; **Decision Vocabulary v0.1 congelado (0019) e contrato da Decision Layer v0.1 aprovado para implementação (0020).**
 
 Validação corrente:
 - parser v0.4: **102/102**;
@@ -178,7 +178,7 @@ Suíte final: **267/267**; regressões anteriores **222/222 preservadas**.
 
 ## Estado da Analysis View
 
-Para o escopo contratado, a Analysis View está agora fechada:
+Para o escopo contratado, a Analysis View está fechada:
 
 1. v0.1a — texto normalizado;
 2. v0.1b Marco 1 — formatação não-toggle;
@@ -186,34 +186,192 @@ Para o escopo contratado, a Analysis View está agora fechada:
 
 Ela responde a fatos documentais; não decide conformidade acadêmica e não autoriza mutação.
 
-## Fora do escopo atual
+### 0019 — Decision Vocabulary v0.1
+`docs/decisions/0019-decision-vocabulary-v01.md`
+
+Vocabulário formal congelado:
+
+```text
+P1 / run / bold
+P1 / run / italic
+P2 / run / font_size
+P3 / paragraph / spacing.line
+P4 / paragraph / alignment
+```
+
+Regras:
+- `DecisionKey = (target_type, aspect_id, property_slot)`;
+- `physical_anchor` fica no `DecisionTarget`;
+- `target_class` é classificação externa, não parte do slot;
+- nomes ASCII/lowercase, snake_case, ponto só para decomposição real;
+- sem nomes OOXML na API de decisão;
+- `decision_vocabulary_version = "0.1"` obrigatório;
+- tabela versionada `property_slot -> Analysis source` é a fronteira autorizada com a Analysis View;
+- P5–P9 permanecem macro;
+- regras cross-slot de destaque (`allowed=[bold, italic]`) ficam fora da v0.1 sem alterar os slots já congelados.
+
+### 0020 — Decision Layer v0.1 Contract
+`docs/decisions/0020-decision-layer-v01-contract.md`
+
+Contrato aprovado para implementação.
+
+Pipeline:
+
+```text
+Analysis View
++ TargetClassification
++ ValidatedProfile
+-> Decision Layer
+-> OperationPlan (futuro)
+-> SafetyGate (futuro)
+-> XML patches (futuro)
+```
+
+A Decision Layer:
+- é 100% determinística;
+- não classifica alvos;
+- não usa LLM em runtime;
+- não gera patch;
+- não cria OperationPlan;
+- não chama SafetyGate.
+
+#### Dois eixos
+
+```text
+ComplianceStatus:
+    compliant
+    non_compliant
+    unknown
+    not_applicable
+    not_evaluated
+
+Actionability:
+    no_action
+    deterministic_change
+    human_choice
+    review
+    preserve
+```
+
+`blocked` pertence ao SafetyGate futuro, não à Decision Layer.
+
+#### Unidade de decisão
+
+Uma decisão por `(target, aspect_id, property_slot)`, com specs compostos avaliados por slot.
+
+#### ValidatedProfile
+
+Validação do perfil é etapa anterior obrigatória. A Decision Layer recebe apenas regras estruturalmente válidas.
+
+Rule model mínimo:
+
+```text
+mode = exact | set | containment
+```
+
+Sem linguagem genérica, PresenceRule/AbsenceRule ou regras cross-slot na v0.1.
+
+#### Provenance
+
+- `profile_ref` sempre presente;
+- `rule_ref` só existe quando há regra concreta;
+- regra ausente => `rule_ref=None`;
+- containment é regra concreta e possui `rule_ref`;
+- evidence documental rastreável ao physical anchor/Analysis.
+
+#### Reasons fechados
+
+```text
+matches_rule
+differs_from_rule
+allowed_variant
+preferred_variant_differs
+human_choice_required
+rule_absent
+containment
+analysis_absent
+analysis_unresolved
+analysis_invalid
+analysis_ambiguous
+not_applicable
+```
+
+#### Matriz segura
+
+Regra ausente:
+`not_applicable / preserve / rule_absent`, sem warning.
+
+Containment:
+`not_evaluated / preserve / containment`, sem warning.
+
+Regra ativa + Analysis resolved:
+- exact match => compliant/no_action;
+- exact mismatch => non_compliant/deterministic_change + desired_value;
+- set com preferred => preferred governa a mudança determinística;
+- set sem preferred + observado fora => non_compliant/human_choice/human_choice_required, sem desired_value.
+
+Com regra ativa:
+- `unresolved` => unknown/review;
+- `invalid` => unknown/review;
+- `ambiguous` => unknown/review;
+- `absent` => unknown/review na v0.1, inclusive toggles; não assumir `absent=false`.
+
+`desired_value` é semântico e pertence à Decision Layer apenas quando `actionability=deterministic_change`; nunca contém operação XML.
+
+## Primeiro vertical slice da Decision Layer
+
+Implementar somente:
+
+```text
+P1 / run / bold
+P2 / run / font_size
+P3 / paragraph / spacing.line
+P4 / paragraph / alignment
+```
+
+`P1/italic` está congelado no vocabulário, mas pode esperar o slice seguinte.
+
+Classificação será explícita/manual em fixtures; não implementar Classifier ainda.
+
+Esse slice prova:
+- bool/toggle;
+- Decimal;
+- token documental;
+- spec composto por slot;
+- match/mismatch;
+- ausência conservadora;
+- provenance;
+- determinismo;
+- falha parcial.
+
+## Fora do próximo ciclo
 
 Continuam fora:
-- demais toggles (`bCs`, `iCs`, strike, caps etc.);
-- theme resolution visual real;
-- numbering.xml completo;
-- table styles;
-- section/page;
-- renderer/layout;
+- classificação acadêmica automática;
+- `italic` se não necessário ao slice inicial;
+- underline;
+- FontSpec family slots;
+- LanguageSpec;
+- spacing before/after;
+- indents/P5;
+- P6–P9;
+- regras cross-slot;
+- referências/citações;
+- OperationPlan;
+- SafetyGate;
 - patching;
-- profile acadêmico aplicado;
-- SafetyGate aplicado.
+- DOCX clean/review;
+- UI/API web.
 
 ## Próximo passo
 
-**Abrir o ciclo da camada de decisão/comparação entre fatos documentais resolvidos e o perfil formal ativo.**
+**Implementar o primeiro vertical slice da Decision Layer v0.1 em branch própria, com auditoria técnica adversarial antes de merge/freeze.**
 
-Primeiro passo obrigatório: contrato/arquitetura, sem código.
-
-Questões centrais da próxima etapa:
-- unidade de decisão (`target + aspect`);
-- como ligar PhysicalIR/Analysis View ao perfil P1–P27;
-- diferença entre fato documental, regra ativa, decisão e autorização;
-- statuses de decisão (`compliant`, `needs_change`, `flag`, `abstain`, etc.) sem antecipar OperationPlan;
-- regras ausentes/ambíguas/variantes aceitas;
-- provenance da regra e da evidência documental;
-- separação estrita entre Decision Engine e SafetyGate;
-- como preservar IA1–IA13 e IB1–IB2;
-- testes mínimos contra o corpus-base congelado.
-
-Não implementar mutação nem patching antes desse contrato ser fechado e auditado.
+Antes de codificar:
+1. confirmar SHA exato do `main`;
+2. ler 0019 e 0020;
+3. manter classificação explícita em fixtures;
+4. não criar classificador, OperationPlan, SafetyGate ou patches;
+5. preservar integralmente os **267 testes congelados**;
+6. adicionar testes da matriz da decisão, provenance, determinismo e não-mutação;
+7. publicar PR real e trazer para auditoria.
