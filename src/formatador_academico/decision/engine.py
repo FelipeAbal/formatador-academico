@@ -14,7 +14,7 @@ _STATUS_REASON = {
     ResolutionStatus.ABSENT: DecisionReason.ANALYSIS_ABSENT,
     ResolutionStatus.UNRESOLVED: DecisionReason.ANALYSIS_UNRESOLVED,
     ResolutionStatus.INVALID: DecisionReason.ANALYSIS_INVALID,
-    ResolutionStatus.AMBIGUOUS: DecisionReason.ANALYSIS_AMIGUOUS if False else DecisionReason.ANALYSIS_AMBIGUOUS,
+    ResolutionStatus.AMBIGUOUS: DecisionReason.ANALYSIS_AMBIGUOUS,
 }
 
 def _validate_context(context: DecisionContext) -> None:
