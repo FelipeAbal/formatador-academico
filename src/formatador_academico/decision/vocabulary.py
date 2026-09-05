@@ -34,14 +34,26 @@ def require_supported_key(key: DecisionKey) -> VocabularyEntry:
         raise ValueError(f"DecisionKey is frozen but outside current vertical slice: {key}")
     return entry
 
+def _boundary_getattr(analysis: Any, source: str, key: DecisionKey) -> Any:
+    obj = analysis
+    for attr in source.split(".")[1:]:
+        try:
+            obj = getattr(obj, attr)
+        except AttributeError as exc:
+            raise TypeError(
+                f"analysis object of type {type(analysis).__name__} does not satisfy "
+                f"the vocabulary boundary {source} for {key}"
+            ) from exc
+    return obj
+
 def extract_resolved_value(key: DecisionKey, analysis: Any):
     entry = require_supported_key(key)
     if entry.analysis_source == "ResolvedRunFormatting.bold":
-        return analysis.bold
+        return _boundary_getattr(analysis, entry.analysis_source, key)
     if entry.analysis_source == "ResolvedRunFormatting.font_size":
-        return analysis.font_size
+        return _boundary_getattr(analysis, entry.analysis_source, key)
     if entry.analysis_source == "ResolvedParagraphFormatting.spacing.line":
-        return analysis.spacing.line
+        return _boundary_getattr(analysis, entry.analysis_source, key)
     if entry.analysis_source == "ResolvedParagraphFormatting.alignment":
-        return analysis.alignment
+        return _boundary_getattr(analysis, entry.analysis_source, key)
     raise AssertionError("unreachable vocabulary mapping")
