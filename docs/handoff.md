@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-**Fase:** corpus-base v1 congelado; parser físico v0.4 congelado; Analysis View v0.1a/v0.1b congeladas; Decision Vocabulary v0.1 congelado; Decision Layer v0.1 congelada em 0021; Classification Layer v0.1 contratada em 0022 e **implementada, auditada, mergeada e congelada em 0023**.
+**Fase:** corpus-base v1 congelado; parser físico v0.4 congelado; Analysis View v0.1a/v0.1b congeladas; Decision Vocabulary v0.1 congelado; Decision Layer v0.1 congelada em 0021; Classification Layer v0.1 congelada em 0023; **OperationPlan v0.1 contratada em 0024 e pronta para implementação do primeiro slice.**
 
 Validação corrente:
 - parser v0.4: **102/102**;
@@ -63,7 +63,9 @@ Princípio: **Na dúvida, marcar.**
 - SafetyGate é veto, nunca autorização;
 - C3 exige revisão humana;
 - classificação errada é risco upstream: **precision > coverage**;
-- abstention correta é sucesso seguro.
+- abstention correta é sucesso seguro;
+- plano antigo/documento alterado deve ser detectável antes de qualquer patch;
+- operação é compare-and-set semântico: observed/precondition + desired.
 
 ## Corpus-base v1
 
@@ -82,6 +84,8 @@ Congelado:
 - saída nunca reconstruída da IR;
 - stories secundárias, parse parcial, tabelas, nested tables e block containers;
 - parser v0.4.0;
+- PhysicalIR inclui `package.sha256` do DOCX e sha256 por part;
+- `physical_hash` por alvo protege identidade física local;
 - suíte: **102/102**.
 
 ## Analysis View v0.1a — 0013–0014
@@ -362,36 +366,259 @@ Foram adicionados testes adversariais para parent mismatch, prefix siblings, mul
 
 Suíte final: **335/335**, com **290/290 regressões preservadas**.
 
-### Dívidas registradas, não bloqueadoras
+## OperationPlan v0.1 — contrato 0024
 
-- `long_quote` executável;
-- `reference` executável;
-- ClassificationHints/localização de styles;
-- `outlineLvl` factual;
-- numeração estruturada;
-- title/subtitle;
-- short_quote/classes inline;
-- LLM separado para abstentions;
-- corpus real anotado de classificação;
-- métricas por classe e thresholds somente após corpus.
+Status: **APPROVED FOR IMPLEMENTATION**.
+
+Pipeline:
+
+```text
+Decision
+-> OperationPlan
+-> SafetyGate
+-> XML Patch
+```
+
+Princípio congelado:
+
+**OperationPlan propõe; SafetyGate veta ou libera; patcher executa.**
+
+### Fronteira
+
+Planner é puro e determinístico. NÃO:
+- redecide conformidade;
+- escolhe variante normativa;
+- reclassifica alvo;
+- consulta Analysis/Classification para reinterpretar fatos;
+- abre DOCX;
+- lê OOXML/lxml;
+- gera patch;
+- executa SafetyGate;
+- usa IO/rede/LLM/clock/random/locale.
+
+### API
+
+```text
+plan_decision(decision) -> PlanningResult
+build_operation_plan(source_document, upstream_versions, decisions) -> OperationPlan
+```
+
+`PlanningStatus`:
+
+```text
+planned
+skipped
+unsupported
+```
+
+Somente `deterministic_change` em slot suportado produz operação.
+
+`no_action | human_choice | review | preserve` -> `skipped` sem mutação.
+
+`deterministic_change` em slot não suportado pelo planner -> `unsupported`, nunca silenciosamente `None`.
+
+### Operation vocabulary
+
+```text
+OPERATION_PLAN_VERSION = "0.1"
+OPERATION_VOCABULARY_VERSION = "0.1"
+OperationKind.SET_PROPERTY
+```
+
+Reutiliza `DecisionKey`; não cria operação específica por slot.
+
+Slice executável:
+
+```text
+P1/run/bold
+P2/run/font_size
+P3/paragraph/spacing.line
+P4/paragraph/alignment
+```
+
+### PlannedOperation
+
+Conceito:
+
+```text
+SET_PROPERTY
++ DecisionKey
++ target congelado
++ precondition_observed
++ desired_value
++ decision_ref
+```
+
+Uma operação = uma intenção = no máximo uma mutação de propriedade.
+
+### Compare-and-set obrigatório
+
+`precondition_observed = decision.observed` é parte obrigatória da operação.
+
+Invariantes:
+
+```text
+precondition_observed is not None
+desired_value is not None
+precondition_observed != desired_value
+```
+
+O plano significa semanticamente:
+
+```text
+se ainda estiver no valor observado,
+propor o valor desejado
+```
+
+SafetyGate futuro deverá re-resolver o estado atual antes de liberar.
+
+### Valores semânticos
+
+Sem OOXML no plano:
+- bold -> bool;
+- font_size -> valor tipado `Decimal + pt`;
+- alignment -> token canônico literal;
+- spacing.line -> `LineSpacingValue` público da Decision.
+
+Conversões para half-points/twips ficam no patcher futuro.
+
+### Document/source provenance
+
+Envelope precisa estar ancorado ao documento fonte:
+
+```text
+SourceDocumentRef:
+    package_sha256
+    parser_version
+```
+
+`package_sha256` já existe na PhysicalIR e é byte-level/conservador por design.
+
+No slice 0.1:
+
+```text
+planned_story_part = "word/document.xml"
+```
+
+porque `DecisionTarget` ainda não carrega story/part e somente a story principal é executável hoje.
+
+### Upstream versions
+
+Envelope registra:
+
+```text
+analysis_formatting_version
+classification_version
+decision_version
+decision_vocabulary_version
+```
+
+### Provenance das Decisions
+
+Cada operação:
+
+```text
+decision_ref = sha256(serialize_decision(decision))
+```
+
+Envelope:
+
+```text
+source_decisions_hash
+```
+
+Sem UUIDs aleatórios. `operation_id/plan_id` não são congelados ainda.
+
+### Stale-plan / target-drift protection
+
+O plano preserva três níveis:
+1. `package_sha256` do documento;
+2. `physical_hash` do alvo;
+3. `precondition_observed` semântica.
+
+OperationPlan não verifica esses estados; apenas os transporta. SafetyGate/Patcher fará a verificação atual.
+
+### Agregação
+
+Mesmo target + mesma key:
+- desired diferente -> erro de conflito;
+- desired idêntico -> erro de duplicidade.
+
+Nada de escolher ou deduplicar silenciosamente.
+
+Plano vazio (`operations=()`) é válido.
+
+### Ordenação
+
+Plano é total e deterministicamente ordenado para serialização, mas essa ordem NÃO é ordem documental nem ordem futura de aplicação.
+
+`structural_path` lexicográfico serve apenas para bytes estáveis no slice comutativo atual.
+
+### SafetyGate ainda fora
+
+OperationPlan não carrega:
+- safe;
+- blocked;
+- gate_passed;
+- operation_class especulativa.
+
+Natureza factual disponível ao futuro gate:
+
+```text
+OperationKind + target_type + property_slot
+```
+
+### Dívidas não bloqueadoras
+
+- story_id/part/original_index ainda não sobem até DecisionTarget;
+- executar secondary stories exigirá emenda aditiva;
+- original_index será necessário para operações estruturais e ordem real;
+- package_sha256 byte-level invalida reempacotamentos semanticamente equivalentes, conservador por design;
+- MOVE/INSERT/MERGE continuam reservadas e não executáveis.
+
+### E2E-alvo de implementação
+
+```text
+DOCX
+-> Parser
+-> Analysis
+-> Classification
+-> Decision
+-> OperationPlan
+```
+
+Esperado:
+- bold true vs false -> planned SET_PROPERTY, before=true, after=false;
+- font 11 vs 12 -> planned SET_PROPERTY, before=11pt, after=12pt;
+- spacing correto -> skipped/no_action;
+- alignment correto -> skipped/no_action.
+
+Ainda sem SafetyGate e sem XML.
 
 ## Fora do próximo ciclo
 
 Continuam fora:
-- OperationPlan;
 - SafetyGate;
-- XML patches;
+- TransformLog;
+- XML patches/applicator;
 - DOCX clean/review;
 - UI/API web;
 - long_quote/reference executáveis;
+- operações estruturais executáveis;
 - expansão de Analysis sem necessidade comprovada.
 
 ## Próximo passo operacional
 
-**Abrir uma nova etapa arquitetural pequena para decidir o próximo elo do pipeline, sem reabrir automaticamente Classification/Decision.**
+**Implementar OperationPlan v0.1 em branch própria.**
 
-Candidatos naturais agora:
-1. `OperationPlan` — transformar `Decision` determinística em intenção operacional sem ainda tocar XML;
-2. ou ampliar cobertura/classificação (`long_quote`/`reference`) apenas se houver evidência de que isso é mais prioritário para o MVP.
-
-Antes de qualquer implementação do próximo elo: contrato primeiro, auditoria depois, código só então.
+Antes de merge/freeze:
+1. preservar integralmente os **335 testes congelados**;
+2. implementar modelos frozen + `PlanningResult` + `SET_PROPERTY` + envelope;
+3. implementar `decision_ref` e `source_decisions_hash` determinísticos;
+4. preservar package sha, target physical hash e observed precondition;
+5. falhar visivelmente em conflito/duplicata;
+6. suportar empty plan e unsupported deterministic slot;
+7. adicionar E2E completo até OperationPlan;
+8. testar serialização/determinismo cross-process/hashseed;
+9. auditoria adversarial Kimi;
+10. só depois merge + decisão de freeze + atualização deste HANDOFF.
