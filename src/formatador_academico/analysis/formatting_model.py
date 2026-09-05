@@ -1,7 +1,8 @@
-"""Analysis View v0.1b — Formatting Resolution View: public models (Marco 1).
+"""Analysis View v0.1b — Formatting Resolution View: public models (Marco 2).
 
 Contract: docs/decisions/0015-analysis-v01b-formatting-resolution-contract.md
-as amended by docs/decisions/0016-analysis-v01b-style-selection-errata.md
+as amended by docs/decisions/0016-analysis-v01b-style-selection-errata.md.
+Marco 2 adds only w:b and w:i toggle resolution.
 
 All structures are immutable, serializable, deterministic and hold no live
 lxml objects. The v0.1b never mutates the PhysicalIR or package bytes.
@@ -17,7 +18,7 @@ from typing import Any
 
 from .model import AnalysisWarning
 
-ANALYSIS_FORMATTING_VERSION = "0.1b-m1"
+ANALYSIS_FORMATTING_VERSION = "0.1b-m2"
 
 STYLES_PART_NAME = "word/styles.xml"
 
@@ -30,7 +31,6 @@ class ResolutionStatus(str, Enum):
     AMBIGUOUS = "ambiguous"
 
 
-# --- Warning codes (closed set for Marco 1, per decision 0015) ---
 W_MISSING_STYLE = "formatting_missing_style"
 W_STYLE_CYCLE = "formatting_style_cycle"
 W_INVALID_VALUE = "formatting_invalid_value"
@@ -41,7 +41,6 @@ W_DUPLICATE_STYLE_ID = "formatting_duplicate_style_id"
 W_NUMBERING_PRESENT = "formatting_numbering_present"
 W_STYLES_PART_UNREADABLE = "formatting_styles_part_unreadable"
 
-# --- Unresolved reasons (closed set for Marco 1) ---
 R_NUMBERING_INDENT = "numbering_indent_unsupported"
 R_AUTOSPACING = "autospacing_unsupported"
 R_UNSUPPORTED_UNIT = "unsupported_unit"
@@ -51,7 +50,7 @@ R_STYLES_UNAVAILABLE = "styles_unavailable"
 
 @dataclass(frozen=True)
 class FormattingEvidence:
-    source_kind: str  # "direct" | "style" | "doc_defaults"
+    source_kind: str
     part: str
     structural_path: str
     style_id: str | None
@@ -61,16 +60,16 @@ class FormattingEvidence:
 
 @dataclass(frozen=True)
 class LevelEvidence:
-    level: str  # "direct" | "character_style" | "paragraph_style" | "doc_defaults"
+    level: str
     declared: bool
-    detail: str  # "declared" | "not_declared" | "invalid" | "duplicate_conflict" | ...
+    detail: str
     evidence: FormattingEvidence | None
 
 
 @dataclass(frozen=True)
 class ResolvedValue:
     status: ResolutionStatus
-    value: Any  # None unless status == RESOLVED
+    value: Any
     winning_evidence: FormattingEvidence | None
     evidence_chain: tuple[LevelEvidence, ...]
     reason: str | None
@@ -79,9 +78,9 @@ class ResolvedValue:
 @dataclass(frozen=True)
 class Length:
     value: Decimal
-    unit: str  # "pt"
+    unit: str
     raw_value: str
-    raw_unit: str  # "half_point" | "twip"
+    raw_unit: str
 
 
 @dataclass(frozen=True)
@@ -93,7 +92,7 @@ class ThemeRef:
 class LineSpacing:
     rule: str
     value: Decimal | None
-    unit: str | None  # "multiple" | "pt"
+    unit: str | None
     raw_line: str | None
     raw_rule: str | None
 
@@ -104,7 +103,7 @@ class SpacingSpec:
     after: ResolvedValue
     before_lines: ResolvedValue
     after_lines: ResolvedValue
-    line: ResolvedValue  # value is LineSpacing when resolved
+    line: ResolvedValue
 
 
 @dataclass(frozen=True)
@@ -153,12 +152,7 @@ class RawPropertyBag:
 
 @dataclass(frozen=True)
 class StyleEntry:
-    # None = w:styleId physically absent (decision 0016); "" = explicitly
-    # declared empty string, distinct from absence. Styles without an id stay
-    # in the catalog (physical identity via structural_path/position) but are
-    # not addressable by pStyle/rStyle/basedOn and never count as duplicates.
     style_id: str | None
-    # w:type normalized: absence defaults to "paragraph" (normative, 0016 §6).
     style_type: str
     is_default: bool
     custom_style: bool
@@ -181,7 +175,7 @@ class DocDefaults:
 class StyleCatalog:
     part_name: str
     part_sha256: str | None
-    part_status: str  # "ok" | "missing" | "unreadable"
+    part_status: str
     doc_defaults: DocDefaults | None
     styles: tuple[StyleEntry, ...]
     catalog_warnings: tuple[AnalysisWarning, ...]
@@ -196,6 +190,8 @@ class ResolvedRunFormatting:
     language: LanguageSpec
     underline: ResolvedValue
     vert_align: ResolvedValue
+    bold: ResolvedValue
+    italic: ResolvedValue
     analysis_warnings: tuple[AnalysisWarning, ...]
 
 
