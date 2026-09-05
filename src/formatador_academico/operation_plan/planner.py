@@ -35,6 +35,7 @@ from .model import (
     PlanningStatus,
     SourceDocumentRef,
     UpstreamVersions,
+    _SHA256_RE,
     _operation_sort_key,
 )
 
@@ -149,8 +150,14 @@ def plan_decision(decision: Decision) -> PlanningResult:
     target = decision.target
     if not target.structural_path:
         raise OperationPlanContractError("decision target structural_path must be non-empty")
-    if not isinstance(target.physical_hash, str) or not target.physical_hash:
-        raise OperationPlanContractError("decision target physical_hash must be non-empty")
+    # physical_hash is the physical fingerprint the future SafetyGate relies
+    # on; the parser always produces a lowercase sha256 hex digest.
+    if not isinstance(target.physical_hash, str) or not _SHA256_RE.match(target.physical_hash):
+        raise OperationPlanContractError(
+            "decision target physical_hash must be 64 lowercase hex chars"
+        )
+    if not isinstance(target.target_class, str) or not target.target_class:
+        raise OperationPlanContractError("decision target target_class must be non-empty")
 
     key = _decision_key(decision)
     try:
@@ -267,11 +274,15 @@ def _validate_no_duplicates_or_conflicts(operations: tuple[PlannedOperation, ...
 
     by_identity: dict[tuple[Any, ...], PlannedOperation] = {}
     for operation in operations:
+        # Identity = physical target + property slot. `target_class` is
+        # deliberately EXCLUDED: two Decisions addressing the same physical
+        # target and slot with divergent target_class are an upstream
+        # contradiction, not two distinct targets — allowing both would
+        # produce two independent mutations over the same physical slot.
         identity = (
             operation.target.target_type,
             operation.target.structural_path,
             operation.target.physical_hash,
-            operation.target.target_class,
             operation.target.aspect_id,
             operation.target.property_slot,
         )
@@ -330,7 +341,18 @@ def build_operation_plan(
 
     _validate_homogeneity(decisions, upstream_versions)
 
-    planning_results = tuple(plan_decision(decision) for decision in decisions)
+    # planning_results are deterministically ordered by the same total key
+    # used for source_decisions_hash, so that the same logical input in any
+    # caller order yields byte-identical plan serialization. The trail of
+    # skipped/unsupported outcomes is fully preserved — only its order is
+    # canonicalized. This order is NOT document order.
+    planning_results = tuple(
+        result
+        for _, result in sorted(
+            ((decision, plan_decision(decision)) for decision in decisions),
+            key=lambda pair: _decision_hash_sort_key(pair[0]),
+        )
+    )
     operations = tuple(
         sorted(
             (r.operation for r in planning_results if r.operation is not None),

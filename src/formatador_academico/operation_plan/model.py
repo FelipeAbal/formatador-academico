@@ -73,8 +73,13 @@ class OperationTarget:
     def __post_init__(self) -> None:
         if not self.structural_path:
             raise ValueError("OperationTarget.structural_path must be non-empty")
-        if not isinstance(self.physical_hash, str) or not self.physical_hash:
-            raise ValueError("OperationTarget.physical_hash must be a non-empty string")
+        # physical_hash is the physical fingerprint the future SafetyGate will
+        # rely on; the parser always produces a lowercase sha256 hex digest,
+        # so the operation layer tightens the contract to that exact format.
+        if not isinstance(self.physical_hash, str) or not _SHA256_RE.match(self.physical_hash):
+            raise ValueError("OperationTarget.physical_hash must be 64 lowercase hex chars")
+        if not isinstance(self.target_class, str) or not self.target_class:
+            raise ValueError("OperationTarget.target_class must be a non-empty string")
 
 
 @dataclass(frozen=True)
@@ -152,7 +157,17 @@ class SourceDocumentRef:
 
 @dataclass(frozen=True)
 class UpstreamVersions:
-    """Recorded once per plan. Parser version lives in SourceDocumentRef."""
+    """Recorded once per plan. Parser version lives in SourceDocumentRef.
+
+    Provenance semantics (audit-verified against the frozen Decision model,
+    decision 0021): `decision_version` and `decision_vocabulary_version` are
+    *bound to the Decisions* — `build_operation_plan` rejects any mismatch.
+    `analysis_formatting_version` and `classification_version` are NOT
+    serialized in the frozen Decision and cannot be recovered from it, its
+    target, its evidence or its ref; they are therefore **assertions supplied
+    by the orchestrator**, not cryptographically bound provenance. The future
+    SafetyGate must not treat them as proof of pipeline context.
+    """
 
     analysis_formatting_version: str
     classification_version: str
