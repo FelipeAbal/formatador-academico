@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-**Fase:** corpus-base v1 congelado; parser físico v0.4 congelado; Analysis View v0.1a/v0.1b congeladas; Decision Vocabulary v0.1 congelado; Decision Layer v0.1 congelada em 0021; Classification Layer v0.1 congelada em 0023; **OperationPlan v0.1 implementado, auditado, mergeado e congelado em 0025**.
+**Fase:** corpus-base v1 congelado; parser físico v0.4 congelado; Analysis View v0.1a/v0.1b congeladas; Decision Vocabulary v0.1 congelado; Decision Layer v0.1 congelada em 0021; Classification Layer v0.1 congelada em 0023; OperationPlan v0.1 congelado em 0025; **SafetyGate v0.1 contratado e aprovado para implementação em 0026.**
 
 Validação corrente:
 - parser v0.4: **102/102**;
@@ -213,7 +213,7 @@ Pipeline congelado:
 Decision
 -> PlanningResult
 -> OperationPlan
--> future SafetyGate
+-> SafetyGate
 -> future XML patch
 ```
 
@@ -221,49 +221,13 @@ Princípio:
 
 **OperationPlan propõe; SafetyGate veta ou libera; patcher executa.**
 
-### Fronteira
-
-Planner é puro e determinístico. NÃO:
-- redecide conformidade;
-- escolhe variante normativa;
-- reclassifica alvo;
-- reexecuta Analysis;
-- abre DOCX;
-- lê OOXML/lxml;
-- gera/aplica patch;
-- executa SafetyGate;
-- usa IO/rede/LLM/clock/random/locale.
-
-### API
-
-```text
-plan_decision(decision) -> PlanningResult
-build_operation_plan(source_document, upstream_versions, decisions) -> OperationPlan
-```
+Planner é puro/determinístico e não toca XML/DOCX.
 
 PlanningStatus:
+`planned | skipped | unsupported`
 
-```text
-planned
-skipped
-unsupported
-```
-
-Somente `deterministic_change` em slot suportado produz operação.
-
-`no_action | human_choice | review | preserve` -> `skipped`.
-
-`deterministic_change` conhecido mas fora do planner slice -> `unsupported`.
-
-### Operation vocabulary
-
-```text
-OPERATION_PLAN_VERSION = "0.1"
-OPERATION_VOCABULARY_VERSION = "0.1"
-OperationKind.SET_PROPERTY
-```
-
-Reutiliza `DecisionKey`.
+OperationKind v0.1:
+`SET_PROPERTY`
 
 Slice executável:
 
@@ -274,115 +238,262 @@ P3/paragraph/spacing.line
 P4/paragraph/alignment
 ```
 
-### Compare-and-set semântico
-
-Cada PlannedOperation preserva:
-- DecisionKey;
-- target físico/classificado;
+Compare-and-set semântico obrigatório:
 - `precondition_observed`;
 - `desired_value`;
-- `decision_ref`.
+- `precondition != desired`;
+- `rule_ref != None` para deterministic_change.
 
-Invariantes:
-
-```text
-precondition_observed is not None
-desired_value is not None
-precondition_observed != desired_value
-rule_ref != None para deterministic_change
-```
-
-Sem conversão OOXML no plano:
-- bold -> bool;
-- font_size -> `LengthValue(Decimal, "pt")`;
-- spacing.line -> `LineSpacingValue` da Decision;
-- alignment -> token canônico.
-
-### Provenance e stale/drift anchors
-
-SourceDocumentRef:
-
-```text
-package_sha256
-parser_version
-```
-
-No slice v0.1:
-
-```text
-planned_story_part = "word/document.xml"
-```
-
-Cada operação preserva `physical_hash` 64-hex-lowercase e `target_class` não vazio.
-
-Três níveis de futura proteção:
-1. package_sha256;
-2. target physical_hash;
-3. semantic precondition_observed.
+Stale/drift anchors:
+1. `package_sha256`;
+2. target `physical_hash`;
+3. semantic `precondition_observed`.
 
 `decision_ref = sha256(serialize_decision(decision))`.
 
-Envelope carrega `source_decisions_hash` order-independent sobre conjunto canônico de Decisions.
+`source_decisions_hash` é canônico e order-independent.
 
-### Agregação e determinismo
-
-- duplicated Decision idêntica -> aggregation error;
-- mesma identidade física+key com mesmo before/after -> duplicate operation error;
+Agregação:
+- duplicata idêntica -> erro;
+- mesma identidade física+key com same before/after -> duplicate operation error;
 - mesma identidade física+key com before/after divergente -> conflict error;
-- `target_class` NÃO participa da identidade de conflito físico;
-- operations e planning_results são canonizados;
-- mesma entrada lógica em qualquer ordem do caller -> bytes idênticos;
-- ordem lexicográfica do plano NÃO é ordem documental/aplicação;
-- empty plan é válido;
-- skipped/unsupported ficam preservados em planning_results;
-- `len(operations)` é o mutation budget.
+- `target_class` não participa da identidade física de conflito;
+- operations e planning_results canonizados;
+- same logical input -> same bytes;
+- empty plan válido.
 
-### Provenance de versões
+Suíte final OperationPlan: **389/389**.
 
-Envelope registra:
-- analysis_formatting_version;
-- classification_version;
-- decision_version;
-- decision_vocabulary_version.
+## SafetyGate v0.1 — contrato 0026
 
-Decision version e vocabulary são vinculáveis às Decisions.
+Status: **APPROVED FOR IMPLEMENTATION**.
 
-Analysis formatting version e classification version são, no v0.1, **assertions do orchestrator**, porque a Decision congelada não as serializa. SafetyGate futuro não pode tratá-las como prova criptograficamente vinculada sem mecanismo adicional de pipeline context.
+Pipeline:
 
-### Auditoria PR #7
+```text
+OperationPlan
++ source Decisions
++ current PhysicalIR
++ current StyleCatalog
++ active ProfileRef
+-> SafetyGateReport
+-> future patcher
+```
 
-Achados corrigidos antes do freeze:
-1. **BLOQUEADOR:** `planning_results` preservava ordem do caller e quebrava determinismo byte-a-byte do plano completo;
-2. **BLOQUEADOR:** `target_class` participava da identidade de conflito, permitindo duas operações no mesmo slot físico sob classes divergentes;
-3. **IMPORTANTE:** `physical_hash` aceitava string arbitrária;
-4. **IMPORTANTE:** `target_class=""` era aceito;
-5. **MENOR:** semântica de provenance de UpstreamVersions estava ambígua.
+Princípio:
 
-Todos corrigidos na mesma branch antes do merge.
+**SafetyGate é veto final de segurança, nunca nova autorização normativa.**
 
-### E2E congelado
+### Inputs/runtime binding
+
+Gate recebe:
+- OperationPlan congelado;
+- tuple completa de source Decisions;
+- PhysicalIR atual recém-derivada do snapshot que seria mutado;
+- StyleCatalog atual derivado dos MESMOS bytes;
+- active ProfileRef.
+
+Não recebe AnalysisViews prontas. Reobserva semanticamente via APIs públicas da Analysis.
+
+### Plan/source integrity — exception/fail-fast
+
+Antes de gatear:
+- recomputar e validar `source_decisions_hash`;
+- resolver cada operation `decision_ref` em exatamente uma Decision;
+- rejeitar duplicata de Decision serializada;
+- validar operation↔Decision target/key;
+- validar operation precondition↔Decision observed;
+- validar desired↔Decision desired;
+- exigir `deterministic_change` e `rule_ref != None`;
+- validar versions/kind/story part compatíveis.
+
+Isso é integridade/provenance, não re-decisão.
+
+### Profile
+
+`active_profile_ref` é obrigatório.
+
+Mismatch profile_id/profile_version -> GLOBAL block `profile_context_changed`.
+
+Contrato: alteração substantiva de profile exige nova `profile_version` enquanto não houver fingerprint de conteúdo.
+
+### Binding PhysicalIR ↔ StyleCatalog
+
+Não exige reabrir upstream.
+
+Gate revalida:
+
+```text
+StyleCatalog.part_sha256
+==
+sha do part word/styles.xml no inventário da PhysicalIR atual
+```
+
++ status esperado do part.
+
+PhysicalIR A + StyleCatalog B -> integrity/binding exception.
+
+### Global context vetoes
+
+`ContextStatus = compatible | blocked`.
+
+Reasons globais v0.1:
+- `source_document_changed`;
+- `parser_version_mismatch`;
+- `analysis_version_mismatch`;
+- `classification_version_mismatch`;
+- `profile_context_changed`.
+
+Package mismatch é sempre global no v0.1, mesmo se target hash coincidir.
+
+Parser mismatch é global porque paths/hashes dependem do parser.
+
+Analysis mismatch é global porque Gate usa Analysis atual para a precondition.
+
+Classification mismatch é global/conservador porque `target_class` foi produzido sob aquela versão.
+
+### Local target/precondition vetoes
+
+`GateStatus = cleared | blocked`.
+
+Reasons locais v0.1:
+- `target_not_found`;
+- `target_not_unique`;
+- `target_type_mismatch`;
+- `physical_hash_mismatch`;
+- `current_value_unavailable`;
+- `precondition_mismatch`.
+
+Gate localiza target no body story de `word/document.xml`, exige match único e valida target type/hash.
+
+Para run, parent paragraph vem da árvore física real, nunca de prefixo textual do path.
+
+Current semantic state é derivado via Analysis + StyleCatalog bound.
+
+Não-resolved Analysis -> `current_value_unavailable`.
+
+`current != precondition` -> `precondition_mismatch`, inclusive quando current já é desired. Gate nunca converte stale operation em no_action.
+
+### Typed semantic comparison
+
+- bold: bool;
+- font size: Analysis Length ↔ OperationPlan LengthValue por `(value, unit)`;
+- spacing.line: Analysis LineSpacing ↔ Decision/Plan LineSpacingValue por `(rule,value,unit)`, ignorando raw forensic fields;
+- alignment: canonical token.
+
+Sem half-points/twips/raw OOXML.
+
+### Partial clearance
+
+Contexto global compatível permite resultados mistos:
+- operação A cleared;
+- operação B blocked.
+
+Falha local não derruba operações independentes.
+
+Global block impede todas as operações e cada operação recebe GateResult blocked para trilha completa.
+
+### Result/report models
+
+`SAFETY_GATE_VERSION = "0.1"`.
+
+Sem versão separada para reason vocabulary no v0.1.
+
+Modelos-alvo frozen:
+
+```text
+GateResult:
+    operation_ref
+    status
+    reasons
+    evidence
+
+SafetyGateReport:
+    safety_gate_version
+    operation_plan_ref
+    current_package_sha256
+    context_status
+    context_reasons
+    results
+    cleared_operations
+```
+
+Reason e evidence são separados. Evidence carrega somente fatos expected/actual necessários ao relatório técnico.
+
+### Deterministic refs
+
+```text
+operation_plan_ref = sha256(serialize_operation_plan(plan))
+operation_ref = sha256(canonical serialize PlannedOperation)
+```
+
+OperationPlan deve expor helpers públicos canônicos aditivos; não duplicar serialização privada.
+
+### GateClearedOperation — fronteira obrigatória
+
+```text
+GateClearedOperation:
+    operation: PlannedOperation
+    operation_ref
+    operation_plan_ref
+    current_package_sha256
+```
+
+A operação embutida permanece idêntica ao input.
+
+`cleared` significa somente “nenhum veto acionado no estado observado”.
+
+Future patcher deve aceitar **GateClearedOperation**, nunca PlannedOperation crua.
+
+### TOCTOU/snapshot
+
+Gate e patcher devem ficar ligados ao MESMO snapshot.
+
+SafetyGateReport e GateClearedOperation carregam `current_package_sha256`.
+
+Future patcher deve:
+1. operar sobre o mesmo OriginalPackage/package snapshot usado para IR/StyleCatalog; OU
+2. revalidar sha256 dos bytes imediatamente antes de mutar.
+
+É proibido gatear um estado e reabrir silenciosamente outro arquivo/estado para aplicar.
+
+### Error model
+
+1. **exception/integrity error**: artifact/plan/source Decisions/binding inválidos, StyleCatalog↔IR mismatch, unexpected Analysis exception etc.;
+2. **global blocked context**: plano válido, contexto global mudou;
+3. **local blocked operation**: contexto global compatível, target/precondition local não prova segurança;
+4. **cleared**: nenhum veto acionado para aquela operação.
+
+Unexpected Analysis exception é fail-fast; status Analysis não-resolved é local block.
+
+### Determinism
+
+Modelos frozen; tuples; serialização canônica sem timestamp/random.
+
+Same logical plan/source Decisions/current context/profile -> same report bytes independentemente da ordem do caller e hashseed.
+
+### First vertical slice / tests requeridos
+
+Primeiro E2E alvo:
 
 ```text
 DOCX
 -> Parser
 -> Analysis
 -> Classification
--> TargetClassification
 -> Decision
 -> OperationPlan
+-> SafetyGate
 ```
 
-Sem target_class manual.
+Documento unchanged:
+- bold true→false -> cleared;
+- font 11→12pt -> cleared;
+- spacing/alignment continuam skipped upstream;
+- context compatible;
+- exatamente 2 GateClearedOperations.
 
-Resultado auditado:
-- bold true -> false => planned SET_PROPERTY;
-- font 11pt -> 12pt => planned SET_PROPERTY;
-- spacing compliant => skipped;
-- alignment compliant => skipped;
-- exatamente 2 operações;
-- package_sha256 real transportado.
-
-Suíte final: **389/389**, com **335/335 regressões preservadas**.
+A implementação deve cobrir também package/parser/analysis/classification/profile global vetoes; target/hash/Analysis/precondition local vetoes; partial clearance; source provenance integrity; PhysicalIR A + StyleCatalog B; run_container com parent paragraph real; empty plan; determinismo cross-order/hashseed; imutabilidade.
 
 ## Dívidas registradas, não bloqueadoras
 
@@ -396,40 +507,33 @@ Classification:
 - short_quote/classes inline;
 - corpus real anotado e métricas por classe.
 
-OperationPlan:
-- classification/analysis_formatting version ainda são assertions do orchestrator;
+OperationPlan/SafetyGate:
+- analysis/classification versions ainda são orchestrator assertions, não provenance criptográfica;
 - possível pipeline-context hash futuro;
-- story_id/part/original_index ainda não propagados até DecisionTarget para execução de stories secundárias;
-- ordem lexicográfica do plano não é ordem documental.
+- semantic equivalence para DOCX reempacotado byte-diferente;
+- story_id/part/original_index ainda não propagados para execução secundária;
+- ordem lexicográfica do plano não é ordem documental;
+- full execution snapshot envelope ficará para o patcher, além do SHA já congelado;
+- TransformLog ainda não implementado.
 
 ## Fora do próximo ciclo
 
 Continuam fora até contrato específico:
-- TransformLog;
 - XML patch/applicator;
+- TransformLog;
 - DOCX clean/review;
-- half-points/twips;
 - structural operations;
 - secondary-story execution;
 - UI/API web.
 
 ## Próximo passo operacional
 
-**SafetyGate v0.1 — contrato primeiro.**
+**Implementar SafetyGate v0.1 conforme decisão 0026.**
 
-Objetivo do próximo elo:
-
-```text
-OperationPlan
-+ estado atual revalidado
--> GateDecision por operação
-```
-
-O SafetyGate deve ser veto, nunca autorização. Deve revalidar ao menos:
-1. source package fingerprint;
-2. target physical_hash;
-3. semantic precondition_observed;
-4. operação/slot autorizado;
-5. contexto necessário para impedir stale-plan, target drift e mutação fora do contrato.
-
-Ainda sem aplicar XML durante a fase de contrato do SafetyGate.
+Antes de implementação:
+- novo chat Kimi K3;
+- partir do SHA atual exato do main;
+- branch própria;
+- preservar os **389/389** testes congelados;
+- abrir PR real;
+- não mergear antes de auditoria adversarial.
