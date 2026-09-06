@@ -78,6 +78,17 @@ def _decision_ref(decision: Decision) -> str:
     return hashlib.sha256(serialize_decision(decision)).hexdigest()
 
 
+def decision_ref(decision: Decision) -> str:
+    """Public canonical Decision reference.
+
+    Additive helper for SafetyGate v0.1 (decision 0026); delegates to the
+    same frozen canonical logic as `_decision_ref`. Never computes a
+    parallel scheme.
+    """
+
+    return _decision_ref(decision)
+
+
 def _decision_key(decision: Decision) -> DecisionKey:
     target = decision.target
     return DecisionKey(target.target_type, target.aspect_id, target.property_slot)
@@ -236,6 +247,17 @@ def _source_decisions_hash(decisions: tuple[Decision, ...]) -> str:
         separators=(",", ":"),
     ).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+
+def source_decisions_hash(decisions: tuple[Decision, ...]) -> str:
+    """Public canonical source Decisions hash.
+
+    Additive helper for SafetyGate v0.1 (decision 0026); delegates to the
+    same frozen canonical logic as `_source_decisions_hash`, including
+    deterministic order independence.
+    """
+
+    return _source_decisions_hash(decisions)
 
 
 def _validate_homogeneity(

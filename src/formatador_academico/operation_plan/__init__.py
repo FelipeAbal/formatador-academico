@@ -27,10 +27,15 @@ from .planner import (
     OperationPlanContractError,
     OperationPlanError,
     build_operation_plan,
+    decision_ref,
     plan_decision,
+    source_decisions_hash,
 )
 from .serialization import (
+    operation_plan_ref,
+    operation_ref,
     serialize_operation_plan,
+    serialize_planned_operation,
     serialize_planning_result,
     serialize_planning_results,
 )
@@ -53,9 +58,14 @@ __all__ = [
     "SourceDocumentRef",
     "UpstreamVersions",
     "build_operation_plan",
+    "decision_ref",
+    "operation_plan_ref",
+    "operation_ref",
     "plan_decision",
     "serialize_operation_plan",
+    "serialize_planned_operation",
     "serialize_planning_result",
     "serialize_planning_results",
+    "source_decisions_hash",
     "source_document_ref_from_physical_ir",
 ]
