@@ -16,6 +16,7 @@ from enum import Enum
 from typing import Any
 
 from ..operation_plan.model import PlannedOperation
+from ..operation_plan.serialization import operation_ref as canonical_operation_ref
 
 SAFETY_GATE_VERSION = "0.1"
 
@@ -58,13 +59,11 @@ class GateReason(str, Enum):
     exceptions are fail-fast programming/contract failures.
     """
 
-    # Global (context) vetoes
     SOURCE_DOCUMENT_CHANGED = "source_document_changed"
     PARSER_VERSION_MISMATCH = "parser_version_mismatch"
     ANALYSIS_VERSION_MISMATCH = "analysis_version_mismatch"
     CLASSIFICATION_VERSION_MISMATCH = "classification_version_mismatch"
     PROFILE_CONTEXT_CHANGED = "profile_context_changed"
-    # Local (per-operation) vetoes
     TARGET_NOT_FOUND = "target_not_found"
     TARGET_NOT_UNIQUE = "target_not_unique"
     TARGET_TYPE_MISMATCH = "target_type_mismatch"
@@ -97,18 +96,7 @@ LOCAL_REASONS = frozenset(
 
 @dataclass(frozen=True)
 class GateEvidence:
-    """Minimal factual evidence for the check that produced the result.
-
-    Fields hold typed semantic values (hashes, bool, str, LengthValue,
-    LineSpacingValue) or None when not applicable:
-
-    - expected: the planned/expected value of the failed check;
-    - actual: the currently observed counterpart of the failed check;
-    - current_observed: the re-observed current semantic value (recorded
-      at least for cleared results, where it equals the precondition).
-
-    No dicts, no mutable structures; never repeats the whole plan.
-    """
+    """Minimal factual evidence for the check that produced the result."""
 
     expected: Any = None
     actual: Any = None
@@ -142,10 +130,9 @@ class GateResult:
             raise TypeError("GateResult.evidence must be GateEvidence or None")
 
 
-# Internal emission proof: GateClearedOperation instances can only be created
-# inside the gate flow (see gate.py). There is intentionally no public
-# constructor helper such as `GateClearedOperation.from_operation(...)`:
-# bypass must be non-accidental (Python cannot offer absolute type safety).
+# Internal emission proof used to make accidental promotion through the public
+# API difficult. This is not capability security: Python callers that import
+# private internals can deliberately bypass such conventions.
 _EMISSION_PROOF = object()
 
 
@@ -153,9 +140,10 @@ _EMISSION_PROOF = object()
 class GateClearedOperation:
     """Typed execution-boundary token for the future patcher.
 
-    This is NOT a new normative authorization; it only proves that no veto
+    This is NOT a new normative authorization; it only records that no veto
     condition of SafetyGate v0.1 failed on that snapshot. The embedded
-    PlannedOperation is field/byte-equivalent to the input operation.
+    PlannedOperation must be exactly the operation identified by
+    `operation_ref`.
 
     Future patchers MUST accept GateClearedOperation, never a raw
     PlannedOperation, and MUST operate on the same snapshot identified by
@@ -171,8 +159,8 @@ class GateClearedOperation:
     def __post_init__(self) -> None:
         if self._proof is not _EMISSION_PROOF:
             raise SafetyGateContractError(
-                "GateClearedOperation can only be emitted by the SafetyGate flow; "
-                "there is no public promotion of a PlannedOperation"
+                "GateClearedOperation is emitted only by the SafetyGate public flow; "
+                "there is no public promotion helper for PlannedOperation"
             )
         if not isinstance(self.operation, PlannedOperation):
             raise TypeError("GateClearedOperation.operation must be PlannedOperation")
@@ -180,6 +168,10 @@ class GateClearedOperation:
             value = getattr(self, name)
             if not isinstance(value, str) or not _SHA256_RE.match(value):
                 raise ValueError(f"GateClearedOperation.{name} must be 64 lowercase hex chars")
+        if self.operation_ref != canonical_operation_ref(self.operation):
+            raise SafetyGateIntegrityError(
+                "GateClearedOperation.operation_ref does not match the embedded operation"
+            )
 
 
 @dataclass(frozen=True)
@@ -187,8 +179,10 @@ class SafetyGateReport:
     """Gate output for one OperationPlan against one observed snapshot.
 
     `results` follow exactly the canonical order of `plan.operations`.
-    `cleared_operations` corresponds exactly to the cleared GateResults;
-    when the context is blocked it must be empty.
+    `cleared_operations` corresponds exactly to the cleared GateResults.
+    Global and local reason categories are enforced against context_status so
+    the serialized report is internally self-consistent, not merely trusted
+    because it came from the builder.
     """
 
     safety_gate_version: str
@@ -215,8 +209,8 @@ class SafetyGateReport:
                 raise ValueError("context_reasons must be global GateReason values")
         if self.context_status is ContextStatus.COMPATIBLE and self.context_reasons:
             raise ValueError("compatible context requires empty context_reasons")
-        if self.context_status is ContextStatus.BLOCKED and not self.context_reasons:
-            raise ValueError("blocked context requires >= 1 global reason")
+        if self.context_status is ContextStatus.BLOCKED and len(self.context_reasons) != 1:
+            raise ValueError("blocked context carries exactly 1 global reason in v0.1")
         if not isinstance(self.results, tuple) or not all(
             isinstance(r, GateResult) for r in self.results
         ):
@@ -225,7 +219,23 @@ class SafetyGateReport:
             isinstance(o, GateClearedOperation) for o in self.cleared_operations
         ):
             raise TypeError("cleared_operations must be a tuple of GateClearedOperation")
-        # Consistency: cleared_operations correspond exactly to cleared results.
+
+        if self.context_status is ContextStatus.COMPATIBLE:
+            for result in self.results:
+                if result.status is GateStatus.BLOCKED and result.reasons[0] not in LOCAL_REASONS:
+                    raise ValueError(
+                        "compatible context may contain only local blocked GateReason values"
+                    )
+        else:
+            global_reason = self.context_reasons[0]
+            for result in self.results:
+                if result.status is not GateStatus.BLOCKED:
+                    raise ValueError("blocked context cannot contain cleared GateResults")
+                if result.reasons != (global_reason,):
+                    raise ValueError(
+                        "blocked context requires every GateResult to carry the context reason"
+                    )
+
         cleared_refs = tuple(r.operation_ref for r in self.results if r.status is GateStatus.CLEARED)
         emitted_refs = tuple(o.operation_ref for o in self.cleared_operations)
         if emitted_refs != cleared_refs:
