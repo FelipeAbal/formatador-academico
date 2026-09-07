@@ -26,6 +26,7 @@ from .model import (
     SafetyGateContractError,
     SafetyGateError,
     SafetyGateIntegrityError,
+    SafetyGateReport,
 )
 from .serialization import serialize_gate_result, serialize_safety_gate_report
 
@@ -42,6 +43,7 @@ __all__ = [
     "SafetyGateContractError",
     "SafetyGateError",
     "SafetyGateIntegrityError",
+    "SafetyGateReport",
     "evaluate_operation_plan",
     "gate_operation",
     "serialize_gate_result",
