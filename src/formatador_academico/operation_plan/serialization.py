@@ -7,13 +7,14 @@ compact separators, UTF-8, no timestamps.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import asdict
 from decimal import Decimal
 from enum import Enum
 from typing import Any
 
-from .model import OperationPlan, PlanningResult
+from .model import OperationPlan, PlannedOperation, PlanningResult
 
 
 def _jsonable(value: Any) -> Any:
@@ -48,3 +49,27 @@ def serialize_planning_results(results: tuple[PlanningResult, ...]) -> bytes:
 
 def serialize_operation_plan(plan: OperationPlan) -> bytes:
     return _serialize(plan)
+
+
+def serialize_planned_operation(operation: PlannedOperation) -> bytes:
+    """Canonical deterministic serialization of a single PlannedOperation.
+
+    Uses the exact same canonical scheme as the frozen plan serialization
+    (enums -> str, Decimal -> str, tuple -> array, sort_keys, compact
+    separators, UTF-8). Additive helper for SafetyGate v0.1 (decision 0026);
+    does not alter any frozen serialization result.
+    """
+
+    return _serialize(operation)
+
+
+def operation_ref(operation: PlannedOperation) -> str:
+    """Deterministic derived reference of a PlannedOperation (no UUIDs)."""
+
+    return hashlib.sha256(serialize_planned_operation(operation)).hexdigest()
+
+
+def operation_plan_ref(plan: OperationPlan) -> str:
+    """Deterministic derived reference: sha256(serialize_operation_plan(plan))."""
+
+    return hashlib.sha256(serialize_operation_plan(plan)).hexdigest()
