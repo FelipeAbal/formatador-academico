@@ -9,8 +9,8 @@ from enum import Enum
 
 from ..classification.model import ClassificationResult
 from ..decision.model import Actionability, Decision, FormattingRule, ProfileRef, RuleMode
+from ..operation_plan import decision_ref as canonical_decision_ref
 from ..operation_plan.model import OperationTarget
-from ..operation_plan.planner import decision_ref as canonical_decision_ref
 from ..patcher.model import PatchReason
 from ..safety_gate.model import GateReason
 from ..transform_log.model import TransformRecord
