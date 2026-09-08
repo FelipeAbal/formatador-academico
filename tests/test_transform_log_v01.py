@@ -6,11 +6,13 @@ import json
 import unittest
 from dataclasses import fields, replace
 from decimal import Decimal
+from unittest.mock import patch as mock_patch
 
 from formatador_academico.decision.model import (
     Actionability,
     ComplianceStatus,
     Decision,
+    DecisionKey,
     DecisionReason,
     DecisionTarget,
     ProfileRef,
@@ -64,24 +66,26 @@ def _decision(*, observed=False, desired=True, target_class="body") -> Decision:
     )
 
 
-def _artifacts(decision: Decision | None = None):
-    decision = decision or _decision()
-    decision_ref = _sha(serialize_decision(decision))
+def _operation_for(decision: Decision, *, target: OperationTarget | None = None,
+                   observed=None, desired=None) -> PlannedOperation:
     dt = decision.target
-    target = OperationTarget(
+    target = target or OperationTarget(
         dt.target_type, dt.structural_path, dt.physical_hash, dt.target_class,
         dt.aspect_id, dt.property_slot,
     )
-    operation = PlannedOperation(
+    return PlannedOperation(
         kind=OperationKind.SET_PROPERTY,
-        key=__import__("formatador_academico.decision.model", fromlist=["DecisionKey"]).DecisionKey(
-            dt.target_type, dt.aspect_id, dt.property_slot
-        ),
+        key=DecisionKey(dt.target_type, dt.aspect_id, dt.property_slot),
         target=target,
-        precondition_observed=decision.observed,
-        desired_value=decision.desired_value,
-        decision_ref=decision_ref,
+        precondition_observed=decision.observed if observed is None else observed,
+        desired_value=decision.desired_value if desired is None else desired,
+        decision_ref=_sha(serialize_decision(decision)),
     )
+
+
+def _artifacts(decision: Decision | None = None, operation: PlannedOperation | None = None):
+    decision = decision or _decision()
+    operation = operation or _operation_for(decision)
     op_ref = operation_ref(operation)
     plan_ref = "b" * 64
     input_sha = "c" * 64
@@ -112,7 +116,9 @@ class TransformLogBuildTests(unittest.TestCase):
         decision, operation, token, patch = _artifacts()
         record = build_transform_record(token, patch, decision)
         self.assertEqual(record.transform_log_version, TRANSFORM_LOG_VERSION)
+        self.assertEqual(record.patcher_version, patch.patcher_version)
         self.assertEqual(record.operation_ref, token.operation_ref)
+        self.assertEqual(record.operation_plan_ref, token.operation_plan_ref)
         self.assertEqual(record.decision_ref, operation.decision_ref)
         self.assertEqual(record.profile_ref, decision.profile_ref)
         self.assertEqual(record.rule_ref, decision.rule_ref)
@@ -121,6 +127,7 @@ class TransformLogBuildTests(unittest.TestCase):
         self.assertEqual(record.desired_value, operation.desired_value)
         self.assertEqual(record.input_package_sha256, patch.input_package_sha256)
         self.assertEqual(record.output_package_sha256, patch.output_package_sha256)
+        self.assertEqual(record.changed_part, patch.changed_part)
 
     def test_rejected_patch_cannot_build(self):
         decision, _, token, patch = _artifacts()
@@ -145,82 +152,81 @@ class TransformLogBuildTests(unittest.TestCase):
 
     def test_patch_operation_ref_mismatch(self):
         decision, _, token, patch = _artifacts()
-        bad = replace(patch, operation_ref="d" * 64)
         with self.assertRaises(TransformLogIntegrityError):
-            build_transform_record(token, bad, decision)
+            build_transform_record(token, replace(patch, operation_ref="d" * 64), decision)
 
     def test_patch_plan_ref_mismatch(self):
         decision, _, token, patch = _artifacts()
-        bad = replace(patch, operation_plan_ref="d" * 64)
         with self.assertRaises(TransformLogIntegrityError):
-            build_transform_record(token, bad, decision)
+            build_transform_record(token, replace(patch, operation_plan_ref="d" * 64), decision)
 
     def test_patch_input_sha_mismatch(self):
         decision, _, token, patch = _artifacts()
-        bad = replace(patch, input_package_sha256="d" * 64)
         with self.assertRaises(TransformLogIntegrityError):
-            build_transform_record(token, bad, decision)
+            build_transform_record(token, replace(patch, input_package_sha256="d" * 64), decision)
 
     def test_wrong_source_decision_ref(self):
-        decision, _, token, patch = _artifacts()
-        other = _decision(target_class="heading")
+        _, _, token, patch = _artifacts()
         with self.assertRaises(TransformLogIntegrityError):
-            build_transform_record(token, patch, other)
+            build_transform_record(token, patch, _decision(target_class="heading"))
 
     def test_source_decision_target_must_match_operation(self):
         decision = _decision()
-        decision_ref = _sha(serialize_decision(decision))
         wrong_target = OperationTarget(
             "run", decision.target.structural_path, decision.target.physical_hash,
             "heading", "P1", "bold",
         )
-        from formatador_academico.decision.model import DecisionKey
-        operation = PlannedOperation(
-            OperationKind.SET_PROPERTY, DecisionKey("run", "P1", "bold"), wrong_target,
-            decision.observed, decision.desired_value, decision_ref,
-        )
-        token = GateClearedOperation(operation, operation_ref(operation), "b"*64, "c"*64, _EMISSION_PROOF)
-        output = b"out"
-        patch = PatchResult("0.1", PatchStatus.APPLIED, token.operation_ref, "b"*64, "c"*64,
-                            _sha(output), output, None, "word/document.xml")
+        operation = _operation_for(decision, target=wrong_target)
+        decision, _, token, patch = _artifacts(decision, operation)
+        with self.assertRaises(TransformLogIntegrityError):
+            build_transform_record(token, patch, decision)
+
+    def test_source_decision_observed_must_match_operation(self):
+        decision = _decision()
+        operation = _operation_for(decision, observed="unexpected")
+        decision, _, token, patch = _artifacts(decision, operation)
+        with self.assertRaises(TransformLogIntegrityError):
+            build_transform_record(token, patch, decision)
+
+    def test_source_decision_desired_must_match_operation(self):
+        decision = _decision(observed=False, desired=True)
+        operation = _operation_for(decision, desired="unexpected")
+        decision, _, token, patch = _artifacts(decision, operation)
         with self.assertRaises(TransformLogIntegrityError):
             build_transform_record(token, patch, decision)
 
     def test_profile_rule_mismatch_fails_integrity(self):
-        decision, _, token, patch = _artifacts()
-        bad_rule = replace(decision.rule_ref, profile_version="4")
-        bad = replace(decision, rule_ref=bad_rule)
-        bad_ref = _sha(serialize_decision(bad))
-        op = replace(token.operation, decision_ref=bad_ref)
-        forged = GateClearedOperation(op, operation_ref(op), token.operation_plan_ref,
-                                      token.current_package_sha256, _EMISSION_PROOF)
-        bad_patch = replace(patch, operation_ref=forged.operation_ref)
+        decision = _decision()
+        bad = replace(decision, rule_ref=replace(decision.rule_ref, profile_version="4"))
+        operation = _operation_for(bad)
+        bad, _, token, patch = _artifacts(bad, operation)
         with self.assertRaises(TransformLogIntegrityError):
-            build_transform_record(forged, bad_patch, bad)
+            build_transform_record(token, patch, bad)
+
+    def test_rule_aspect_mismatch_fails_integrity(self):
+        decision = _decision()
+        bad = replace(decision, rule_ref=replace(decision.rule_ref, aspect_id="P2"))
+        operation = _operation_for(bad)
+        bad, _, token, patch = _artifacts(bad, operation)
+        with self.assertRaises(TransformLogIntegrityError):
+            build_transform_record(token, patch, bad)
 
     def test_no_rule_ref_fails_integrity(self):
-        decision, _, token, patch = _artifacts()
-        bad = replace(decision, rule_ref=None)
-        bad_ref = _sha(serialize_decision(bad))
-        op = replace(token.operation, decision_ref=bad_ref)
-        forged = GateClearedOperation(op, operation_ref(op), token.operation_plan_ref,
-                                      token.current_package_sha256, _EMISSION_PROOF)
-        bad_patch = replace(patch, operation_ref=forged.operation_ref)
+        decision = replace(_decision(), rule_ref=None)
+        operation = _operation_for(decision)
+        decision, _, token, patch = _artifacts(decision, operation)
         with self.assertRaises(TransformLogIntegrityError):
-            build_transform_record(forged, bad_patch, bad)
+            build_transform_record(token, patch, decision)
 
     def test_non_deterministic_change_fails_integrity(self):
-        decision, _, token, patch = _artifacts()
-        # Decision model requires desired iff deterministic_change, so construct a valid
-        # NO_ACTION Decision with no desired, then bind an operation to its ref.
-        bad = replace(decision, actionability=Actionability.NO_ACTION, desired_value=None)
-        bad_ref = _sha(serialize_decision(bad))
-        op = replace(token.operation, decision_ref=bad_ref)
-        forged = GateClearedOperation(op, operation_ref(op), token.operation_plan_ref,
-                                      token.current_package_sha256, _EMISSION_PROOF)
-        bad_patch = replace(patch, operation_ref=forged.operation_ref)
+        decision = replace(_decision(), actionability=Actionability.NO_ACTION, desired_value=None)
+        # Operation remains independently valid while its decision_ref points to a
+        # Decision that is not executable; builder must reject the provenance.
+        base = _decision()
+        operation = replace(_operation_for(base), decision_ref=_sha(serialize_decision(decision)))
+        decision, _, token, patch = _artifacts(decision, operation)
         with self.assertRaises(TransformLogIntegrityError):
-            build_transform_record(forged, bad_patch, bad)
+            build_transform_record(token, patch, decision)
 
     def test_record_does_not_embed_execution_artifacts_or_bytes(self):
         decision, _, token, patch = _artifacts()
@@ -229,6 +235,7 @@ class TransformLogBuildTests(unittest.TestCase):
         self.assertNotIn("output_package_bytes", names)
         self.assertNotIn("cleared_operation", names)
         self.assertNotIn("patch_result", names)
+        self.assertNotIn("source_decision", names)
         self.assertFalse(any(isinstance(getattr(record, f.name), bytes) for f in fields(record)))
 
     def test_structural_path_is_reused_as_stable_location(self):
@@ -236,13 +243,17 @@ class TransformLogBuildTests(unittest.TestCase):
         record = build_transform_record(token, patch, decision)
         self.assertEqual(record.target.structural_path, operation.target.structural_path)
 
+    def test_builder_performs_no_file_io(self):
+        decision, _, token, patch = _artifacts()
+        with mock_patch("builtins.open", side_effect=AssertionError("unexpected file IO")):
+            record = build_transform_record(token, patch, decision)
+        self.assertEqual(record.operation_ref, token.operation_ref)
+
 
 class TransformLogSerializationTests(unittest.TestCase):
     def test_bool_serialization_is_canonical_and_roundtrippable(self):
         decision, _, token, patch = _artifacts()
-        record = build_transform_record(token, patch, decision)
-        data = serialize_transform_record(record)
-        obj = json.loads(data)
+        obj = json.loads(serialize_transform_record(build_transform_record(token, patch, decision)))
         self.assertIs(obj["precondition_observed"], False)
         self.assertIs(obj["desired_value"], True)
         self.assertEqual(obj["profile_ref"]["profile_id"], "journal-x")
@@ -250,15 +261,13 @@ class TransformLogSerializationTests(unittest.TestCase):
 
     def test_length_decimal_serialization(self):
         decision = _decision(observed=LengthValue(Decimal("11")), desired=LengthValue(Decimal("12")))
-        # align target/rule/key to font_size
         decision = replace(
             decision,
             target=replace(decision.target, aspect_id="P2", property_slot="font_size"),
             rule_ref=replace(decision.rule_ref, rule_id="body-font", aspect_id="P2", path="body.font_size"),
         )
         decision, _, token, patch = _artifacts(decision)
-        record = build_transform_record(token, patch, decision)
-        obj = json.loads(serialize_transform_record(record))
+        obj = json.loads(serialize_transform_record(build_transform_record(token, patch, decision)))
         self.assertEqual(obj["precondition_observed"], {"unit": "pt", "value": "11"})
         self.assertEqual(obj["desired_value"], {"unit": "pt", "value": "12"})
 
@@ -290,6 +299,12 @@ class TransformLogSerializationTests(unittest.TestCase):
         self.assertEqual(obj["changed_part"], "word/document.xml")
         self.assertEqual(obj["patcher_version"], "0.1")
         self.assertEqual(obj["transform_log_version"], "0.1")
+
+    def test_serialization_is_valid_utf8_json(self):
+        decision, _, token, patch = _artifacts()
+        data = serialize_transform_record(build_transform_record(token, patch, decision))
+        decoded = data.decode("utf-8")
+        self.assertEqual(json.loads(decoded)["decision_ref"], token.operation.decision_ref)
 
 
 if __name__ == "__main__":
