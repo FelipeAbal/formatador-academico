@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Iterator
 
 from ..analysis.formatting import resolve_run_formatting
-from ..analysis.formatting_model import ANALYSIS_FORMATTING_VERSION
+from ..analysis.formatting_model import ANALYSIS_FORMATTING_VERSION, StyleCatalog
 from ..analysis.style_catalog import build_style_catalog
 from ..classification import (
     CLASSIFICATION_VERSION,
@@ -28,14 +28,16 @@ from ..decision import (
 )
 from ..docx_parser import DocxParser
 from ..operation_plan import (
+    OperationPlan,
     UpstreamVersions,
     build_operation_plan,
     decision_ref,
+    operation_ref,
     source_document_ref_from_physical_ir,
 )
-from ..patcher import PatchReason, PatchStatus, apply_cleared_operation
+from ..patcher import PatchReason, PatchResult, PatchStatus, apply_cleared_operation
 from ..safety_gate import GateStatus, SafetyGateReport, evaluate_operation_plan
-from ..transform_log import build_transform_record
+from ..transform_log import TransformRecord, build_transform_record
 from .model import (
     DEFAULT_MAX_APPLIED_OPERATIONS,
     PROCESSING_SESSION_VERSION,
@@ -60,11 +62,19 @@ class _ParagraphBinding:
 class _EvaluationSnapshot:
     package_sha256: str
     physical_ir: dict[str, Any]
-    style_catalog: Any
+    style_catalog: StyleCatalog
     classifications: tuple[ClassificationResult, ...]
     decisions: tuple[Decision, ...]
-    plan: Any
+    plan: OperationPlan
     gate_report: SafetyGateReport
+
+
+@dataclass(frozen=True)
+class _OperationMaps:
+    decisions_by_ref: dict[str, Decision]
+    operations_by_decision_ref: dict[str, Any]
+    tokens_by_decision_ref: dict[str, Any]
+    gate_results_by_operation_ref: dict[str, Any]
 
 
 _IMPOSSIBLE_PATCH_REJECTIONS = frozenset(
@@ -133,7 +143,7 @@ def _validate_api_inputs(
 
 def _build_decisions(
     ir: dict[str, Any],
-    catalog: Any,
+    catalog: StyleCatalog,
     classifications: tuple[ClassificationResult, ...],
     profile: ProcessingProfile,
 ) -> tuple[Decision, ...]:
@@ -147,8 +157,9 @@ def _build_decisions(
     for paragraph_result in classifications:
         if not eligible_for_automatic_use(paragraph_result):
             continue
-        key = (paragraph_result.story_id, paragraph_result.structural_path)
-        binding = paragraph_index.get(key)
+        binding = paragraph_index.get(
+            (paragraph_result.story_id, paragraph_result.structural_path)
+        )
         if binding is None:
             raise ProcessingSessionIntegrityError(
                 "classified paragraph cannot be rebound to current PhysicalIR"
@@ -170,22 +181,18 @@ def _build_decisions(
                 continue
 
             target_classification = project_target_classification(run_result)
-            run_formatting = resolve_run_formatting(
-                run, paragraph, catalog, binding.part
-            )
+            run_formatting = resolve_run_formatting(run, paragraph, catalog, binding.part)
             for rule_binding in matching:
                 rule = rule_binding.rule
-                decision_key = DecisionKey(
+                key = DecisionKey(
                     rule_binding.target_type, rule.aspect_id, rule.property_slot
                 )
-                resolved = extract_resolved_value(decision_key, run_formatting)
-                context = DecisionContext(
-                    decision_key, target_classification, profile.profile_ref
-                )
+                resolved = extract_resolved_value(key, run_formatting)
+                context = DecisionContext(key, target_classification, profile.profile_ref)
                 produced = evaluate_target(((rule, resolved, context),))
                 if len(produced) != 1:
                     raise ProcessingSessionIntegrityError(
-                        "single rule binding did not produce exactly one Decision"
+                        "single RuleBinding did not produce exactly one Decision"
                     )
                 decisions.append(produced[0])
 
@@ -201,7 +208,7 @@ def _evaluate(package_bytes: bytes, profile: ProcessingProfile) -> _EvaluationSn
         )
     if ir.get("package", {}).get("sha256") != package_sha:
         raise ProcessingSessionIntegrityError(
-            "PhysicalIR package sha does not match evaluated package bytes"
+            "PhysicalIR package SHA does not match evaluated package bytes"
         )
 
     catalog = build_style_catalog(package_bytes, ir)
@@ -234,93 +241,93 @@ def _evaluate(package_bytes: bytes, profile: ProcessingProfile) -> _EvaluationSn
     )
 
 
-def _decision_order_maps(evaluation: _EvaluationSnapshot):
-    by_decision_ref = {decision_ref(d): d for d in evaluation.decisions}
-    if len(by_decision_ref) != len(evaluation.decisions):
+def _operation_maps(evaluation: _EvaluationSnapshot) -> _OperationMaps:
+    decisions_by_ref = {decision_ref(d): d for d in evaluation.decisions}
+    if len(decisions_by_ref) != len(evaluation.decisions):
         raise ProcessingSessionIntegrityError("duplicate canonical Decision refs in session")
 
-    op_by_decision_ref = {op.decision_ref: op for op in evaluation.plan.operations}
-    if len(op_by_decision_ref) != len(evaluation.plan.operations):
+    operations_by_decision_ref = {
+        op.decision_ref: op for op in evaluation.plan.operations
+    }
+    if len(operations_by_decision_ref) != len(evaluation.plan.operations):
         raise ProcessingSessionIntegrityError(
             "multiple operations unexpectedly share a Decision ref"
         )
 
-    token_by_decision_ref = {
+    expected_operation_refs = {operation_ref(op) for op in evaluation.plan.operations}
+    gate_results_by_operation_ref = {
+        result.operation_ref: result for result in evaluation.gate_report.results
+    }
+    if set(gate_results_by_operation_ref) != expected_operation_refs:
+        raise ProcessingSessionIntegrityError(
+            "SafetyGate results do not correspond exactly to OperationPlan operations"
+        )
+
+    tokens_by_decision_ref = {
         token.operation.decision_ref: token
         for token in evaluation.gate_report.cleared_operations
     }
-    if len(token_by_decision_ref) != len(evaluation.gate_report.cleared_operations):
+    if len(tokens_by_decision_ref) != len(evaluation.gate_report.cleared_operations):
         raise ProcessingSessionIntegrityError(
             "multiple cleared tokens unexpectedly share a Decision ref"
         )
-    return by_decision_ref, op_by_decision_ref, token_by_decision_ref
+    for dref, token in tokens_by_decision_ref.items():
+        operation = operations_by_decision_ref.get(dref)
+        if operation is None or operation_ref(operation) != token.operation_ref:
+            raise ProcessingSessionIntegrityError(
+                "cleared token does not correspond to its planned Decision operation"
+            )
+
+    for decision in evaluation.decisions:
+        dref = decision_ref(decision)
+        if decision.actionability is Actionability.DETERMINISTIC_CHANGE:
+            if dref not in operations_by_decision_ref:
+                raise ProcessingSessionIntegrityError(
+                    "deterministic v0.1 Decision was not materialized as an operation"
+                )
+
+    return _OperationMaps(
+        decisions_by_ref,
+        operations_by_decision_ref,
+        tokens_by_decision_ref,
+        gate_results_by_operation_ref,
+    )
 
 
 def _select_next(
     evaluation: _EvaluationSnapshot,
-    rejected_on_snapshot: dict[str, Any],
+    rejected_on_snapshot: dict[str, PatchResult],
 ):
-    by_decision_ref, _, token_by_decision_ref = _decision_order_maps(evaluation)
-    for ref in (decision_ref(d) for d in evaluation.decisions):
-        token = token_by_decision_ref.get(ref)
-        if token is None:
+    maps = _operation_maps(evaluation)
+    for decision in evaluation.decisions:
+        dref = decision_ref(decision)
+        token = maps.tokens_by_decision_ref.get(dref)
+        if token is None or token.operation_ref in rejected_on_snapshot:
             continue
-        if token.operation_ref in rejected_on_snapshot:
-            continue
-        decision = by_decision_ref.get(ref)
-        if decision is None:
+        bound = maps.decisions_by_ref.get(dref)
+        if bound is None:
             raise ProcessingSessionIntegrityError(
                 "cleared token cannot be rebound to generated Decision"
             )
-        return token, decision
+        return token, bound
     return None
 
 
 def _final_findings(
     evaluation: _EvaluationSnapshot,
-    rejected_on_snapshot: dict[str, Any],
+    rejected_on_snapshot: dict[str, PatchResult],
     *,
     operation_limit: bool,
 ) -> tuple[SessionFinding, ...]:
-    _, op_by_decision_ref, token_by_decision_ref = _decision_order_maps(evaluation)
-    gate_result_by_op_ref = {
-        result.operation_ref: result for result in evaluation.gate_report.results
-    }
+    maps = _operation_maps(evaluation)
     findings: list[SessionFinding] = []
 
     for decision in evaluation.decisions:
         dref = decision_ref(decision)
-        operation = op_by_decision_ref.get(dref)
+        operation = maps.operations_by_decision_ref.get(dref)
         if operation is None:
             continue
-        opref = next(
-            (
-                ref
-                for ref, result in gate_result_by_op_ref.items()
-                if ref == getattr(result, "operation_ref", None)
-                and any(
-                    op is operation and candidate_ref == ref
-                    for candidate_ref, op in (
-                        (candidate_ref, candidate_op)
-                        for candidate_ref, candidate_op in (
-                            (r.operation_ref, p)
-                            for r, p in zip(
-                                evaluation.gate_report.results,
-                                evaluation.plan.operations,
-                            )
-                        )
-                    )
-                )
-            ),
-            None,
-        )
-        # OperationPlan/gate result ordering is canonical and aligned; use a
-        # direct lookup by canonical operation identity when the defensive
-        # derivation above cannot establish it.
-        if opref is None:
-            from ..operation_plan import operation_ref as canonical_operation_ref
-
-            opref = canonical_operation_ref(operation)
+        opref = operation_ref(operation)
 
         rejected = rejected_on_snapshot.get(opref)
         if rejected is not None:
@@ -339,7 +346,7 @@ def _final_findings(
             )
             continue
 
-        gate_result = gate_result_by_op_ref.get(opref)
+        gate_result = maps.gate_results_by_operation_ref.get(opref)
         if gate_result is None:
             raise ProcessingSessionIntegrityError(
                 "planned operation has no SafetyGate result"
@@ -360,7 +367,7 @@ def _final_findings(
             )
             continue
 
-        if operation_limit and dref in token_by_decision_ref:
+        if operation_limit and dref in maps.tokens_by_decision_ref:
             findings.append(
                 SessionFinding(
                     SessionFindingKind.OPERATION_LIMIT,
@@ -380,9 +387,9 @@ def _build_result(
     profile: ProcessingProfile,
     input_sha: str,
     current_bytes: bytes,
-    transforms: list[Any],
+    transforms: list[TransformRecord],
     evaluation: _EvaluationSnapshot,
-    rejected_on_snapshot: dict[str, Any],
+    rejected_on_snapshot: dict[str, PatchResult],
     operation_limit: bool = False,
 ) -> ProcessingSessionResult:
     current_sha = hashlib.sha256(current_bytes).hexdigest()
@@ -418,9 +425,9 @@ def process_document(
     _validate_api_inputs(package_snapshot, profile, max_applied_operations)
     input_sha = hashlib.sha256(package_snapshot).hexdigest()
     current_bytes = package_snapshot
-    transforms: list[Any] = []
+    transforms: list[TransformRecord] = []
     seen_package_shas = {input_sha}
-    rejected_on_snapshot: dict[str, Any] = {}
+    rejected_on_snapshot: dict[str, PatchResult] = {}
 
     while True:
         evaluation = _evaluate(current_bytes, profile)
