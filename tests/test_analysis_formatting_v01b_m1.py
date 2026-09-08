@@ -38,6 +38,16 @@ STYLES_CT = "application/vnd.openxmlformats-officedocument.wordprocessingml.styl
 RES = ResolutionStatus
 
 
+# Fixed synthetic ZIP timestamp (decision 0028 §33): the same content must
+# produce the same bytes regardless of the wall clock second, eliminating
+# the known build_docx flake without changing any OOXML content.
+FIXED_ZIP_DATE_TIME = (1980, 1, 1, 0, 0, 0)
+
+
+def _write_part(z: zipfile.ZipFile, name: str, data) -> None:
+    z.writestr(zipfile.ZipInfo(name, date_time=FIXED_ZIP_DATE_TIME), data)
+
+
 def build_docx(doc_xml: str, styles_xml: str | None = None,
                extra_parts: dict[str, bytes] | None = None,
                story_rels: list[tuple[str, str, str]] | None = None) -> bytes:
@@ -66,9 +76,9 @@ def build_docx(doc_xml: str, styles_xml: str | None = None,
                  f'Type="{R}/officeDocument" Target="word/document.xml"/></Relationships>')
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("[Content_Types].xml", ct)
-        z.writestr("_rels/.rels", root_rels)
-        z.writestr("word/document.xml", doc_xml.encode("utf-8"))
+        _write_part(z, "[Content_Types].xml", ct)
+        _write_part(z, "_rels/.rels", root_rels)
+        _write_part(z, "word/document.xml", doc_xml.encode("utf-8"))
         if story_rels:
             rels = "".join(
                 f'<Relationship Id="{rid}" Type="{R}/{t}" Target="{t}"/>'
@@ -77,12 +87,12 @@ def build_docx(doc_xml: str, styles_xml: str | None = None,
             rels = "".join(
                 f'<Relationship Id="{rid}" Type="{R}/{stype}" Target="{target}"/>'
                 for rid, stype, target in story_rels)
-            z.writestr("word/_rels/document.xml.rels",
-                       f'<Relationships xmlns="{PR}">{rels}</Relationships>')
+            _write_part(z, "word/_rels/document.xml.rels",
+                        f'<Relationships xmlns="{PR}">{rels}</Relationships>')
         if styles_xml is not None:
-            z.writestr("word/styles.xml", styles_xml.encode("utf-8"))
+            _write_part(z, "word/styles.xml", styles_xml.encode("utf-8"))
         for name, data in extra_parts.items():
-            z.writestr(name, data)
+            _write_part(z, name, data)
     return buf.getvalue()
 
 
