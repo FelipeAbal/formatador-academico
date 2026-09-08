@@ -1,12 +1,12 @@
 # Decisão 0032 — Processing Session / Orchestration v0.1 contract
 
-Status: **PROPOSED — contract before implementation**
+Status: **PROPOSED — audited implementation under CI validation**
 
 Date: 2026-09-08
 
 ## 1. Purpose
 
-Processing Session v0.1 is the deterministic orchestration layer that repeatedly invokes the already-frozen pipeline until the current document reaches a quiescent state for the v0.1 executable slice.
+Processing Session v0.1 is the deterministic orchestration layer that repeatedly invokes the frozen pipeline until automatic execution reaches a safe quiescent state for the current v0.1 slice.
 
 It does not replace or weaken Parser, Analysis, Classification, Decision, OperationPlan, SafetyGate, Patcher, or TransformLog.
 
@@ -14,9 +14,11 @@ Principle:
 
 **The session coordinates frozen components; it does not acquire new authority.**
 
-## 2. Frozen pipeline reused per iteration
+`quiescent` is a technical automation state, not a claim that the document is fully conformant or needs no human review.
 
-For every mutable iteration the session MUST rebuild state from the current package snapshot:
+## 2. Pipeline per iteration
+
+Every mutable iteration is rebuilt from the exact current package snapshot:
 
 ```text
 current DOCX bytes
@@ -26,32 +28,32 @@ current DOCX bytes
 → Decision
 → OperationPlan
 → SafetyGate
-→ at most ONE selected GateClearedOperation
+→ at most ONE GateClearedOperation
 → Patcher
 → PatchResult
-→ TransformRecord (if APPLIED)
+→ TransformRecord (APPLIED only)
 → next current DOCX bytes
 ```
 
-After an APPLIED patch, no remaining token from the old SafetyGateReport may be executed. The complete pipeline/gate is rerun on the new snapshot, preserving the single-operation semantics frozen in 0029.
+After APPLIED, every remaining token from the old SafetyGateReport is discarded and the full pipeline is rerun. This preserves the single-operation semantics frozen in 0029.
 
-## 3. Scope v0.1
+## 3. Executable scope
 
-Automatic session execution is limited to the Patcher/TransformLog slice:
+Automatic execution is limited to:
 
 ```text
 P1 / run / bold
 P2 / run / font_size
 ```
 
-Target classes supported by rule binding:
+Supported classification targets for rule binding:
 
 ```text
 body
 heading
 ```
 
-`heading` is one class in the frozen Decision projection; heading-level-specific rules are outside v0.1 because Classification metadata level is not carried by `TargetClassification`.
+Heading-level-specific rules are outside v0.1 because heading level is not preserved in frozen `TargetClassification`.
 
 Outside v0.1:
 - P3 spacing patching;
@@ -61,24 +63,26 @@ Outside v0.1:
 - tables/containers/numbering execution;
 - secondary-story execution;
 - structural MOVE/INSERT/MERGE;
-- `styles.xml` mutation;
-- review/highlight DOCX generation;
-- final human-readable report generation.
+- styles.xml mutation;
+- review/highlight DOCX;
+- final human-readable report.
 
-## 4. Minimal processing profile aggregate
+## 4. Minimal orchestration profile
 
-The repository currently has `ProfileRef` and `FormattingRule`, but no aggregate `ValidatedProfile` object suitable for orchestration.
-
-v0.1 introduces only the minimum binding needed to connect a rule to a classified target, without claiming to be the final UI/profile schema.
+The frozen layers provide `ProfileRef` and `FormattingRule`, but no profile aggregate suitable for orchestration. v0.1 introduces only the minimum connector model; it is not the future UI/profile schema.
 
 ```text
 RuleBinding:
     target_class
     target_type
     rule: FormattingRule
+
+ProcessingProfile:
+    profile_ref: ProfileRef
+    bindings: tuple[RuleBinding, ...]
 ```
 
-v0.1 requires:
+Requirements:
 
 ```text
 target_class ∈ {body, heading}
@@ -89,45 +93,59 @@ target_type == run
 }
 ```
 
-Aggregate:
-
-```text
-ProcessingProfile:
-    profile_ref: ProfileRef
-    bindings: tuple[RuleBinding, ...]
-```
-
-Rules are interpreted only through the frozen Decision Layer. Session never chooses a desired value itself.
-
-### Duplicate/conflict policy
-
-There may be at most one binding per:
+At most one binding per:
 
 ```text
 (target_class, target_type, aspect_id, property_slot)
 ```
 
-Duplicate or conflicting bindings are contract errors. Session never resolves rule conflicts by caller order.
+Duplicate/conflicting bindings are contract errors; caller order never resolves conflicts.
 
-Binding input order is not application order.
+### Eager rule validation
 
-## 5. Deterministic target enumeration
+Profile defects must fail even if the input document happens not to contain a matching target.
 
-The session processes the PhysicalIR body story in physical document order.
+For the v0.1 executable slice:
+- bold rule values are exact `bool`;
+- font_size rule values are `Decimal` points;
+- EXACT/SET values are checked eagerly;
+- CONTAINMENT remains valid and is interpreted only by the frozen Decision Layer;
+- rule_id, profile_id and profile_version are non-empty.
 
-Paragraph classification order is the frozen `classify_document(...)` order.
+The session never chooses a desired value itself.
 
-Within each paragraph, runs are enumerated recursively in PhysicalIR child order, including supported run containers, yielding only real `run_raw` records.
+## 5. Target enumeration and application order
 
-A run receives class only through `project_run_classification(run, paragraph_result)`.
+The session follows frozen classification document order.
 
-Only classification results eligible for automatic projection may enter Decision.
+For each eligible classified paragraph, real `run_raw` descendants are enumerated recursively in PhysicalIR child order, including supported run containers such as hyperlinks.
 
-No target class is inferred by the session.
+Run classification is produced only via:
+
+```text
+project_run_classification(run, paragraph_result)
+```
+
+Only classification results eligible for automatic use may enter Decision. The session never infers a target class.
+
+Within the same run, matching bindings are canonically ordered by:
+
+```text
+(target_class, target_type, aspect_id, property_slot, rule_id, path_or_empty)
+```
+
+Therefore application order is:
+
+```text
+physical paragraph/run order
+→ canonical binding order
+```
+
+OperationPlan canonical serialization order is explicitly NOT application order.
 
 ## 6. Decision generation
 
-For each eligible classified run and each matching canonical RuleBinding:
+For every eligible run + matching binding:
 
 ```text
 DecisionContext(
@@ -137,32 +155,18 @@ DecisionContext(
 )
 ```
 
-The observed value comes from frozen `resolve_run_formatting` + `extract_resolved_value`.
+Observed formatting comes only from frozen Analysis plus `extract_resolved_value`; normative evaluation comes only from frozen `evaluate_target`.
 
-The rule is passed to frozen `evaluate_target`.
-
-Session MUST NOT:
-- inspect raw OOXML to decide compliance;
+The session MUST NOT:
+- inspect raw OOXML for compliance;
 - invent desired values;
-- reinterpret rule mode;
+- reinterpret RuleMode;
 - downgrade Analysis ambiguity;
-- turn an abstained classification into body/heading.
+- promote abstention into body/heading.
 
-## 7. Canonical binding order
+## 7. Snapshot binding
 
-Within the same physical run, matching bindings are ordered canonically by:
-
-```text
-(target_class, target_type, aspect_id, property_slot, rule_id, rule.path or "")
-```
-
-This makes result/application behavior independent of caller-supplied tuple order.
-
-Document/run order dominates binding order.
-
-## 8. Evaluation snapshot
-
-Each iteration conceptually produces an internal EvaluationSnapshot containing artifacts bound to exactly one current package SHA:
+Each iteration internally binds:
 
 ```text
 package_sha256
@@ -174,164 +178,146 @@ OperationPlan
 SafetyGateReport
 ```
 
-This is an internal orchestration structure, not necessarily a public/persisted API.
+to exactly one current snapshot.
 
-Artifacts from different package snapshots must never be mixed.
+Mixing artifacts from different snapshots is `ProcessingSessionIntegrityError`.
 
-## 9. One patch per iteration
+The session additionally verifies that the set of GateResults corresponds exactly to the OperationPlan operations and that every cleared token maps back to its canonical Decision/operation.
 
-From a compatible SafetyGateReport, the session may execute at most one cleared operation before rebuilding the entire pipeline.
+## 8. One patch per iteration
 
-Selection is deterministic:
+From a compatible evaluation, select the earliest Decision-order CLEARED token that has not already been Patcher-rejected on this exact snapshot.
 
-1. enumerate generated Decisions in physical document order + canonical binding order;
-2. map planned operations/tokens by canonical `decision_ref` / `operation_ref`;
-3. select the earliest corresponding CLEARED operation that has not already been rejected by Patcher on this exact snapshot;
-4. call Patcher once.
-
-OperationPlan's canonical serialization order is explicitly NOT reused as application order.
-
-## 10. Patcher APPLIED
+Call Patcher exactly once before any new mutation.
 
 On APPLIED:
+1. build exactly one TransformRecord from the bound source Decision;
+2. verify input/output hash lineage;
+3. append it in actual execution order;
+4. replace the current snapshot with output bytes;
+5. discard all old tokens and snapshot-local rejection suppression;
+6. rebuild the complete pipeline.
 
-1. build exactly one TransformRecord using the bound source Decision;
-2. verify TransformRecord input/output hashes against current/new snapshot;
-3. append TransformRecord to `transforms` in actual execution order;
-4. replace current snapshot with `PatchResult.output_package_bytes`;
-5. discard all previous gate tokens and non-final blocked findings;
-6. rebuild the full pipeline on the new snapshot.
+Input bytes are never mutated in-place.
 
-The source package bytes passed into `process_document` remain immutable.
+## 9. Patcher rejection semantics
 
-## 11. Patcher REJECTED
+A legitimate physical Patcher rejection does not stop independent later operations.
 
-A Patcher rejection is not fatal to independent operations.
-
-For the current exact snapshot, record the rejection keyed by:
+Suppression is scoped to:
 
 ```text
 (current_package_sha256, operation_ref)
 ```
 
-and do not retry that exact operation against that unchanged snapshot.
+The exact same operation is not retried against the unchanged snapshot. After any successful independent patch changes the package SHA, suppression is reset and the fresh pipeline may legitimately produce/retry a semantically fresh operation.
 
-The session may continue with later independent CLEARED operations.
+Only these Patcher reasons may become ordinary `patch_rejected` findings in v0.1:
+- `noncanonical_run_properties`;
+- `duplicate_target_property`;
+- `unrepresentable_value`.
 
-If another operation is APPLIED and the package hash changes, old rejection suppression does not carry into the new snapshot; the whole pipeline is recomputed and a semantically fresh operation may be attempted.
+Inside a correctly bound session these reasons are impossible and therefore fail fast as integrity errors, never findings:
+- `snapshot_hash_mismatch`;
+- `unsupported_operation`.
 
-This prevents infinite retry of a document-shape rejection while preserving the possibility that a prior patch legitimately changes the context.
-
-## 12. Gate BLOCKED
+## 10. SafetyGate blocking
 
 Blocked operations are never sent to Patcher.
 
-A blocked operation does not prevent independent CLEARED operations from running in a compatible context.
+A local block does not prevent independent cleared operations in a compatible context.
 
-Global blocked context yields no executable token and therefore no patch for that evaluation snapshot.
+Global blocked context yields no executable token.
 
-Only findings tied to the final output snapshot are returned as final unresolved findings; stale blocked findings from earlier snapshots are discarded after a successful patch.
+Only unresolved findings belonging to the final/current snapshot are returned. Stale blocked findings from an earlier snapshot are discarded after a successful patch; applied history is represented by TransformRecords.
 
-## 13. Quiescence / completion
-
-A session reaches quiescence when, for the current snapshot, there is no remaining CLEARED operation eligible for attempt.
-
-Two terminal states:
+## 11. Terminal statuses
 
 ```text
-complete
-complete_with_findings
-```
-
-`complete` means no final deterministic-change Decision remains unapplied in the v0.1 bound slice.
-
-`complete_with_findings` means the session cannot safely make further progress because one or more final deterministic-change operations are blocked or Patcher-rejected, while all safely applicable operations have already been exhausted.
-
-A third terminal state exists only for the explicit operation budget:
-
-```text
+quiescent
+quiescent_with_unapplied
 operation_limit_reached
 ```
 
-It is not success and must never be reported as complete.
+### quiescent
 
-## 14. Operation budget
+No final `deterministic_change` Decision remains in the bound v0.1 slice and there are no unresolved execution findings.
 
-Public API accepts:
+This does NOT mean there are no final `review`, `human_choice`, `preserve`, abstained classifications or unsupported content.
+
+### quiescent_with_unapplied
+
+At least one final `deterministic_change` remains because it is Gate-blocked or legitimately Patcher-rejected, while no further safely applicable operation remains.
+
+### operation_limit_reached
+
+The next safely applicable operation exists, but executing it would exceed the explicit applied-operation budget. No extra patch is applied.
+
+This status is not success/quiescence.
+
+## 12. Operation budget
+
+Public API:
 
 ```text
-max_applied_operations: int
+max_applied_operations: int = 10000
 ```
 
-with a conservative default suitable for documents, proposed `10000`.
-
 Requirements:
-- exact int (bool rejected);
+- exact int; bool rejected;
 - > 0;
+- counts APPLIED patches/TransformRecords only;
 - deterministic;
-- counts only APPLIED patches / TransformRecords.
+- no silent truncation.
 
-If the next patch would exceed the budget, stop without applying it and return `operation_limit_reached` bound to the current snapshot.
+The high default is a safety fuse, not a performance guarantee.
 
-No silent truncation.
+## 13. Cycle detection
 
-## 15. Cycle detection
+Track all package SHA256 values seen after APPLIED patches, starting with input SHA.
 
-The session maintains the set of package SHA256 values observed after APPLIED patches, starting with the input SHA.
+If an APPLIED result produces any previously seen package SHA:
 
-If an APPLIED patch produces an output package SHA already seen in the same session, raise `ProcessingSessionIntegrityError`.
+```text
+ProcessingSessionIntegrityError
+```
 
-A deterministic profile with unique rule bindings should converge; a package-hash cycle signals an upstream/orchestration contradiction or executor bug and must not be normalized into a successful result.
+A cycle is an upstream/orchestration/executor contradiction and is never normalized into a result status.
 
-## 16. Final classifications and Decisions
+## 14. Final machine-readable state
 
-Before returning any non-exception terminal result, the session evaluates the final/current snapshot and includes:
+Before any non-exception terminal result, re-evaluate the final/current snapshot and return:
 
 ```text
 final_classifications: tuple[ClassificationResult, ...]
 final_decisions: tuple[Decision, ...]
 ```
 
-These are bound by construction to `output_package_sha256`.
+Classifications are retained so abstention/non-applicability does not disappear silently under the product principle **“Na dúvida, marcar.”**
 
-Why classifications are retained:
-- classification abstention/non-applicability must not disappear silently;
-- future Processing Report needs to surface unsupported/ambiguous contexts under the product principle “Na dúvida, marcar.”
+Decisions retain no_action/review/preserve/human_choice outcomes needed by later reporting.
 
-Why Decisions are retained:
-- no_action/review/preserve/human_choice outcomes matter to later reporting;
-- TransformRecords contain only successfully applied changes.
-
-## 17. Final findings
-
-Public minimal finding model:
+## 15. SessionFinding
 
 ```text
 SessionFinding:
     kind
     decision_ref
-    operation_ref | None
+    operation_ref
     target
     reason
 ```
 
-Kinds v0.1:
+Kinds:
+- `gate_blocked` → reason must be a frozen GateReason value;
+- `patch_rejected` → reason must be one of the three allowed physical Patcher rejection reasons above;
+- `operation_limit` → reason exactly `operation_limit_reached`.
 
-```text
-gate_blocked
-patch_rejected
-operation_limit
-```
+Every finding must bind to a final deterministic-change Decision and its exact target.
 
-`reason` is copied from the frozen GateReason / PatchReason vocabulary or a fixed session reason for operation limit. No prose generation here.
+Findings never embed DOCX bytes, GateClearedOperation, SafetyGateReport, or PatchResult.
 
-Findings are only for the final/current snapshot. Applied history lives exclusively in TransformRecords.
-
-The finding must never embed GateClearedOperation, SafetyGateReport, PatchResult output bytes, or DOCX bytes.
-
-## 18. ProcessingSessionResult
-
-Proposed frozen public result:
+## 16. ProcessingSessionResult
 
 ```text
 ProcessingSessionResult:
@@ -347,15 +333,13 @@ ProcessingSessionResult:
     findings: tuple[SessionFinding, ...]
 ```
 
-No timestamp/UUID/hostname.
+No timestamp, UUID, hostname, network metadata or random id.
 
-### Hash invariant
+Required invariants:
 
 ```text
 output_package_sha256 == sha256(output_package_bytes)
 ```
-
-### Transform chain invariant
 
 If transforms is empty:
 
@@ -363,26 +347,21 @@ If transforms is empty:
 input_package_sha256 == output_package_sha256
 ```
 
-If non-empty:
+Otherwise:
 
 ```text
-transforms[0].input_package_sha256 == input_package_sha256
-transforms[-1].output_package_sha256 == output_package_sha256
+first transform input == session input
+last transform output == session output
+each adjacent transform output == next transform input
 ```
 
-and for every adjacent pair:
+`transforms` order is actual application order and is never re-sorted canonically.
 
-```text
-transforms[i].output_package_sha256
-==
-transforms[i+1].input_package_sha256
-```
+All TransformRecords and final Decisions use the session ProfileRef.
 
-Order in `transforms` is actual application order and MUST NOT be sorted canonically after execution.
+Status/Decision/finding coherence is enforced by the public frozen result model.
 
-## 19. Public API
-
-Proposed:
+## 17. Public API
 
 ```text
 process_document(
@@ -393,11 +372,9 @@ process_document(
 ) -> ProcessingSessionResult
 ```
 
-No filesystem path; bytes in/bytes out.
+Bytes in / bytes out. No filesystem path, network, wall clock, randomness, LLM or global mutable state.
 
-No network, clock, randomness, LLM, or global mutable state.
-
-## 20. Error model
+## 18. Error model
 
 ```text
 ProcessingSessionError
@@ -405,133 +382,106 @@ ProcessingSessionContractError
 ProcessingSessionIntegrityError
 ```
 
-ContractError examples:
-- wrong input types;
-- malformed ProcessingProfile/RuleBinding;
-- duplicate binding;
-- unsupported binding slot/class/target_type;
-- invalid max_applied_operations;
-- input DOCX cannot produce a valid PhysicalIR/StyleCatalog under frozen parser contract.
+Contract errors include malformed inputs/profile, unsupported bindings, invalid operation budget and a package that cannot produce the fully supported PhysicalIR/StyleCatalog state required by the frozen downstream pipeline.
 
-IntegrityError examples:
-- artifact binding across snapshots;
-- impossible token/Decision ref mismatch;
-- TransformRecord lineage mismatch;
-- Patcher APPLIED without output bytes/hash invariants;
-- repeated package SHA cycle;
-- impossible mapping between generated Decision and gate token.
+Integrity errors include cross-snapshot artifact mixing, token/Decision/operation mismatch, impossible Patcher rejection, TransformRecord lineage mismatch, cycle detection and impossible GateResult mapping.
 
-Frozen component exceptions may be wrapped only when preserving their category/cause; never silently downgraded to a normal finding.
+Frozen downstream exceptions are never silently downgraded into findings.
 
-## 21. Determinism
+## 19. Determinism
 
-Given identical:
+Identical:
 
 ```text
-package_snapshot bytes
+package bytes
 + ProcessingProfile
 + max_applied_operations
 ```
 
-session result semantics and output bytes must be deterministic under the supported runtime.
+must produce identical output bytes and result semantics in the supported runtime.
 
-Caller ordering of `ProcessingProfile.bindings` must not affect:
-- output DOCX bytes;
-- TransformRecord order;
-- final Decisions order;
-- final findings order.
+Caller binding order must not affect output bytes, TransformRecord order, final Decision order or finding order.
 
-## 22. Result ordering
+## 20. Current strictness on partial parser state
 
-- `transforms`: actual application order;
-- `final_classifications`: frozen Classification document order;
-- `final_decisions`: physical document/run order + canonical binding order;
-- `findings`: same final Decision order, with stable kind/reason tie-break only if needed.
+The frozen Classification Layer currently requires a fully `status == ok` PhysicalIR. Therefore Processing Session v0.1 also requires parser status `ok`.
 
-No hash/ref sorting is allowed to masquerade as document/application order.
+A document with an otherwise usable body but malformed secondary story may produce parser status `partial` and is not processed automatically in v0.1. This is an inherited upstream limitation, not silently bypassed by orchestration.
 
-## 23. No user-facing prose yet
+Revisiting partial-story isolation requires an explicit upstream contract change; Session v0.1 does not weaken Classification to work around it.
 
-Processing Session is orchestration + machine-readable outcome, not final reporting.
+## 21. No final report/review rendering yet
+
+Processing Session returns orchestration state, not user-facing prose.
 
 It does not generate:
-- “corrigido automaticamente” prose;
-- highlighted DOCX;
-- warning text for end users;
-- UI labels.
+- highlighted/review DOCX;
+- final report prose;
+- UI labels;
+- “corrigido automaticamente” text.
 
-The next reporting/review layer will consume:
-- final classifications;
-- final Decisions;
-- findings;
-- ordered TransformRecords;
-- output package bytes.
+Later layers will consume ordered TransformRecords, final classifications, final Decisions, findings and output bytes.
 
-## 24. Minimum tests before freeze
+## 22. Required coverage before freeze
 
-At minimum:
-1. no-change document returns complete with identical bytes/hash and zero transforms;
-2. one bold change applies and records one TransformRecord;
-3. one font_size change applies and records one TransformRecord;
-4. bold + font_size same run apply across two full pipeline reruns;
-5. multiple runs are processed in physical document order;
-6. caller binding order does not change result/output;
-7. multiple paragraphs preserve document application order;
-8. after APPLIED, old same-report token is never reused;
-9. TransformRecord chain input/output hashes link exactly;
-10. final output sha matches bytes;
-11. final classifications correspond to final snapshot;
-12. classification abstention is retained in final_classifications;
-13. final no_action Decisions retained;
-14. gate-blocked final op yields complete_with_findings and no Patcher call for it;
-15. patch-rejected op is not retried forever on same snapshot;
-16. patch rejection does not stop an independent later cleared operation;
-17. after another APPLIED patch, rejection suppression is reset for new snapshot;
-18. rejected PatchResult never becomes TransformRecord;
-19. findings contain no package bytes/tokens;
-20. duplicate RuleBinding contract failure;
-21. unsupported P3/P4 binding contract failure;
-22. unsupported target class failure;
-23. bool is rejected as max_applied_operations;
-24. zero/negative operation limit rejected;
-25. operation limit returns operation_limit_reached without applying beyond budget;
-26. cycle detection fail-fast;
-27. input bytes object remains unchanged;
-28. deterministic repeated output;
-29. stable across PYTHONHASHSEED where applicable;
-30. runtime contains no filesystem/network/clock/random/LLM access;
-31. full existing regression suite preserved;
-32. real E2E: body bold + font across at least two runs → final compliant Analysis values + ordered TransformRecords.
+Coverage must include at least:
+- no-change byte-identical quiescence;
+- bold and font single changes;
+- bold+font same run across fresh full reruns;
+- multiple runs/paragraphs in physical order;
+- caller binding order independence;
+- hyperlink run traversal;
+- heading-only binding;
+- final classifications from final snapshot;
+- classification abstention retention;
+- final no_action Decisions;
+- global/local Gate blocking behavior;
+- legitimate Patcher rejection suppression and independent progress;
+- retry only after snapshot change;
+- impossible Patcher rejection fail-fast;
+- TransformRecord chain integrity;
+- operation limit;
+- cycle fail-fast;
+- input immutability;
+- repeated/hashseed determinism;
+- no runtime filesystem/network/clock/random/LLM use;
+- profile type/conflict validation;
+- SessionFinding reason vocabulary;
+- status/finding/final-Decision public-model consistency;
+- full frozen regression suite.
 
-## 25. Explicit debts / non-goals
+## 23. Audit resolution
+
+The implementation audit resolved the pre-implementation questions as follows:
+
+1. `ProcessingProfile + RuleBinding` is deliberately minimal and is **not** the final product profile schema.
+2. Final classifications + final Decisions + findings + ordered TransformRecords preserve enough machine-readable state for later reporting/review without re-discovering applied history.
+3. One-patch-per-full-rerun is intentionally conservative. Performance cost is accepted in v0.1 because it preserves SafetyGate/Patcher snapshot guarantees exactly.
+4. Rejection suppression is safe because it is exact-snapshot scoped and resets after APPLIED.
+5. Application order is physical document/run order plus canonical binding order and is proven independent of caller tuple order.
+6. Returning only final unresolved findings is correct; stale intermediate conditions should not be presented as final failures after later successful mutation.
+7. Operation budget is a visible safety fuse, never silent truncation.
+8. Package-hash cycles are integrity failures, not business statuses.
+9. Raw SafetyGateReport/PatchResult objects are not exposed in the terminal public result.
+10. Classification abstentions are retained explicitly for later “na dúvida, marcar” reporting.
+11. Status vocabulary uses `quiescent`, not `complete`, to avoid claiming full conformity.
+12. GitHub Actions CI was added so regression execution no longer depends on paid external model credits.
+
+## 24. Explicit debts / non-goals
 
 - final user profile schema/validator/UI;
-- heading-level-specific rule bindings;
+- heading-level-specific rules;
 - paragraph P3/P4 execution;
-- multi-operation atomic transaction (session remains safe one-patch iterations);
-- rollback across already-applied changes;
-- persistence/resume after process interruption;
+- atomic multi-operation transaction/rollback;
+- persistence/resume after interruption;
 - human-readable Processing Report;
 - review/highlight DOCX;
-- exception telemetry;
-- processing timestamps;
-- secondary stories;
-- complex-script `w:szCs` correction.
+- timestamps/telemetry;
+- secondary-story execution;
+- partial-story automatic isolation;
+- complex-script `w:szCs` correction;
+- performance optimization for documents requiring very large numbers of sequential patches.
 
-## 26. Audit questions before implementation
+## 25. Implementation gate
 
-Audit especially:
-1. whether `ProcessingProfile + RuleBinding` is minimal rather than premature profile architecture;
-2. whether final classifications + Decisions + findings + transforms are sufficient for later report/review;
-3. whether one-patch-per-full-rerun is correct despite performance cost;
-4. whether rejection suppression keyed by `(package_sha, operation_ref)` can hide a legitimate retry;
-5. whether actual application order is deterministic and independent of caller binding order;
-6. whether final findings only (not stale intermediate findings) is correct reporting semantics;
-7. whether operation budget behavior is safe;
-8. whether cycle detection should be fail-fast rather than a result status;
-9. whether the session should expose SafetyGateReport/PatchResult directly (current proposal: no);
-10. whether classification abstentions are adequately preserved for “na dúvida, marcar”.
-
-## 27. Implementation gate
-
-Do not implement until this contract is audited against the frozen public APIs and any discovered mismatch is resolved in this decision.
+Implementation exists on an isolated PR and may be frozen only after the final hardened head passes CI and independent static/adversarial inspection.
