@@ -16,6 +16,7 @@ Three failure tiers (rejected is NOT an exception):
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 from enum import Enum
@@ -68,7 +69,7 @@ class PatchResult:
     """Outcome of `apply_cleared_operation`.
 
     Invariants (decision 0028 §17):
-    - applied:  output bytes + sha required, reason None,
+    - applied:  output bytes + sha required and mutually consistent, reason None,
                 changed_part == "word/document.xml";
     - rejected: no output bytes/sha, reason required, changed_part None.
     """
@@ -100,6 +101,11 @@ class PatchResult:
                 self.output_package_sha256
             ):
                 raise ValueError("applied PatchResult requires output_package_sha256")
+            actual_output_sha = hashlib.sha256(self.output_package_bytes).hexdigest()
+            if self.output_package_sha256 != actual_output_sha:
+                raise ValueError(
+                    "applied PatchResult.output_package_sha256 must match output_package_bytes"
+                )
             if self.changed_part != DOCUMENT_PART:
                 raise ValueError("applied PatchResult requires changed_part == word/document.xml")
             if self.reason is not None:
