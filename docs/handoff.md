@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-**Fase:** corpus-base v1 congelado; parser físico v0.4 congelado; Analysis View v0.1a/v0.1b congeladas; Decision Vocabulary v0.1 congelado; Decision Layer v0.1 congelada em 0021; Classification Layer v0.1 congelada em 0023; OperationPlan v0.1 congelado em 0025; **SafetyGate v0.1 implementado, auditado, mergeado e congelado em 0027**.
+**Fase:** corpus-base v1 congelado; parser físico v0.4 congelado; Analysis View v0.1a/v0.1b congeladas; Decision Vocabulary v0.1 congelado; Decision Layer v0.1 congelada em 0021; Classification Layer v0.1 congelada em 0023; OperationPlan v0.1 congelado em 0025; SafetyGate v0.1 congelado em 0027; **Patcher/Applicator v0.1 implementado, auditado, mergeado e congelado em 0029**.
 
 Validação corrente:
 - parser v0.4: **102/102**;
@@ -10,9 +10,10 @@ Validação corrente:
 - após Decision Layer v0.1: **290/290**;
 - após Classification Layer v0.1: **335/335**;
 - após OperationPlan v0.1: **389/389**;
-- head final SafetyGate: **442 testes descobertos**;
-- 11/12 execuções completas: **442/442**;
-- 1/12: **441/442** por flake conhecido do helper sintético `build_docx`/timestamp ZIP; nenhuma regressão funcional identificada;
+- após SafetyGate v0.1: **442 testes descobertos**;
+- após Patcher v0.1: **502/502 OK**;
+- suíte final repetida **3×**, resultados idênticos;
+- failures: 0;
 - errors: 0;
 - skips: 0.
 
@@ -22,7 +23,8 @@ PRs/freeze principais:
 - PR #5 — Decision Layer v0.1; squash `b81f628a0358cbc9483e9207d4f749ea4a2ca475`; freeze 0021;
 - PR #6 — Classification Layer v0.1; squash `736c33036224562549b1b5cb026bd6bfdfd2e112`; freeze 0023;
 - PR #7 — OperationPlan v0.1; head auditado `871e4a5cc379bbb2b2e04504a871188366718092`; squash `1c11d08dcd6fc219bb2f4e0ce5321db027a5801a`; freeze 0025;
-- PR #8 — SafetyGate v0.1; head final auditado/hardened `a867af747875b3e88047d80844f7eaa2df78db30`; squash `d47b8e67d2788eb1912ef951ec7dcedb457376cb`; freeze 0027.
+- PR #8 — SafetyGate v0.1; head final auditado/hardened `a867af747875b3e88047d80844f7eaa2df78db30`; squash `d47b8e67d2788eb1912ef951ec7dcedb457376cb`; freeze 0027;
+- PR #9 — Patcher v0.1; head final auditado/hardened `2d8b9c48a0831a361dc8a152e6a1a876b2318a56`; squash `559cf8ec812320d066e8b91d431873f7a91f2c1c`; freeze 0029.
 
 Este é o HANDOFF corrente. O histórico fica no Git; não criar `handoff_vNN`.
 
@@ -39,12 +41,16 @@ Fluxo formal:
 4. Felipe aprova quando necessário;
 5. HANDOFF + decisão/commit.
 
+### Uso de modelos / custo
+
+Kimi K3 passou a ser recurso caro por créditos extras. Usar apenas quando houver ganho técnico claro, principalmente para implementação pesada ou execução de suíte quando o ambiente local do ChatGPT não conseguir rodar. Preferir ChatGPT para contrato, arquitetura, integração, auditoria estática e GitHub; Claude Opus para auditoria adversarial de alto risco; Kimi só quando estritamente necessário.
+
 Para Kimi:
 - novo chat por etapa técnica grande;
 - começar com HANDOFF + SHA exato do `main` + tarefa fechada;
 - GitHub remoto é fonte de verdade;
 - implementação só conta com branch/commit/PR real ou diff completo;
-- auditoria adversarial antes de merge/freeze.
+- nunca confiar em claim de testes/PR sem inspeção independente.
 
 ## Objetivo do MVP
 
@@ -67,8 +73,11 @@ Princípio: **Na dúvida, marcar.**
 - C3 exige revisão humana;
 - precision > coverage na classificação;
 - abstention correta é sucesso seguro;
-- stale plan/document drift deve ser detectado antes de qualquer patch;
-- operação é compare-and-set semântico: observed/precondition + desired.
+- stale plan/document drift detectado antes de patch;
+- patcher só executa GateClearedOperation;
+- snapshot hash e target physical_hash são revalidados antes da mutação;
+- mutação mínima + allowed-delta + postcondition Analysis obrigatórios;
+- OriginalPackage/snapshot de entrada nunca é mutado in-place.
 
 ## Corpus-base v1
 
@@ -89,6 +98,15 @@ Congelado:
 - package sha256 + sha256 por part;
 - `physical_hash` por alvo;
 - stories secundárias parseadas, mas não executáveis neste slice.
+
+Após 0029 existe API pública aditiva de helpers físicos para downstream:
+- `canonical_xml`;
+- `inherited_xml_attrs`;
+- `physical_hash`;
+- `structural_path`;
+- `resolve_structural_path`.
+
+`structural_path` não é XPath. Resolver dedicado suporta QName real, índices 1-based e namespace URI contendo `/`.
 
 ## Analysis View v0.1a/v0.1b — 0013–0018
 
@@ -127,28 +145,13 @@ Analysis View
 → Decision
 ```
 
-ComplianceStatus:
-`compliant | non_compliant | unknown | not_applicable | not_evaluated`
+`desired_value != None` iff `actionability == deterministic_change`.
 
-Actionability:
-`no_action | deterministic_change | human_choice | review | preserve`
-
-Invariante:
-
-```text
-desired_value != None
-IFF
-actionability == deterministic_change
-```
-
-Slice executável:
-
-```text
-P1/run/bold
-P2/run/font_size
-P3/paragraph/spacing.line
-P4/paragraph/alignment
-```
+Slice executivo upstream continua:
+- P1/run/bold;
+- P2/run/font_size;
+- P3/paragraph/spacing.line;
+- P4/paragraph/alignment.
 
 ## Classification Layer v0.1 — 0022 + freeze 0023
 
@@ -162,8 +165,7 @@ PhysicalIR + StyleCatalog
 → Decision Layer
 ```
 
-Escopo executável:
-`body | heading`.
+Escopo executável atual: `body | heading`.
 
 `long_quote` e `reference` existem no vocabulário, mas ainda não executáveis.
 
@@ -179,51 +181,22 @@ Regras principais:
 
 ## OperationPlan v0.1 — 0024 + freeze 0025
 
-Pipeline:
-
-```text
-Decision
-→ PlanningResult
-→ OperationPlan
-→ SafetyGate
-```
-
 Princípio:
 
-**OperationPlan propõe; SafetyGate veta ou libera; patcher executa.**
+**OperationPlan propõe; SafetyGate veta ou libera; Patcher executa.**
 
-PlanningStatus:
-`planned | skipped | unsupported`.
+OperationKind v0.1: `SET_PROPERTY`.
 
-OperationKind v0.1:
-`SET_PROPERTY`.
-
-Cada operação preserva:
-- DecisionKey;
-- target físico/classificado;
-- `physical_hash`;
-- `precondition_observed`;
-- `desired_value`;
-- `decision_ref`.
+Cada operação preserva target físico/classificado, physical_hash, precondition_observed, desired_value e decision_ref.
 
 Stale/drift anchors:
-1. `package_sha256`;
-2. `physical_hash`;
-3. `precondition_observed`.
-
-Refs:
-- `decision_ref = sha256(serialize_decision(decision))`;
-- `source_decisions_hash` canônico/order-independent;
-- `operation_ref` e `operation_plan_ref` públicos e canônicos após PR #8.
-
-Determinismo:
-- operations e planning_results canonizados;
-- caller order não altera bytes;
-- duplicates/conflicts falham, nunca deduplicam silenciosamente.
+1. package_sha256;
+2. physical_hash;
+3. precondition_observed.
 
 ## SafetyGate v0.1 — 0026 + freeze 0027
 
-Pipeline congelado real:
+Pipeline:
 
 ```text
 DOCX
@@ -235,224 +208,190 @@ DOCX
 → SafetyGate
 ```
 
-API conceitual:
+SafetyGate é veto final, nunca nova autorização normativa.
+
+Global context reasons:
+- source_document_changed;
+- parser_version_mismatch;
+- analysis_version_mismatch;
+- classification_version_mismatch;
+- profile_context_changed.
+
+Local reasons:
+- target_not_found;
+- target_not_unique;
+- target_type_mismatch;
+- physical_hash_mismatch;
+- current_value_unavailable;
+- precondition_mismatch.
+
+`GateClearedOperation` carrega operation, operation_ref, operation_plan_ref e current_package_sha256, com autocoerência de operation_ref.
+
+## Patcher/Applicator v0.1 — contrato 0028 + freeze 0029
+
+Pipeline real agora congelado:
 
 ```text
-OperationPlan
-+ source Decisions
-+ current PhysicalIR
-+ current StyleCatalog
-+ active ProfileRef
-→ SafetyGateReport
+DOCX
+→ Parser
+→ Analysis
+→ Classification
+→ Decision
+→ OperationPlan
+→ SafetyGate
+→ GateClearedOperation
+→ Patcher
+→ patched DOCX bytes
 ```
 
-### Fronteira
-
-SafetyGate é **veto final**, nunca nova autorização normativa.
-
-Não:
-- escolhe desired;
-- redecide compliance;
-- reclassifica;
-- gera XML;
-- aplica patch;
-- modifica DOCX;
-- usa raw OOXML para resolver precondition;
-- usa LLM/heurística/score.
-
-### Integridade fail-fast
-
-Antes de observar o documento:
-- source_decisions_hash;
-- duplicate source Decision;
-- decision_ref resolution;
-- operation↔Decision binding;
-- deterministic_change + rule_ref;
-- versions/kind/story part;
-- PhysicalIR↔StyleCatalog binding.
-
-Integridade inválida = exception, nunca `blocked`.
-
-### Binding PhysicalIR ↔ StyleCatalog
-
-Revalida `StyleCatalog.part_sha256` contra o sha do `word/styles.xml` no inventário da PhysicalIR atual, com part status compatível.
-
-PhysicalIR A + StyleCatalog B → integrity error.
-
-### Global context vetoes
-
-`ContextStatus = compatible | blocked`.
-
-Ordem canônica:
+### Fronteira pública
 
 ```text
-package
-→ parser
-→ analysis
-→ classification
-→ profile
+apply_cleared_operation(
+    package_snapshot: bytes,
+    cleared_operation: GateClearedOperation,
+) -> PatchResult
 ```
 
-Reasons:
-- `source_document_changed`;
-- `parser_version_mismatch`;
-- `analysis_version_mismatch`;
-- `classification_version_mismatch`;
-- `profile_context_changed`.
+Não aceita PlannedOperation crua.
 
-Global mismatch bloqueia todas as operações e impede checks locais.
+### Slice executável
 
-### Local vetoes
-
-`GateStatus = cleared | blocked`.
-
-Reasons:
-- `target_not_found`;
-- `target_not_unique`;
-- `target_type_mismatch`;
-- `physical_hash_mismatch`;
-- `current_value_unavailable`;
-- `precondition_mismatch`.
-
-Gate localiza target na story principal, exige unicidade/tipo/hash e só então reobserva semanticamente pela Analysis pública.
-
-Para run, paragraph ancestor vem da árvore física real, inclusive sob `run_container`; nunca por prefixo textual.
-
-### Compare-and-set runtime
+Somente:
 
 ```text
-current_semantic_value == precondition_observed
+P1/run/bold
+P2/run/font_size
 ```
 
-é obrigatório para `cleared`.
+Uma operação por chamada.
 
-`current == desired`, mas diferente da precondition → `precondition_mismatch`.
+### Snapshot / integrity
 
-Gate nunca replaneja nem converte stale em no_action.
-
-### Value typing
-
-- bold → bool;
-- font_size → `Length(pt) ↔ LengthValue(pt)`;
-- spacing.line → `(rule,value,unit)`;
-- alignment → token canônico.
-
-Sem half-points/twips/XML no gate.
-
-### Partial clearance
-
-Contexto compatible pode ter results mistos. Falha local não derruba operações independentes.
-
-### GateClearedOperation
-
-Token congelado para o futuro patcher:
+Antes de abrir XML:
 
 ```text
-GateClearedOperation:
-    operation
-    operation_ref
-    operation_plan_ref
-    current_package_sha256
+sha256(package_snapshot)
+==
+cleared_operation.current_package_sha256
 ```
 
-Invariante adversarialmente reforçada:
+Mismatch → ordinary rejection `snapshot_hash_mismatch`.
+
+Depois de snapshot match, path/type/physical_hash drift → `PatcherIntegrityError`.
+
+Token não é tratado como capability security; patcher revalida suas próprias precondições.
+
+### OOXML mutation
+
+- somente `word/document.xml`;
+- lxml/ElementTree;
+- DTD/DOCTYPE rejeitado;
+- direct children only para `w:rPr`/`w:b`/`w:sz`;
+- `w:rPrChange` protegido;
+- duplicate `w:rPr` ou shape não-canônico → reject;
+- duplicate target property → reject;
+- ordem CT_RPr congelada; inserir sem mover siblings;
+- sem implicit normalization.
+
+Bold:
 
 ```text
-operation_ref == operation_ref(operation)
+true  → <w:b/>
+false → <w:b w:val="0"/>
 ```
 
-`_EMISSION_PROOF` só evita bypass acidental pela API pública; não é capability security absoluta em Python.
-
-`gate_operation(...)` é diagnóstico/unit-level e não emite token executável.
-
-### SafetyGateReport
-
-Frozen e serializável.
-
-Coerência cruzada obrigatória:
-- compatible → blocked results usam apenas reasons locais;
-- blocked → todos os results blocked pelo reason global do contexto;
-- zero cleared tokens em contexto blocked;
-- `cleared_operations` corresponde exatamente aos results cleared;
-- tokens compartilham plan ref e snapshot sha do report.
-
-### TOCTOU
-
-Todo token carrega `current_package_sha256`.
-
-Future patcher deve operar sobre o mesmo snapshot gateado e verificar:
+Font size:
 
 ```text
-sha256(snapshot bytes) == token.current_package_sha256
+half_points = Decimal(points) * 2
 ```
 
-ou consumir diretamente o OriginalPackage imutável que originou IR/StyleCatalog.
+Exato, sem arredondamento, >0, <=3276 half-points.
 
-Nunca gatear A e aplicar silenciosamente em B.
+`w:szCs` nunca é alterado no v0.1.
 
-### Auditoria PR #8
+### Package/ZIP
 
-Achados corrigidos antes do freeze:
-1. **BLOQUEADOR:** token não vinculava `operation_ref` à operação embutida;
-2. **IMPORTANTE:** report aceitava combinações incoerentes de global/local reason;
-3. **IMPORTANTE:** `SafetyGateReport` não estava exportado;
-4. **MENOR:** wording de `_EMISSION_PROOF` forte demais;
-5. **MENOR:** `gate_operation` precisava ser explicitamente diagnóstico.
+Preserva entry set/order, metadata allowlist, archive/per-entry comments e payload byte-idêntico de todo part não alterado. Compresslevel fixo e sem clock.
 
-Head final auditado/hardened: `a867af747875b3e88047d80844f7eaa2df78db30`.
+O flake anterior de `build_docx` foi eliminado fixando metadata temporal no ZIP sintético.
 
-Squash: `d47b8e67d2788eb1912ef951ec7dcedb457376cb`.
+### XML serialization hardened
 
-### Flake conhecido do harness
+Auditoria final corrigiu antes do merge:
+- namespace URI com `/` no resolver físico;
+- encoding físico real preservado, inclusive UTF-16;
+- declaration + standalone preservados;
+- UTF-16 sem declaration continua sem declaration;
+- prolog/epilog comments/PIs preservados.
 
-O head final descobre 442 testes. Em 12 rodadas:
-- 11: 442/442;
-- 1: 441/442 em `test_hashseed_determinism`.
+### Allowed-delta + postcondition
 
-Diagnóstico confirmado no código: o helper sintético `build_docx` usa `zipfile.writestr` sem `ZipInfo.date_time` fixo. Subprocessos que cruzam boundary temporal podem produzir ZIPs byte-diferentes e `package_sha256` diferente. Isso não é comportamento do produto/SafetyGate.
+`applied` só existe depois de:
+- reabrir os bytes produzidos;
+- provar que o único delta semântico OOXML é a propriedade autorizada + wrapper necessário;
+- validar package scope;
+- Parser → StyleCatalog → Analysis no output;
+- provar `current == desired`.
 
-Registrar como dívida de infraestrutura de teste; não alterar contratos de produto para acomodar o flake.
+Delta extra/postcondition divergente → integrity error.
 
-## Dívidas registradas, não bloqueadoras
+### PatchResult
 
-- estabilizar timestamp do helper sintético `build_docx`;
+Frozen. Para applied:
+
+```text
+output_package_sha256 == sha256(output_package_bytes)
+```
+
+é invariante obrigatória.
+
+### Single-operation limitation
+
+Após patch, package/physical hashes mudam. Outros tokens do mesmo report ficam stale. Não iterar `cleared_operations` em sequência sem reexecutar pipeline/gate.
+
+### Testes finais
+
+Head final: `2d8b9c48a0831a361dc8a152e6a1a876b2318a56`.
+
+Squash: `559cf8ec812320d066e8b91d431873f7a91f2c1c`.
+
+Suite: **502/502 OK**, 3 rodadas idênticas, 0 failures/errors/skips.
+
+## Dívidas registradas
+
+### Não bloqueadoras para o próximo ciclo
 - analysis/classification versions ainda são assertions do orchestrator;
 - possível pipeline-context hash;
 - equivalência semântica de DOCX reempacotado byte-diferente;
-- profile content hash; enquanto não existir, mudança substantiva exige bump de `profile_version`;
+- profile content hash;
 - long_quote/reference executáveis;
 - story_id/part/original_index para stories secundárias;
 - ordem documental para futuras operações estruturais;
-- TransformLog;
-- envelope completo snapshot→patch.
-
-## Fora do próximo ciclo
-
-Até contrato específico:
-- TransformLog;
-- DOCX review/highlight;
-- structural MOVE/INSERT/MERGE;
+- multi-operation transaction;
+- styles.xml patching;
 - secondary-story execution;
-- UI/API web.
+- spacing/alignment patching;
+- TransformLog;
+- clean/review/report orchestration.
+
+### Dívida importante antes de uso amplo em documentos reais
+
+`w:szCs` não é modelado/mutado no slice font_size. O sistema NÃO deve prometer correção visual completa de complex-script enquanto esse subaspecto não tiver contrato próprio. `w:szCs` deve permanecer intacto no v0.1.
 
 ## Próximo passo operacional
 
-**Patcher/applicator v0.1 — contrato primeiro.**
+**TransformLog / Execution Record — contrato primeiro.**
 
-Objetivo do próximo elo:
+Agora já conseguimos produzir um DOCX modificado com segurança para uma operação. O próximo elo deve registrar de forma determinística e auditável o que aconteceu entre snapshot de entrada, token liberado e snapshot de saída, sem ampliar ainda o escopo de mutação.
+
+Objetivo conceitual:
 
 ```text
-OriginalPackage snapshot
-+ GateClearedOperation
-→ minimal OOXML mutation on a copy
-→ modified DOCX bytes
+GateClearedOperation
++ PatchResult applied
+→ TransformLogEntry
 ```
 
-Restrições já herdadas:
-- patcher aceita somente `GateClearedOperation`, nunca `PlannedOperation` crua;
-- revalida snapshot sha antes de mutar;
-- altera somente o subaspecto autorizado;
-- não reconstrói DOCX a partir da IR;
-- preserva o OriginalPackage;
-- conversões OOXML (half-points/twips etc.) só entram aqui, com contrato explícito;
-- primeiro vertical slice deve alterar bold/font_size com patch mínimo e provar preservação do restante.
+Ainda não implementar clean/review/report nem transação multi-operação antes do contrato dessa trilha de execução.
