@@ -1,6 +1,6 @@
 # Decisão 0030 — TransformLog / Execution Record v0.1 contract
 
-Status: **PROPOSED — contract before implementation**
+Status: **PROPOSED — audited contract before implementation**
 
 Date: 2026-09-08
 
@@ -16,23 +16,22 @@ Principle:
 
 ## 2. Sequencing clarification
 
-The earlier conceptual architecture mentioned `SafetyGate -> TransformLog -> XML patch`. That ordering is now clarified by the executable pipeline frozen in 0029.
+Earlier conceptual architecture mentioned `SafetyGate -> TransformLog -> XML patch`. The executable architecture frozen in 0029 clarifies the truthful order.
 
-A truthful TransformRecord can only be finalized after a patch has succeeded, because it must bind both the input and output package hashes.
-
-Frozen conceptual sequence for v0.1:
+A finalized TransformRecord requires both input and output package hashes, so it can only exist after a successful patch:
 
 ```text
 GateClearedOperation
 + exact package snapshot
 → Patcher
 → PatchResult(APPLIED)
++ source Decision
 → TransformRecord
 ```
 
-This is not a new authorization layer and does not weaken any SafetyGate/Patcher invariant.
+A pre-patch object would only repeat execution intent already represented by `PlannedOperation` / `GateClearedOperation`.
 
-A pre-patch object would be execution intent, already represented by `PlannedOperation`/`GateClearedOperation`, and therefore is not created.
+TransformRecord is not a new authorization layer and cannot make a rejected/blocked action executable.
 
 ## 3. Scope v0.1
 
@@ -42,8 +41,6 @@ TransformLog v0.1 records only successful transformations produced by Patcher v0
 P1 / run / bold
 P2 / run / font_size
 ```
-
-It must be generic enough to carry the frozen `PlannedOperation` semantics without hard-coding OOXML values.
 
 Outside v0.1:
 - blocked SafetyGate results;
@@ -58,7 +55,7 @@ Outside v0.1:
 - secondary stories;
 - raw XML snapshots/diffs.
 
-Those belong to later processing/report orchestration, not TransformLog.
+Those belong to later processing/report orchestration.
 
 ## 4. Public construction boundary
 
@@ -68,6 +65,7 @@ Conceptual API:
 build_transform_record(
     cleared_operation: GateClearedOperation,
     patch_result: PatchResult,
+    source_decision: Decision,
 ) -> TransformRecord
 ```
 
@@ -75,7 +73,7 @@ No DOCX/package bytes are accepted.
 
 TransformLog MUST NOT parse or inspect OOXML and MUST NOT recompute semantic formatting.
 
-The builder trusts only invariants already proven by the frozen artifacts and verifies their cross-binding.
+`source_decision` is included only to make normative provenance durable and self-contained enough for future reporting. The builder does not re-evaluate the Decision.
 
 ## 5. Applied-only invariant
 
@@ -85,21 +83,21 @@ A TransformRecord may be created only when:
 patch_result.status == applied
 ```
 
-Rejected PatchResult => contract error; no TransformRecord.
+Rejected PatchResult => `TransformLogContractError`; no record.
 
-Blocked SafetyGate results never reach this builder because they cannot emit `GateClearedOperation`.
+Blocked SafetyGate results never reach the builder because they cannot emit `GateClearedOperation`.
 
-Unexpected execution exceptions also do not produce TransformRecord v0.1.
+Execution exceptions do not produce TransformRecord v0.1.
 
-This means:
+**Absence of a TransformRecord is not evidence of success or failure by itself.**
 
-**absence of a TransformRecord is not evidence of success or failure by itself.**
-
-For a complete processing report, later orchestration must combine SafetyGateReport + PatchResult + TransformRecord(s).
+A complete Processing Report must later combine SafetyGateReport + PatchResult + TransformRecord(s), and optionally non-applied Decision outcomes.
 
 ## 6. Cross-binding before record creation
 
-The builder MUST fail fast unless all bindings hold:
+The builder MUST fail fast unless all bindings hold.
+
+### PatchResult ↔ GateClearedOperation
 
 ```text
 patch_result.operation_ref
@@ -119,7 +117,7 @@ patch_result.input_package_sha256
 cleared_operation.current_package_sha256
 ```
 
-and PatchResult's frozen invariant already guarantees:
+PatchResult's frozen invariant already guarantees:
 
 ```text
 patch_result.output_package_sha256
@@ -127,9 +125,26 @@ patch_result.output_package_sha256
 sha256(patch_result.output_package_bytes)
 ```
 
-The builder does not receive the bytes and therefore does not repeat that hash calculation.
+The builder does not receive bytes and does not repeat that calculation.
 
-Any mismatch is `TransformLogIntegrityError`, never an ordinary record state.
+### Decision ↔ PlannedOperation
+
+Require:
+
+```text
+sha256(serialize_decision(source_decision))
+==
+cleared_operation.operation.decision_ref
+```
+
+and require the already-frozen semantic correspondences:
+- Decision target addresses the same target_type / structural_path / physical_hash / target_class / aspect_id / property_slot as the operation target;
+- Decision actionability is `deterministic_change`;
+- Decision observed value equals `operation.precondition_observed`;
+- Decision desired_value equals `operation.desired_value`;
+- Decision rule_ref is present for an executable deterministic change under the frozen Decision/SafetyGate contract.
+
+Any impossible mismatch is `TransformLogIntegrityError`, never a normal record state.
 
 ## 7. TransformRecord v0.1
 
@@ -142,6 +157,8 @@ TransformRecord:
     operation_ref
     operation_plan_ref
     decision_ref
+    profile_ref
+    rule_ref
     target
     precondition_observed
     desired_value
@@ -150,7 +167,12 @@ TransformRecord:
     changed_part
 ```
 
-Where `target` is the frozen `OperationTarget` copied/reused from the embedded `PlannedOperation` and therefore carries:
+Where:
+- `profile_ref` is copied from the bound source Decision;
+- `rule_ref` is copied from the bound source Decision;
+- `target` is copied/reused from the embedded PlannedOperation.
+
+`target` carries:
 - target_type;
 - structural_path;
 - physical_hash (BEFORE mutation);
@@ -158,24 +180,39 @@ Where `target` is the frozen `OperationTarget` copied/reused from the embedded `
 - aspect_id;
 - property_slot.
 
-`physical_hash` in v0.1 is explicitly the **pre-transform** physical hash inherited from the operation. No post-transform target hash is invented or recomputed.
+The record does not store a post-transform physical_hash.
 
-## 8. Why the operation is not embedded wholesale
+## 8. Why normative provenance is copied
 
-TransformRecord should not simply embed the entire `GateClearedOperation` or `PatchResult` objects.
+`decision_ref` remains the cryptographic lineage anchor, but by itself it requires the original Decision object to be retained elsewhere before a later report can answer:
+
+- which profile version governed the correction?;
+- which rule caused the correction?;
+- which rule path/aspect was applied?
+
+`ProfileRef` and `RuleRef` are already small frozen domain objects. Copying them avoids a fragile future dependency on a separate Decision archive and allows the reporting layer to explain the correction without re-reading the DOCX or recovering historical Decision objects.
+
+The full Decision is NOT embedded.
+
+## 9. Why GateClearedOperation / PatchResult are not embedded
+
+TransformRecord must not embed either artifact wholesale.
 
 Reasons:
-- `GateClearedOperation` contains execution-bound token semantics that are no longer needed after execution;
-- `PatchResult` contains the full output DOCX bytes, which MUST NOT be duplicated into the forensic log;
-- the record should remain small, serializable, and safe to include in future reports.
+- GateClearedOperation contains execution-bound token semantics no longer needed after execution;
+- PatchResult contains full output DOCX bytes;
+- TransformRecord should remain small and safe for persistence/report inclusion.
 
-Instead, TransformRecord copies the minimal semantic/provenance fields needed to explain and bind the applied change.
+Lineage remains bound by:
+- `decision_ref`;
+- `operation_ref`;
+- `operation_plan_ref`;
+- input/output package hashes;
+- copied ProfileRef/RuleRef.
 
-The authoritative lineage remains recoverable through `operation_ref`, `operation_plan_ref`, and `decision_ref`.
+## 10. Values remain semantic
 
-## 9. Values remain semantic
-
-`precondition_observed` and `desired_value` are copied directly from the frozen `PlannedOperation`.
+`precondition_observed` and `desired_value` are copied directly from PlannedOperation after Decision binding is proven.
 
 Examples:
 
@@ -189,16 +226,16 @@ font_size:
 LengthValue(11 pt) → LengthValue(12 pt)
 ```
 
-TransformLog MUST NOT expose OOXML representations such as:
+TransformLog MUST NOT expose:
 - `w:b`;
 - `w:val="0"`;
 - half-points;
 - raw XML;
 - ZipInfo.
 
-That translation belongs exclusively to the Patcher.
+OOXML translation remains exclusively a Patcher concern.
 
-## 10. changed_part
+## 11. changed_part
 
 For v0.1:
 
@@ -206,11 +243,25 @@ For v0.1:
 changed_part == "word/document.xml"
 ```
 
-The value is copied from PatchResult and must also be compatible with the frozen Patcher v0.1 scope.
+Copied from PatchResult and checked against the frozen Patcher v0.1 scope.
 
-TransformLog does not infer or discover changed parts.
+TransformLog does not discover changed parts.
 
-## 11. No timestamps
+## 12. Target path before/after in v0.1
+
+Patcher v0.1 performs only property-level mutation of an existing run and its postcondition resolves the same target structural_path on the output document.
+
+Therefore, for v0.1:
+
+**`target.structural_path` is the stable location identifier for both the pre-transform and post-transform snapshot.**
+
+No redundant `output_structural_path` is stored.
+
+This is valid only for the frozen bold/font_size property slice. Future structural MOVE/INSERT/MERGE operations MUST revisit this invariant under a new TransformLog version/decision.
+
+This stable path is sufficient for a later review/highlight layer to locate the transformed run in the corresponding output snapshot, while package hashes ensure the path is interpreted against the correct snapshot.
+
+## 13. No timestamps
 
 TransformRecord has no:
 - wall-clock timestamp;
@@ -221,12 +272,11 @@ TransformRecord has no:
 
 Reason:
 - deterministic serialization;
-- no false precision about execution environment;
 - timestamps are orchestration/observability metadata, not transformation semantics.
 
-A future external processing session may attach timing metadata outside TransformRecord.
+A future processing session may attach timing metadata outside TransformRecord.
 
-## 12. Deterministic serialization
+## 14. Deterministic serialization
 
 Canonical serialization follows the frozen Decision/OperationPlan pattern:
 - dataclasses -> objects;
@@ -238,14 +288,12 @@ Canonical serialization follows the frozen Decision/OperationPlan pattern:
 - UTF-8;
 - no timestamp/random/locale.
 
-Proposed APIs:
+APIs:
 
 ```text
 serialize_transform_record(record) -> bytes
 transform_ref(record) -> sha256 hex
 ```
-
-with:
 
 ```text
 transform_ref
@@ -253,32 +301,32 @@ transform_ref
 sha256(serialize_transform_record(record))
 ```
 
-`transform_ref` is DERIVED and is not stored inside TransformRecord, avoiding self-referential serialization.
+`transform_ref` is derived and not stored inside TransformRecord.
 
-## 13. Determinism invariant
+## 15. Determinism invariant
 
 Given the same:
 
 ```text
 GateClearedOperation
-+
-PatchResult(APPLIED)
++ PatchResult(APPLIED)
++ source Decision
 ```
 
-construction and serialization must produce byte-identical TransformRecord serialization and the same `transform_ref`.
+construction and serialization must produce byte-identical serialization and the same transform_ref.
 
-Caller order, clock, environment and hash seed must not affect bytes.
+Clock, environment, caller order and hash seed must not affect bytes.
 
-## 14. One record per applied patch
+## 16. One record per applied patch
 
-Because Patcher v0.1 applies exactly one GateClearedOperation per call:
+Patcher v0.1 applies exactly one GateClearedOperation per call:
 
 ```text
-1 applied PatchResult
+1 APPLIED PatchResult
 → exactly 1 TransformRecord
 ```
 
-There is no batch `TransformLog` envelope in v0.1.
+There is no batch TransformLog envelope in v0.1.
 
 A future processing/session layer may hold:
 
@@ -286,13 +334,13 @@ A future processing/session layer may hold:
 tuple[TransformRecord, ...]
 ```
 
-and define chronological/document application order explicitly.
+and define actual application order explicitly.
 
-Do NOT infer application order by sorting `transform_ref`, structural_path, or any existing canonical order.
+Do NOT infer application order by sorting transform_ref, structural_path, operation_ref, or any canonical serialization order.
 
-## 15. Package lineage
+## 17. Package lineage
 
-For sequential future processing, hashes naturally form a chain:
+For future sequential processing:
 
 ```text
 record N.output_package_sha256
@@ -300,25 +348,24 @@ record N.output_package_sha256
 record N+1.input_package_sha256
 ```
 
-TransformLog v0.1 records these hashes but does not itself validate a multi-record chain because it has no batch/session envelope.
+v0.1 records the hashes but does not validate a multi-record chain because no batch/session envelope exists yet.
 
 Chain validation belongs to future orchestration.
 
-## 16. Target identity after mutation
+## 18. Target identity after mutation
 
-No post-transform `physical_hash` is required in v0.1.
+No post-transform physical_hash is required in v0.1.
 
 Rationale:
-- the Patcher already validates the produced document semantically before APPLIED;
-- package output SHA binds the complete output snapshot;
-- deriving a new target hash would require TransformLog to reopen/parse bytes, violating its no-DOCX boundary;
-- the next operation will be generated from a fresh Parser/Analysis cycle and will carry its own fresh physical_hash.
+- Patcher already validates the produced document before APPLIED;
+- output package SHA binds the complete output snapshot;
+- the same structural_path is proven usable post-patch for this property-only slice;
+- deriving a new physical hash would require TransformLog to reopen bytes, violating the no-DOCX boundary;
+- the next operation is generated from a fresh Parser/Analysis cycle and carries a fresh physical_hash.
 
-If future diagnostics demonstrably require `target_physical_hash_after`, it must be added by a new version/decision, preferably emitted by the Patcher rather than recomputed by TransformLog.
+If diagnostics later require `target_physical_hash_after`, it should preferably be emitted by Patcher rather than recomputed by TransformLog, under new versioning.
 
-## 17. Error model
-
-Proposed:
+## 19. Error model
 
 ```text
 TransformLogError
@@ -329,79 +376,94 @@ TransformLogIntegrityError
 `TransformLogContractError`:
 - wrong input types;
 - PatchResult not APPLIED;
-- malformed unsupported artifact/version.
+- malformed/unsupported artifact or version.
 
 `TransformLogIntegrityError`:
-- operation_ref mismatch;
-- operation_plan_ref mismatch;
-- input package SHA mismatch;
-- embedded operation/key/target provenance inconsistency that should be impossible under frozen upstream invariants.
+- PatchResult ↔ GateClearedOperation ref/hash mismatch;
+- Decision ref mismatch;
+- Decision ↔ operation target/key/observed/desired mismatch;
+- missing normative provenance that should exist under frozen upstream invariants;
+- impossible embedded provenance inconsistency.
 
 There is no `rejected` TransformRecord status in v0.1.
 
-## 18. Version
-
-Proposed:
+## 20. Version
 
 ```text
 TRANSFORM_LOG_VERSION = "0.1"
 ```
 
-Any semantic field change or serialization change requires explicit versioning/decision.
+Any semantic field change or canonical serialization change requires explicit versioning/decision.
 
-## 19. Relationship to future user-facing report
+## 21. Relationship to future user-facing outputs
 
 TransformRecord is forensic provenance, not prose.
 
-A later Processing Report may translate a record into user-facing content such as:
+A later Processing Report can derive, without re-reading DOCX merely to discover what changed:
 
 ```text
-Corpo do texto — negrito
-Antes: ativado
-Depois: desativado
-Local: parágrafo/run identificado
+Elemento: corpo do texto / heading etc.
+Aspecto: negrito ou tamanho da fonte
+Antes: valor semântico observado
+Depois: valor semântico desejado/aplicado
+Perfil: profile_id + profile_version
+Regra: rule_id (+ path quando disponível)
+Local: structural_path
 Resultado: corrigido automaticamente
+Snapshot antes/depois: package hashes
 ```
 
-But TransformLog itself must not generate those labels or explanations.
+A later review/highlight DOCX can use the TransformRecord structural_path against the bound output snapshot to locate the changed run for this v0.1 property slice.
 
-It preserves enough stable information for a later reporting layer to do so without re-reading the DOCX merely to discover what was changed.
+Human labels, prose, color/highlight style and warning wording remain outside TransformLog.
 
-## 20. Required tests before freeze
+## 22. Required tests before freeze
 
 At minimum:
-1. build from valid GateClearedOperation + APPLIED PatchResult;
+1. build from valid GateClearedOperation + APPLIED PatchResult + bound source Decision;
 2. rejected PatchResult cannot produce record;
 3. raw PlannedOperation cannot substitute GateClearedOperation;
-4. operation_ref mismatch fail-fast;
-5. operation_plan_ref mismatch fail-fast;
-6. input package SHA mismatch fail-fast;
-7. decision_ref copied exactly from operation;
-8. target copied exactly, including pre-transform physical_hash;
-9. precondition_observed copied exactly;
-10. desired_value copied exactly;
-11. patcher_version copied exactly;
-12. output package SHA copied exactly;
-13. changed_part copied exactly;
-14. no output package bytes stored in record;
-15. no GateClearedOperation object embedded;
-16. no PatchResult object embedded;
-17. bool serialization deterministic;
-18. LengthValue/Decimal serialization deterministic;
-19. serialization stable across PYTHONHASHSEED;
-20. transform_ref equals sha256(serialized bytes);
-21. same inputs produce same bytes/ref repeatedly;
-22. no timestamps/random/UUID;
-23. record construction performs no file/network/XML/package IO;
-24. record can be JSON-roundtripped at serialization representation level without information loss needed for reporting;
-25. full frozen regression suite preserved.
+4. missing/wrong Decision type fails contract;
+5. operation_ref mismatch fail-fast;
+6. operation_plan_ref mismatch fail-fast;
+7. input package SHA mismatch fail-fast;
+8. decision_ref hash mismatch fail-fast;
+9. Decision target mismatch fail-fast;
+10. Decision observed mismatch fail-fast;
+11. Decision desired mismatch fail-fast;
+12. Decision not deterministic_change fails integrity;
+13. missing rule_ref under executable deterministic change fails integrity;
+14. decision_ref copied exactly;
+15. profile_ref copied exactly;
+16. rule_ref copied exactly;
+17. target copied exactly including pre-transform physical_hash;
+18. precondition_observed copied exactly;
+19. desired_value copied exactly;
+20. patcher_version copied exactly;
+21. output package SHA copied exactly;
+22. changed_part copied exactly;
+23. no output package bytes stored;
+24. no GateClearedOperation embedded;
+25. no PatchResult embedded;
+26. no full Decision embedded;
+27. bool serialization deterministic;
+28. LengthValue/Decimal serialization deterministic;
+29. ProfileRef/RuleRef serialization deterministic;
+30. serialization stable across PYTHONHASHSEED;
+31. transform_ref equals sha256(serialized bytes);
+32. same inputs produce same bytes/ref repeatedly;
+33. no timestamps/random/UUID;
+34. construction performs no file/network/XML/package IO;
+35. JSON representation roundtrips without loss of fields needed for reporting;
+36. v0.1 output structural_path equals recorded path under real Patcher E2E;
+37. full frozen regression suite preserved.
 
-## 21. Explicit non-goals / debts
+## 23. Explicit non-goals / debts
 
 - processing/session envelope;
 - multi-record chain validator;
-- user-facing Processing Report;
-- review/highlight DOCX;
+- user-facing Processing Report implementation;
+- review/highlight DOCX implementation;
 - rejected/blocked event ledger;
 - exception telemetry;
 - target post-physical-hash;
@@ -410,16 +472,23 @@ At minimum:
 - persistence/database schema;
 - export format beyond deterministic canonical serialization.
 
-## 22. Audit questions before freeze
+## 24. Audit resolution
 
-Before implementation/freeze, audit specifically:
-1. whether applied-only semantics are sufficient for forensic provenance;
-2. whether any field needed by future clean/review/report output is missing;
-3. whether copying `OperationTarget` is preferable to duplicating scalar target fields;
-4. whether `decision_ref + operation_ref + operation_plan_ref` is sufficient lineage;
-5. whether output bytes must remain excluded;
-6. whether no post-transform target hash creates a real forensic blind spot;
-7. whether TransformLog should know active profile/rule provenance or leave that recoverable through `decision_ref`;
-8. whether no timestamps is correct for domain-level deterministic provenance;
-9. whether any ordinary rejection/status is actually needed;
-10. whether TransformLog can remain completely free of DOCX/XML/package IO.
+Contract audit conclusions before implementation:
+
+1. **Applied-only semantics are correct**: a transformation log should never pretend that blocked/rejected attempts are transformations.
+2. **Decision normative provenance was initially under-specified**: `decision_ref` alone would force later reports to retain/recover the original Decision. The contract now requires the bound source Decision as construction input and copies only ProfileRef + RuleRef.
+3. **OperationTarget should be reused/copied as a frozen domain object**, not flattened into duplicate scalar fields.
+4. **Lineage is sufficient after hardening**: decision_ref + operation_ref + operation_plan_ref + profile/rule refs + package hashes.
+5. **Output DOCX bytes remain excluded**.
+6. **No post-transform target hash is required for the v0.1 property-only slice**.
+7. **No timestamps is correct** for deterministic domain provenance.
+8. **No ordinary TransformRecord rejection/status is needed**.
+9. **TransformLog remains completely free of DOCX/XML/package IO**.
+10. **The frozen structural_path is sufficient for later review/highlight location in v0.1**, because the Patcher postcondition proves it still resolves after property-only mutation.
+
+## 25. Implementation gate
+
+This contract is now ready for implementation audit planning, but remains **PROPOSED** until implementation, tests and freeze decision complete.
+
+Implementation MUST NOT expand scope beyond this contract without reopening 0030.
