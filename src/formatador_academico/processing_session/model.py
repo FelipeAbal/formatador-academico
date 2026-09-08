@@ -8,8 +8,11 @@ from decimal import Decimal
 from enum import Enum
 
 from ..classification.model import ClassificationResult
-from ..decision.model import Decision, FormattingRule, ProfileRef, RuleMode
+from ..decision.model import Actionability, Decision, FormattingRule, ProfileRef, RuleMode
 from ..operation_plan.model import OperationTarget
+from ..operation_plan.planner import decision_ref as canonical_decision_ref
+from ..patcher.model import PatchReason
+from ..safety_gate.model import GateReason
 from ..transform_log.model import TransformRecord
 
 PROCESSING_SESSION_VERSION = "0.1"
@@ -18,6 +21,14 @@ DEFAULT_MAX_APPLIED_OPERATIONS = 10000
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _SUPPORTED_CLASSES = frozenset({"body", "heading"})
 _SUPPORTED_BINDINGS = frozenset({("run", "P1", "bold"), ("run", "P2", "font_size")})
+_ALLOWED_PATCH_FINDING_REASONS = frozenset(
+    {
+        PatchReason.NONCANONICAL_RUN_PROPERTIES.value,
+        PatchReason.DUPLICATE_TARGET_PROPERTY.value,
+        PatchReason.UNREPRESENTABLE_VALUE.value,
+    }
+)
+_GATE_REASON_VALUES = frozenset(reason.value for reason in GateReason)
 
 
 class ProcessingSessionError(Exception):
@@ -159,25 +170,51 @@ class ProcessingProfile:
 
 @dataclass(frozen=True)
 class SessionFinding:
+    """Final/current-snapshot execution finding; always bound to one operation."""
+
     kind: SessionFindingKind
     decision_ref: str
-    operation_ref: str | None
+    operation_ref: str
     target: OperationTarget
     reason: str
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind, SessionFindingKind):
             raise TypeError("SessionFinding.kind must be SessionFindingKind")
-        if not isinstance(self.decision_ref, str) or not _SHA256_RE.match(self.decision_ref):
-            raise ValueError("SessionFinding.decision_ref must be lowercase sha256")
-        if self.operation_ref is not None and (
-            not isinstance(self.operation_ref, str) or not _SHA256_RE.match(self.operation_ref)
-        ):
-            raise ValueError("SessionFinding.operation_ref must be lowercase sha256 or None")
+        for name in ("decision_ref", "operation_ref"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not _SHA256_RE.match(value):
+                raise ValueError(f"SessionFinding.{name} must be lowercase sha256")
         if not isinstance(self.target, OperationTarget):
             raise TypeError("SessionFinding.target must be OperationTarget")
         if not isinstance(self.reason, str) or not self.reason:
             raise ValueError("SessionFinding.reason must be non-empty")
+
+        if self.kind is SessionFindingKind.GATE_BLOCKED:
+            if self.reason not in _GATE_REASON_VALUES:
+                raise ValueError("gate_blocked finding requires a GateReason value")
+        elif self.kind is SessionFindingKind.PATCH_REJECTED:
+            if self.reason not in _ALLOWED_PATCH_FINDING_REASONS:
+                raise ValueError(
+                    "patch_rejected finding requires an allowed physical Patcher rejection reason"
+                )
+        elif self.kind is SessionFindingKind.OPERATION_LIMIT:
+            if self.reason != ProcessingSessionStatus.OPERATION_LIMIT_REACHED.value:
+                raise ValueError(
+                    "operation_limit finding reason must equal operation_limit_reached"
+                )
+
+
+def _target_matches_decision(target: OperationTarget, decision: Decision) -> bool:
+    dt = decision.target
+    return (
+        target.target_type == dt.target_type
+        and target.structural_path == dt.structural_path
+        and target.physical_hash == dt.physical_hash
+        and target.target_class == dt.target_class
+        and target.aspect_id == dt.aspect_id
+        and target.property_slot == dt.property_slot
+    )
 
 
 @dataclass(frozen=True)
@@ -233,6 +270,18 @@ class ProcessingSessionResult:
             if decision.profile_ref != self.profile_ref:
                 raise ValueError("all final Decisions must use the session profile_ref")
 
+        final_by_ref = {canonical_decision_ref(d): d for d in self.final_decisions}
+        if len(final_by_ref) != len(self.final_decisions):
+            raise ValueError("final_decisions must have unique canonical decision refs")
+        for finding in self.findings:
+            decision = final_by_ref.get(finding.decision_ref)
+            if decision is None:
+                raise ValueError("every finding must bind to a final Decision")
+            if decision.actionability is not Actionability.DETERMINISTIC_CHANGE:
+                raise ValueError("execution finding must bind to deterministic_change Decision")
+            if not _target_matches_decision(finding.target, decision):
+                raise ValueError("finding target must match its final Decision target")
+
         if not self.transforms:
             if self.input_package_sha256 != self.output_package_sha256:
                 raise ValueError("zero-transform session must preserve package SHA")
@@ -245,10 +294,20 @@ class ProcessingSessionResult:
                 if left.output_package_sha256 != right.input_package_sha256:
                     raise ValueError("TransformRecord chain is not contiguous")
 
+        deterministic_final = tuple(
+            d for d in self.final_decisions
+            if d.actionability is Actionability.DETERMINISTIC_CHANGE
+        )
         if self.status is ProcessingSessionStatus.QUIESCENT:
-            if self.findings:
-                raise ValueError("quiescent session cannot carry unresolved execution findings")
+            if self.findings or deterministic_final:
+                raise ValueError(
+                    "quiescent session cannot carry unresolved execution findings/change Decisions"
+                )
         elif self.status is ProcessingSessionStatus.QUIESCENT_WITH_UNAPPLIED:
+            if not deterministic_final:
+                raise ValueError(
+                    "quiescent_with_unapplied requires final deterministic_change Decisions"
+                )
             if not any(
                 f.kind in {SessionFindingKind.GATE_BLOCKED, SessionFindingKind.PATCH_REJECTED}
                 for f in self.findings
@@ -257,5 +316,9 @@ class ProcessingSessionResult:
                     "quiescent_with_unapplied requires gate/patch unresolved findings"
                 )
         elif self.status is ProcessingSessionStatus.OPERATION_LIMIT_REACHED:
+            if not deterministic_final:
+                raise ValueError(
+                    "operation_limit_reached requires a remaining deterministic_change Decision"
+                )
             if not any(f.kind is SessionFindingKind.OPERATION_LIMIT for f in self.findings):
                 raise ValueError("operation_limit_reached requires operation_limit finding")
