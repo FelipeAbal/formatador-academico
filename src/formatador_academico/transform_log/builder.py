@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from ..decision.model import Actionability, Decision
 from ..decision.serialization import serialize_decision
-from ..operation_plan.model import LengthValue
+from ..operation_plan.model import LengthValue, OperationKind
 from ..operation_plan.serialization import operation_ref as canonical_operation_ref
 from ..patcher.model import PATCHER_VERSION, PatchResult, PatchStatus
 from ..safety_gate.model import GateClearedOperation
@@ -17,6 +17,8 @@ from .model import (
     TransformRecord,
 )
 
+_SUPPORTED_SLICE = frozenset({("run", "P1", "bold"), ("run", "P2", "font_size")})
+
 
 def _decision_ref(decision: Decision) -> str:
     return hashlib.sha256(serialize_decision(decision)).hexdigest()
@@ -26,9 +28,9 @@ def _operation_semantic_value(property_slot: str, decision_value):
     """Project a Decision value into the frozen OperationPlan semantic type.
 
     OperationPlan v0.1 deliberately wraps font_size Decimal values in
-    LengthValue(pt); other currently executable TransformLog slots preserve
-    the Decision value directly. This is provenance validation only: no rule,
-    desired value or compliance is recomputed here.
+    LengthValue(pt); other TransformLog v0.1 slots preserve the Decision
+    value directly. This is provenance validation only: no rule, desired
+    value or compliance is recomputed here.
     """
 
     if property_slot == "font_size":
@@ -59,6 +61,12 @@ def build_transform_record(
         raise TransformLogContractError("unsupported PatchResult patcher_version")
 
     operation = cleared_operation.operation
+    key = operation.key
+    if (
+        operation.kind is not OperationKind.SET_PROPERTY
+        or (key.target_type, key.aspect_id, key.property_slot) not in _SUPPORTED_SLICE
+    ):
+        raise TransformLogContractError("operation is outside TransformLog v0.1 applied slice")
 
     if cleared_operation.operation_ref != canonical_operation_ref(operation):
         raise TransformLogIntegrityError("cleared operation_ref does not bind its operation")
