@@ -28,9 +28,8 @@ def _operation_semantic_value(property_slot: str, decision_value):
     """Project a Decision value into the frozen OperationPlan semantic type.
 
     OperationPlan v0.1 deliberately wraps font_size Decimal values in
-    LengthValue(pt); other TransformLog v0.1 slots preserve the Decision
-    value directly. This is provenance validation only: no rule, desired
-    value or compliance is recomputed here.
+    LengthValue(pt); bold remains an exact bool. This is provenance
+    validation only: no rule, desired value or compliance is recomputed here.
     """
 
     if property_slot == "font_size":
@@ -39,7 +38,13 @@ def _operation_semantic_value(property_slot: str, decision_value):
                 "font_size source Decision value must be Decimal under frozen planner contract"
             )
         return LengthValue(value=decision_value, unit="pt")
-    return decision_value
+    if property_slot == "bold":
+        if type(decision_value) is not bool:
+            raise TransformLogIntegrityError(
+                "bold source Decision value must be bool under frozen planner contract"
+            )
+        return decision_value
+    raise TransformLogContractError("property slot is outside TransformLog v0.1")
 
 
 def build_transform_record(
