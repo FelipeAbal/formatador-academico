@@ -68,6 +68,14 @@ def _prolog_epilog(root: etree._Element) -> list[bytes]:
     return [etree.tostring(n) for n in nodes + trailing]
 
 
+def _docinfo_fingerprint(tree: etree._ElementTree) -> tuple[str | None, str | None, bool | None]:
+    """Declaration semantics relevant to safe round-trip validation."""
+
+    info = tree.docinfo
+    encoding = info.encoding.upper() if isinstance(info.encoding, str) else info.encoding
+    return (info.xml_version, encoding, info.standalone)
+
+
 def _strip_target_for_comparison(run: etree._Element, target_tag: str) -> None:
     """Remove the direct target property (and the emptied rPr wrapper)."""
 
@@ -149,6 +157,10 @@ def validate_allowed_delta(
     if _prolog_epilog(original_tree.getroot()) != _prolog_epilog(output_tree.getroot()):
         raise PatcherIntegrityError(
             "allowed-delta violation: prolog/epilog comments/PIs changed"
+        )
+    if _docinfo_fingerprint(original_tree) != _docinfo_fingerprint(output_tree):
+        raise PatcherIntegrityError(
+            "allowed-delta violation: XML declaration semantics changed"
         )
 
 
