@@ -101,25 +101,57 @@ def _segment_matcher(name: str):
     return lambda child: isinstance(child.tag, str) and child.tag == name
 
 
+def _split_structural_path(path: str) -> list[str]:
+    """Split a parser path without treating '/' inside Clark-notation URIs as separators.
+
+    Parser paths may contain names such as ``{http://example.com/ns}node[1]``.
+    A plain ``path.split('/')`` therefore cannot be the inverse of
+    ``_structural_path``. This scanner treats slashes as separators only when
+    outside the ``{namespace-uri}`` portion of a segment.
+    """
+
+    if not isinstance(path, str) or not path.startswith("/"):
+        raise StructuralPathError(f"malformed structural path: {path!r}")
+    segments: list[str] = []
+    buf: list[str] = []
+    in_namespace = False
+    for char in path[1:]:
+        if char == "{" and not in_namespace:
+            in_namespace = True
+            buf.append(char)
+            continue
+        if char == "}" and in_namespace:
+            in_namespace = False
+            buf.append(char)
+            continue
+        if char == "/" and not in_namespace:
+            if not buf:
+                raise StructuralPathError(f"malformed structural path: {path!r}")
+            segments.append("".join(buf))
+            buf = []
+            continue
+        buf.append(char)
+    if in_namespace or not buf:
+        raise StructuralPathError(f"malformed structural path: {path!r}")
+    segments.append("".join(buf))
+    return segments
+
+
 def resolve_structural_path(root: etree._Element, path: str) -> etree._Element:
     """Resolve a parser structural path against `root` by explicit tree walk.
 
     This is the literal inverse of `structural_path`. It is NOT an XPath
     engine: each step selects the N-th (1-based) child of the current node
     whose real QName/node kind equals the segment name — the same semantics
-    the parser used to generate the path. Non-`w` namespaces and non-element
-    nodes (comment()/processing-instruction()) are supported.
+    the parser used to generate the path. Non-`w` namespaces, including
+    namespace URIs containing '/', and non-element nodes
+    (comment()/processing-instruction()) are supported.
 
     Raises StructuralPathError if the path is malformed, the root segment
     does not match, or any step cannot be resolved.
     """
 
-    if not isinstance(path, str) or not path.startswith("/"):
-        raise StructuralPathError(f"malformed structural path: {path!r}")
-    segments = [s for s in path.split("/") if s != ""]
-    if not segments:
-        raise StructuralPathError(f"malformed structural path: {path!r}")
-
+    segments = _split_structural_path(path)
     root_name = _parser_node_kind_name(root)
     if segments[0] != root_name:
         raise StructuralPathError(
