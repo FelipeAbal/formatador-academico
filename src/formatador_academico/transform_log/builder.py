@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import hashlib
+from decimal import Decimal
 
 from ..decision.model import Actionability, Decision
 from ..decision.serialization import serialize_decision
+from ..operation_plan.model import LengthValue
 from ..operation_plan.serialization import operation_ref as canonical_operation_ref
 from ..patcher.model import PATCHER_VERSION, PatchResult, PatchStatus
 from ..safety_gate.model import GateClearedOperation
@@ -18,6 +20,24 @@ from .model import (
 
 def _decision_ref(decision: Decision) -> str:
     return hashlib.sha256(serialize_decision(decision)).hexdigest()
+
+
+def _operation_semantic_value(property_slot: str, decision_value):
+    """Project a Decision value into the frozen OperationPlan semantic type.
+
+    OperationPlan v0.1 deliberately wraps font_size Decimal values in
+    LengthValue(pt); other currently executable TransformLog slots preserve
+    the Decision value directly. This is provenance validation only: no rule,
+    desired value or compliance is recomputed here.
+    """
+
+    if property_slot == "font_size":
+        if type(decision_value) is not Decimal:
+            raise TransformLogIntegrityError(
+                "font_size source Decision value must be Decimal under frozen planner contract"
+            )
+        return LengthValue(value=decision_value, unit="pt")
+    return decision_value
 
 
 def build_transform_record(
@@ -40,12 +60,8 @@ def build_transform_record(
 
     operation = cleared_operation.operation
 
-    # Bind the cleared token to the exact embedded operation again. Upstream
-    # already guarantees this, but TransformLog must never propagate a forged
-    # or internally inconsistent lineage artifact.
     if cleared_operation.operation_ref != canonical_operation_ref(operation):
         raise TransformLogIntegrityError("cleared operation_ref does not bind its operation")
-
     if patch_result.operation_ref != cleared_operation.operation_ref:
         raise TransformLogIntegrityError("PatchResult operation_ref mismatch")
     if patch_result.operation_plan_ref != cleared_operation.operation_plan_ref:
@@ -61,8 +77,6 @@ def build_transform_record(
     if source_decision.rule_ref is None:
         raise TransformLogIntegrityError("applied transformation source Decision must carry RuleRef")
 
-    # The operation is the executable projection of the Decision. Assert all
-    # provenance fields that the later report will copy into the record.
     dt = source_decision.target
     ot = operation.target
     target_fields = (
@@ -75,10 +89,18 @@ def build_transform_record(
     )
     if any(getattr(dt, name) != getattr(ot, name) for name in target_fields):
         raise TransformLogIntegrityError("source Decision target does not match operation target")
-    if source_decision.observed != operation.precondition_observed:
+
+    expected_observed = _operation_semantic_value(
+        operation.key.property_slot, source_decision.observed
+    )
+    expected_desired = _operation_semantic_value(
+        operation.key.property_slot, source_decision.desired_value
+    )
+    if expected_observed != operation.precondition_observed:
         raise TransformLogIntegrityError("source Decision observed does not match operation precondition")
-    if source_decision.desired_value != operation.desired_value:
+    if expected_desired != operation.desired_value:
         raise TransformLogIntegrityError("source Decision desired_value does not match operation")
+
     if source_decision.profile_ref.profile_id != source_decision.rule_ref.profile_id:
         raise TransformLogIntegrityError("source Decision profile/rule profile_id mismatch")
     if source_decision.profile_ref.profile_version != source_decision.rule_ref.profile_version:
