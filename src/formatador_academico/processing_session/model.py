@@ -4,10 +4,11 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass
+from decimal import Decimal
 from enum import Enum
 
 from ..classification.model import ClassificationResult
-from ..decision.model import Decision, FormattingRule, ProfileRef
+from ..decision.model import Decision, FormattingRule, ProfileRef, RuleMode
 from ..operation_plan.model import OperationTarget
 from ..transform_log.model import TransformRecord
 
@@ -32,6 +33,8 @@ class ProcessingSessionIntegrityError(ProcessingSessionError):
 
 
 class ProcessingSessionStatus(str, Enum):
+    """Technical automatic-processing state; never a claim of full conformity."""
+
     QUIESCENT = "quiescent"
     QUIESCENT_WITH_UNAPPLIED = "quiescent_with_unapplied"
     OPERATION_LIMIT_REACHED = "operation_limit_reached"
@@ -41,6 +44,37 @@ class SessionFindingKind(str, Enum):
     GATE_BLOCKED = "gate_blocked"
     PATCH_REJECTED = "patch_rejected"
     OPERATION_LIMIT = "operation_limit"
+
+
+def _validate_rule_value(property_slot: str, value: object) -> None:
+    if property_slot == "bold":
+        if type(value) is not bool:
+            raise ProcessingSessionContractError("bold rule values must be exact bool")
+        return
+    if property_slot == "font_size":
+        if type(value) is not Decimal:
+            raise ProcessingSessionContractError(
+                "font_size rule values must be Decimal points"
+            )
+        return
+    raise ProcessingSessionContractError("unsupported Processing Session property slot")
+
+
+def _validate_bound_rule(rule: FormattingRule) -> None:
+    if not isinstance(rule.rule_id, str) or not rule.rule_id:
+        raise ProcessingSessionContractError("FormattingRule.rule_id must be non-empty")
+    if rule.mode is RuleMode.CONTAINMENT:
+        return
+    if rule.mode is RuleMode.EXACT:
+        _validate_rule_value(rule.property_slot, rule.expected)
+        return
+    if rule.mode is RuleMode.SET:
+        for value in rule.allowed:
+            _validate_rule_value(rule.property_slot, value)
+        if rule.preferred is not None:
+            _validate_rule_value(rule.property_slot, rule.preferred)
+        return
+    raise ProcessingSessionContractError("unsupported FormattingRule.mode")
 
 
 @dataclass(frozen=True)
@@ -65,6 +99,7 @@ class RuleBinding:
             raise ProcessingSessionContractError(
                 "RuleBinding operation is outside Processing Session v0.1 slice"
             )
+        _validate_bound_rule(self.rule)
 
     @property
     def identity(self) -> tuple[str, str, str, str]:
@@ -97,6 +132,10 @@ class ProcessingProfile:
     def __post_init__(self) -> None:
         if not isinstance(self.profile_ref, ProfileRef):
             raise ProcessingSessionContractError("ProcessingProfile.profile_ref must be ProfileRef")
+        if not isinstance(self.profile_ref.profile_id, str) or not self.profile_ref.profile_id:
+            raise ProcessingSessionContractError("profile_id must be non-empty")
+        if not isinstance(self.profile_ref.profile_version, str) or not self.profile_ref.profile_version:
+            raise ProcessingSessionContractError("profile_version must be non-empty")
         if not isinstance(self.bindings, tuple):
             raise ProcessingSessionContractError("ProcessingProfile.bindings must be a tuple")
         if not self.bindings:
@@ -187,6 +226,13 @@ class ProcessingSessionResult:
         ):
             raise TypeError("findings must be tuple[SessionFinding, ...]")
 
+        for transform in self.transforms:
+            if transform.profile_ref != self.profile_ref:
+                raise ValueError("all TransformRecords must use the session profile_ref")
+        for decision in self.final_decisions:
+            if decision.profile_ref != self.profile_ref:
+                raise ValueError("all final Decisions must use the session profile_ref")
+
         if not self.transforms:
             if self.input_package_sha256 != self.output_package_sha256:
                 raise ValueError("zero-transform session must preserve package SHA")
@@ -198,3 +244,18 @@ class ProcessingSessionResult:
             for left, right in zip(self.transforms, self.transforms[1:]):
                 if left.output_package_sha256 != right.input_package_sha256:
                     raise ValueError("TransformRecord chain is not contiguous")
+
+        if self.status is ProcessingSessionStatus.QUIESCENT:
+            if self.findings:
+                raise ValueError("quiescent session cannot carry unresolved execution findings")
+        elif self.status is ProcessingSessionStatus.QUIESCENT_WITH_UNAPPLIED:
+            if not any(
+                f.kind in {SessionFindingKind.GATE_BLOCKED, SessionFindingKind.PATCH_REJECTED}
+                for f in self.findings
+            ):
+                raise ValueError(
+                    "quiescent_with_unapplied requires gate/patch unresolved findings"
+                )
+        elif self.status is ProcessingSessionStatus.OPERATION_LIMIT_REACHED:
+            if not any(f.kind is SessionFindingKind.OPERATION_LIMIT for f in self.findings):
+                raise ValueError("operation_limit_reached requires operation_limit finding")
