@@ -12,13 +12,7 @@ from ..patcher.document import parse_document_xml, serialize_document_xml
 from ..patcher.model import PatcherContractError, PatcherIntegrityError
 from ..patcher.package import read_package_parts, repackage, verify_package_scope
 from ..patcher.validation import relread_document_xml
-from ..patcher.xml_patch import (
-    MC_ALTERNATE_CONTENT,
-    RPR_CANONICAL_RANK,
-    W_R,
-    W_RPR,
-    W_RPRCHANGE,
-)
+from ..patcher.xml_patch import MC_ALTERNATE_CONTENT, RPR_CANONICAL_RANK, W_R, W_RPR
 from ..processing_report import (
     PROCESSING_REPORT_VERSION,
     AppliedChangeItem,
@@ -45,11 +39,6 @@ W_T = f"{{{W_NS}}}t"
 W_SYM = f"{{{W_NS}}}sym"
 W_TAB = f"{{{W_NS}}}tab"
 W_BR = f"{{{W_NS}}}br"
-W_INSTRTEXT = f"{{{W_NS}}}instrText"
-W_FLDCHAR = f"{{{W_NS}}}fldChar"
-W_DRAWING = f"{{{W_NS}}}drawing"
-W_OBJECT = f"{{{W_NS}}}object"
-W_PICT = f"{{{W_NS}}}pict"
 W_DELTEXT = f"{{{W_NS}}}delText"
 W_DEL = f"{{{W_NS}}}del"
 
@@ -108,7 +97,6 @@ def _validate_rpr_for_review(run: etree._Element) -> etree._Element | None:
             if rank is None:
                 raise ValueError("noncanonical")
             known_ranks.append(rank)
-        # foreign namespace extension is intentionally ignored for ordering
     if known_ranks != sorted(known_ranks):
         raise ValueError("noncanonical")
     return rpr
@@ -168,16 +156,24 @@ def _validate_item_binding(item, final_hash: str) -> None:
             or item.target.property_slot not in {"bold", "font_size"}
             or item.changed_part != DOCUMENT_PART
         ):
-            raise ReviewDocxIntegrityError("AppliedChangeItem is outside frozen P1/P2 body-part premises")
+            raise ReviewDocxIntegrityError(
+                "AppliedChangeItem is outside frozen P1/P2 body-part premises"
+            )
         return
     if isinstance(item, (UnappliedChangeItem, ReviewItem)):
         if item.target.physical_hash != final_hash:
-            raise ReviewDocxIntegrityError("final-snapshot report item physical_hash mismatch")
+            raise ReviewDocxIntegrityError(
+                "final-snapshot report item physical_hash mismatch"
+            )
         return
-    raise ReviewDocxIntegrityError(f"unsupported candidate item type: {type(item).__name__}")
+    raise ReviewDocxIntegrityError(
+        f"unsupported candidate item type: {type(item).__name__}"
+    )
 
 
-def _ordinary_reason(run: etree._Element) -> tuple[ReviewMarkReason | None, etree._Element | None]:
+def _ordinary_reason(
+    run: etree._Element,
+) -> tuple[ReviewMarkReason | None, etree._Element | None]:
     if _is_under_deleted_revision(run) or _direct(run, W_DELTEXT):
         return ReviewMarkReason.PROTECTED_REVISION_RUN, None
     rprs = _direct(run, W_RPR)
@@ -194,7 +190,10 @@ def _ordinary_reason(run: etree._Element) -> tuple[ReviewMarkReason | None, etre
     return None, rpr
 
 
-def build_review_docx(clean_package_snapshot: bytes, processing_report: ProcessingReport) -> ReviewDocxResult:
+def build_review_docx(
+    clean_package_snapshot: bytes,
+    processing_report: ProcessingReport,
+) -> ReviewDocxResult:
     if not isinstance(clean_package_snapshot, bytes):
         raise ReviewDocxContractError("clean_package_snapshot must be bytes")
     if not isinstance(processing_report, ProcessingReport):
@@ -204,7 +203,9 @@ def build_review_docx(clean_package_snapshot: bytes, processing_report: Processi
 
     input_sha = hashlib.sha256(clean_package_snapshot).hexdigest()
     if input_sha != processing_report.summary.output_package_sha256:
-        raise ReviewDocxIntegrityError("clean snapshot SHA does not match ProcessingReport output SHA")
+        raise ReviewDocxIntegrityError(
+            "clean snapshot SHA does not match ProcessingReport output SHA"
+        )
 
     candidates = _collect_candidates(processing_report)
     if not candidates:
@@ -226,7 +227,9 @@ def build_review_docx(clean_package_snapshot: bytes, processing_report: Processi
         before_xml = payloads[DOCUMENT_PART]
         tree = parse_document_xml(before_xml, DOCUMENT_PART)
     except (KeyError, PatcherContractError, PatcherIntegrityError) as exc:
-        raise ReviewDocxIntegrityError(f"unable to open clean package safely: {exc}") from exc
+        raise ReviewDocxIntegrityError(
+            f"unable to open clean package safely: {exc}"
+        ) from exc
 
     root = tree.getroot()
     results: list[ReviewMarkResult] = []
@@ -234,11 +237,15 @@ def build_review_docx(clean_package_snapshot: bytes, processing_report: Processi
 
     for candidate in candidates:
         path = candidate["path"]
-        source_kinds = tuple(x for x in _SOURCE_ORDER if x in candidate["source_kinds"])
+        source_kinds = tuple(
+            x for x in _SOURCE_ORDER if x in candidate["source_kinds"]
+        )
         try:
             run = parser_api.resolve_structural_path(root, path)
         except parser_api.StructuralPathError as exc:
-            raise ReviewDocxIntegrityError(f"report target path does not resolve: {path}: {exc}") from exc
+            raise ReviewDocxIntegrityError(
+                f"report target path does not resolve: {path}: {exc}"
+            ) from exc
         if run.tag != W_R:
             raise ReviewDocxIntegrityError(f"report target is not w:r: {path}")
         final_hash = _physical_hash(run)
@@ -248,7 +255,14 @@ def build_review_docx(clean_package_snapshot: bytes, processing_report: Processi
         reason, rpr = _ordinary_reason(run)
         if reason is not None:
             results.append(
-                ReviewMarkResult("run", path, final_hash, ReviewMarkStatus.UNMARKED, reason, source_kinds)
+                ReviewMarkResult(
+                    "run",
+                    path,
+                    final_hash,
+                    ReviewMarkStatus.UNMARKED,
+                    reason,
+                    source_kinds,
+                )
             )
             continue
 
@@ -256,7 +270,14 @@ def build_review_docx(clean_package_snapshot: bytes, processing_report: Processi
         _insert_highlight(rpr)
         marked_paths.append(path)
         results.append(
-            ReviewMarkResult("run", path, final_hash, ReviewMarkStatus.MARKED, None, source_kinds)
+            ReviewMarkResult(
+                "run",
+                path,
+                final_hash,
+                ReviewMarkStatus.MARKED,
+                None,
+                source_kinds,
+            )
         )
 
     if not marked_paths:
@@ -264,29 +285,45 @@ def build_review_docx(clean_package_snapshot: bytes, processing_report: Processi
     else:
         try:
             after_xml_in_memory = serialize_document_xml(tree, before_xml)
-            output = repackage(infos, payloads, archive_comment, after_xml_in_memory)
+            output = repackage(
+                infos, payloads, archive_comment, after_xml_in_memory
+            )
             verify_package_scope(clean_package_snapshot, output)
             after_xml = relread_document_xml(output)
-            validate_allowed_delta(before_xml, after_xml, tuple(marked_paths))
-        except (PatcherContractError, PatcherIntegrityError) as exc:
-            raise ReviewDocxIntegrityError(f"review DOCX conservation proof failed: {exc}") from exc
+            validate_allowed_delta(
+                before_xml, after_xml, tuple(marked_paths)
+            )
 
-        # Physical postcondition on relread bytes.
-        out_tree = parse_document_xml(after_xml, DOCUMENT_PART)
-        out_root = out_tree.getroot()
-        for path in marked_paths:
-            try:
-                run = parser_api.resolve_structural_path(out_root, path)
-            except parser_api.StructuralPathError as exc:
-                raise ReviewDocxIntegrityError(f"postcondition path failed: {path}: {exc}") from exc
-            if run.tag != W_R:
-                raise ReviewDocxIntegrityError("postcondition target is not w:r")
-            rprs = _direct(run, W_RPR)
-            if len(rprs) != 1:
-                raise ReviewDocxIntegrityError("postcondition requires exactly one direct w:rPr")
-            highlights = _direct(rprs[0], W_HIGHLIGHT)
-            if len(highlights) != 1 or dict(highlights[0].attrib) != {W_VAL: "yellow"}:
-                raise ReviewDocxIntegrityError("postcondition direct yellow highlight failed")
+            out_tree = parse_document_xml(after_xml, DOCUMENT_PART)
+            out_root = out_tree.getroot()
+            for path in marked_paths:
+                try:
+                    run = parser_api.resolve_structural_path(out_root, path)
+                except parser_api.StructuralPathError as exc:
+                    raise ReviewDocxIntegrityError(
+                        f"postcondition path failed: {path}: {exc}"
+                    ) from exc
+                if run.tag != W_R:
+                    raise ReviewDocxIntegrityError(
+                        "postcondition target is not w:r"
+                    )
+                rprs = _direct(run, W_RPR)
+                if len(rprs) != 1:
+                    raise ReviewDocxIntegrityError(
+                        "postcondition requires exactly one direct w:rPr"
+                    )
+                highlights = _direct(rprs[0], W_HIGHLIGHT)
+                if (
+                    len(highlights) != 1
+                    or dict(highlights[0].attrib) != {W_VAL: "yellow"}
+                ):
+                    raise ReviewDocxIntegrityError(
+                        "postcondition direct yellow highlight failed"
+                    )
+        except (PatcherContractError, PatcherIntegrityError) as exc:
+            raise ReviewDocxIntegrityError(
+                f"review DOCX conservation proof failed: {exc}"
+            ) from exc
 
     output_sha = hashlib.sha256(output).hexdigest()
     return ReviewDocxResult(
