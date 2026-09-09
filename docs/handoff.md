@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-**Fase:** corpus-base v1 congelado; Parser físico v0.4 congelado; Analysis v0.1a/v0.1b congeladas; Decision Vocabulary v0.1 congelado; Decision Layer v0.1 congelada em 0021; Classification Layer v0.1 congelada em 0023; OperationPlan v0.1 congelado em 0025; SafetyGate v0.1 congelado em 0027; Patcher/Applicator v0.1 congelado em 0029; TransformLog / Execution Record v0.1 congelado em 0031; Processing Session / Orchestration v0.1 congelado em 0033; Processing Report v0.1 congelado em 0035; Review/Highlight DOCX v0.1 congelado em 0037; **Product Output Bundle v0.1 implementado, auditado, mergeado e congelado em 0039**.
+**Fase:** corpus-base v1 congelado; Parser físico v0.4 congelado; Analysis v0.1a/v0.1b congeladas; Decision Vocabulary v0.1 congelado; Decision Layer v0.1 congelada em 0021; Classification Layer v0.1 congelada em 0023; OperationPlan v0.1 congelado em 0025; SafetyGate v0.1 congelado em 0027; Patcher/Applicator v0.1 congelado em 0029 com **errata Decimal 0041 congelada**; TransformLog / Execution Record v0.1 congelado em 0031; Processing Session / Orchestration v0.1 congelado em 0033; Processing Report v0.1 congelado em 0035; Review/Highlight DOCX v0.1 congelado em 0037; Product Output Bundle v0.1 congelado em 0039; **Profile Input / Form Schema v0.1 implementado, auditado, mergeado e congelado em 0042**.
 
 Este é o HANDOFF corrente. O histórico fica no Git; não criar `handoff_vNN`.
 
@@ -14,13 +14,14 @@ Este é o HANDOFF corrente. O histórico fica no Git; não criar `handoff_vNN`.
 - Classification Layer v0.1: **335/335**;
 - OperationPlan v0.1: **389/389**;
 - SafetyGate v0.1: **442 testes descobertos** no freeze próprio;
-- Patcher v0.1: **502/502 OK** no freeze próprio;
+- Patcher v0.1: **502/502 OK** no freeze próprio; errata 0041 incluída na suíte atual;
 - TransformLog v0.1: **524/524 OK** no freeze próprio;
 - Processing Session v0.1: **565/565 OK** no freeze próprio;
 - Processing Report v0.1: **591/591 OK** no freeze próprio;
 - Review/Highlight DOCX v0.1: **627/627 OK** no freeze próprio;
-- Product Output Bundle / suíte completa atual: **644/644 OK**;
-- GitHub Actions verde no head final do PR #14 e no `main` pós-merge;
+- Product Output Bundle v0.1: **644/644 OK** no freeze próprio;
+- Profile Input / suíte completa atual: **682/682 OK**;
+- GitHub Actions verde no head final do PR #15 e no `main` pós-merge;
 - failures: 0;
 - errors: 0;
 - CI é a execução padrão da suíte; não gastar Kimi apenas para testar.
@@ -37,8 +38,9 @@ Este é o HANDOFF corrente. O histórico fica no Git; não criar `handoff_vNN`.
 - PR #10 — TransformLog v0.1; squash `eff4770f2f5ec848d0f5d6b9afb6b2cdfdc8e355`; freeze 0031;
 - PR #11 — Processing Session v0.1; squash `17b0a37529012a0873c76f27c1072ce297240f5d`; freeze 0033;
 - PR #12 — Processing Report v0.1; squash `3328b8f9eb8f582aa19c7ced9168561621f32bfb`; freeze 0035;
-- PR #13 — Review DOCX v0.1; head final `8458874f8533f2107f85a6d4d8dde8e7cfa09e53`; squash `0b8ebad402dd558b357006d98a0d54014d8b5c58`; freeze 0037;
-- PR #14 — Product Output Bundle v0.1; head final `c4dd6ed6792cd1f88d58159c7640ac78b1b2ce1d`; squash `f87ea08511febd403b75874771ed5aff5db59fc9`; freeze 0039.
+- PR #13 — Review DOCX v0.1; squash `0b8ebad402dd558b357006d98a0d54014d8b5c58`; freeze 0037;
+- PR #14 — Product Output Bundle v0.1; head final `c4dd6ed6792cd1f88d58159c7640ac78b1b2ce1d`; squash `f87ea08511febd403b75874771ed5aff5db59fc9`; freeze 0039;
+- PR #15 — Profile Input v0.1 + Patcher Decimal erratum; head final `516924475ebd945f15c0271b6ea467e98c9c70f2`; squash `0429fa5bd115da95e8ed8c55a37099f912854e1a`; errata 0041 + freeze 0042.
 
 ## Regra operacional
 
@@ -66,11 +68,18 @@ Kimi está pago por crédito extra; minimizar agressivamente.
 
 Formatar com segurança DOCX acadêmicos existentes a partir de perfil formal explicitamente declarado. Não promete conformidade ABNT genérica.
 
-As três saídas centrais já existem e agora têm **uma única fronteira de produto**:
+As três saídas centrais já existem e têm uma única fronteira de produto:
 
 1. **DOCX limpo**;
 2. **DOCX de revisão/highlight**;
 3. **relatório de processamento JSON canônico**.
+
+Agora também existe a fronteira user-facing de perfil:
+
+```text
+Profile Input JSON bytes
+→ ProcessingProfile
+```
 
 Princípio: **Na dúvida, marcar.**
 
@@ -88,17 +97,25 @@ Princípio: **Na dúvida, marcar.**
 - patcher só executa GateClearedOperation;
 - snapshot hash e target physical_hash revalidados antes da mutação;
 - mutação mínima + allowed-delta + postcondition Analysis obrigatórios no Patcher normativo;
+- Patcher font_size usa aritmética half-point exata, sem dependência de `Decimal` context e sem arredondamento silencioso;
 - OriginalPackage/snapshot nunca mutado in-place;
 - TransformRecord só existe para patch APPLIED e é proveniência, nunca autorização;
 - Processing Session nunca cria autoridade normativa nova nem reutiliza token stale;
 - Processing Report é projeção read-only e nunca reanalisa/reclassifica/redecide;
 - Review DOCX é apresentação visual derivada do clean + report, nunca correção normativa;
 - marca visual do Review DOCX nunca entra em TransformLog e não deve ser reinjetada automaticamente como clean input;
-- Product Output Bundle apenas compõe e prova lineage entre artefatos; não cria nova verdade normativa.
+- Product Output Bundle apenas compõe e prova lineage entre artefatos; não cria nova verdade normativa;
+- Profile Input só transforma declaração explícita em ProcessingProfile: ausência permanece ausência, sem defaults/herança/inferência.
 
 ## Pipeline de produto congelado
 
 ```text
+Profile Input JSON bytes
+→ parse_profile_input_json
+→ ProfileInput
+→ build_processing_profile
+→ ProcessingProfile
+
 input DOCX bytes + ProcessingProfile
 → Processing Session
     → Parser
@@ -129,7 +146,7 @@ P1 / run / bold
 P2 / run / font_size
 ```
 
-Classes executáveis do ProcessingProfile v0.1:
+Classes executáveis:
 
 ```text
 body
@@ -159,7 +176,7 @@ process_document(
 ) -> ProcessingSessionResult
 ```
 
-Após cada patch APPLIED, todo o pipeline é reconstruído e os tokens anteriores são descartados.
+Após cada patch APPLIED, todo o pipeline é reconstruído e tokens anteriores são descartados.
 
 Status:
 
@@ -171,15 +188,11 @@ operation_limit_reached
 
 `quiescent` significa ausência de automação segura restante; não significa plena conformidade.
 
-## Processing Report v0.1 — contrato 0034 + freeze 0035
-
-Fronteira:
+## Processing Report v0.1 — 0034 + freeze 0035
 
 ```text
 build_processing_report(session_result: ProcessingSessionResult) -> ProcessingReport
 ```
-
-Machine-readable, read-only e determinístico.
 
 Famílias:
 
@@ -194,21 +207,15 @@ Identidade:
 
 ```text
 processing_report_ref(report)
-=
-sha256(serialize_processing_report(report))
+= sha256(serialize_processing_report(report))
 ```
 
 Não calcula percentual de conformidade.
 
-## Review/Highlight DOCX v0.1 — contrato 0036 + freeze 0037
-
-Fronteira:
+## Review/Highlight DOCX v0.1 — 0036 + freeze 0037
 
 ```text
-build_review_docx(
-    clean_package_snapshot: bytes,
-    processing_report: ProcessingReport,
-) -> ReviewDocxResult
+build_review_docx(clean_package_snapshot, processing_report) -> ReviewDocxResult
 ```
 
 Única marca criada:
@@ -217,22 +224,9 @@ build_review_docx(
 <w:highlight w:val="yellow"/>
 ```
 
-Significa somente que existe informação correspondente no ProcessingReport para aquele run; não representa severity/categoria/compliance.
+Significa apenas que há informação correspondente no relatório; não representa severity/categoria/compliance.
 
-Marcáveis no v0.1:
-- AppliedChangeItem;
-- UnappliedChangeItem;
-- ReviewItem.
-
-ClassificationItems permanecem report-only.
-
-Direct highlight preexistente nunca é sobrescrito. Runs sem superfície visual, sob deleção/revisão protegida ou com forma física não-canônica permanecem unmarked com razão explícita.
-
-Allowed-delta é assimétrico/set-driven e preserva highlight autoral. Drift de target/path/hash é falha de integridade.
-
-## Product Output Bundle v0.1 — contrato 0038 + freeze 0039
-
-Fronteira pública:
+## Product Output Bundle v0.1 — 0038 + freeze 0039
 
 ```text
 build_product_output_bundle(
@@ -243,57 +237,97 @@ build_product_output_bundle(
 ) -> ProductOutputBundle
 ```
 
-Uma única chamada produz e vincula:
+Produz atomicamente e vincula:
 
 ```text
 clean_package_bytes
 review_package_bytes
 processing_report_json_bytes
-processing_report (objeto tipado)
+processing_report
 ```
 
-### Lineage obrigatório
+## Profile Input / Form Schema v0.1 — 0040 + freeze 0042
 
-Antes de retornar, o Bundle prova:
-- input SHA ↔ Processing Session;
-- clean bytes/SHA ↔ Session output;
-- report input/output SHA ↔ input/clean;
-- canonical report JSON ↔ ProcessingReport;
-- processing_report_ref ↔ report JSON;
-- review input SHA ↔ clean;
-- review report_ref ↔ ProcessingReport;
-- review bytes/SHA ↔ ReviewDocxResult;
-- versões das três camadas.
+API pública:
 
-O dataclass público também é self-binding: construção manual com report JSON, profile_ref ou clean snapshot divergentes é rejeitada.
+```text
+parse_profile_input_json(profile_json_bytes: bytes) -> ProfileInput
+build_processing_profile(profile_input: ProfileInput) -> ProcessingProfile
+processing_profile_from_json(profile_json_bytes: bytes) -> ProcessingProfile
+```
 
-### Atomicidade
+### Schema exposto
 
-A fronteira publica somente o Bundle completo. Falha em Session, Report, Review ou lineage não retorna bundle parcial.
+```text
+schema_version: "0.1"
+profile: {id, version}
+rules -> body|heading -> bold|font_size -> exact|set|preserve
+```
 
-### Autoridade negativa
+### Autoridade
 
-O Bundle NÃO:
-- abre/muta OOXML ou ZIP;
-- reanalisa/reclassifica/redecide;
-- cria normatividade;
-- interpreta findings;
-- calcula score;
-- gera filenames;
-- salva arquivos;
-- cria ZIP de entrega;
-- implementa UI/API HTTP;
-- renderiza relatório human-readable.
+- campo ausente não cria regra;
+- `null` é inválido, nunca default;
+- body/heading não herdam entre si;
+- schema não interpreta “ABNT”;
+- rules vazias/classe vazia são rejeitadas;
+- IDs internos são `body:bold`, `body:font_size`, `heading:bold`, `heading:font_size`;
+- schema version não entra no rule_id.
 
-### Validação
+### Encoding/JSON
 
-- PR #14 head final: `c4dd6ed6792cd1f88d58159c7640ac78b1b2ce1d`;
-- squash: `f87ea08511febd403b75874771ed5aff5db59fc9`;
-- CI no PR e no main pós-merge: **644/644 OK**;
-- fluxos reais testados: no-change, bold, font_size, ReviewItem, Patcher rejection, operation limit;
-- repetição byte-determinística das três saídas;
-- input/profile imutáveis;
-- runtime sem filesystem/network/clock/random/dynamic import.
+- bytes exato;
+- até 256 KiB;
+- strict UTF-8;
+- UTF-8 BOM rejeitado;
+- UTF-16/32 rejeitados;
+- duplicate keys rejeitadas em todos os níveis;
+- unknown fields rejeitados;
+- `schema_version` é avaliada antes de campos futuros;
+- erros têm `code` estável e first-error determinístico.
+
+### Decimal/font_size
+
+- JSON numbers viram Decimal exato;
+- 12 / 12.0 / 1.2e1 canonicalizam para `Decimal("12")`;
+- 11.50 -> `Decimal("11.5")`;
+- resultado independente de `decimal.getcontext()`;
+- 11.25pt → Unsupported, nunca arredondado;
+- máximo 32 dígitos significativos e expoente [-16,16] no input v0.1;
+- limite deriva de `patcher.MAX_HALF_POINTS=3276`.
+
+### `preserve`
+
+```text
+preserve -> RuleMode.CONTAINMENT
+```
+
+Sem transformação, item de mudança/revisão ou highlight. Pode existir Decision interna, portanto o summary técnico pode diferir da completa omissão. Perfil só-preserve é válido, mas não é evidência de conformidade.
+
+### `set`
+
+- allowed canonicalizado;
+- semantic duplicates rejeitados;
+- singleton sem preferred rejeitado;
+- preferred deve pertencer a allowed.
+
+### Modelo
+
+`ProfileInput` e `ProfileInputRule` são frozen e auto-validantes; construção programática não bypassa invariantes semânticos.
+
+## Patcher Decimal exactness erratum — 0041
+
+O contrato 0028 já exigia no-rounding, mas a implementação original podia arredondar `Decimal * 2` conforme o contexto global antes da checagem.
+
+0041 corrige somente a implementação:
+
+- half-points por aritmética inteira exata via `Decimal.as_tuple()`;
+- contexto Decimal não interfere;
+- Decimal adversarial não é arredondado;
+- expoentes extremos são rejeitados antes de materializar potências gigantes;
+- `MAX_HALF_POINTS` exportado publicamente de forma aditiva.
+
+Sem expansão do slice ou da autoridade normativa.
 
 ## Corpus-base v1
 
@@ -306,12 +340,10 @@ O Bundle NÃO:
 ## Dívidas registradas
 
 ### Não bloqueadoras imediatas
-- **schema de perfil/formulário user-facing**;
-- adapter/validação de JSON/formulário → ProcessingProfile;
 - heading-level rules;
 - analysis/classification versions ainda como assertions do orchestrator;
 - possível pipeline-context hash;
-- profile content hash;
+- **profile content hash**;
 - equivalência semântica de DOCX reempacotado byte-diferente;
 - P3/P4 patching;
 - italic patching;
@@ -342,20 +374,32 @@ O Bundle NÃO:
 
 ## Próximo passo operacional
 
-**Profile Input / Form Schema v0.1 — contrato primeiro.**
+**Product Input Boundary v0.1 — contrato primeiro.**
 
-O core já aceita `ProcessingProfile`, mas esse é um objeto interno tipado. O produto previsto desde o início exige **DOCX + formulário de regras**. A próxima lacuna real é transformar uma configuração user-facing explicitamente declarada em `ProcessingProfile` sem inventar defaults e sem dizer apenas “conforme ABNT”.
+Agora já existem separadamente:
 
-O próximo contrato deve fechar antes de implementação:
-- formato de entrada user-facing (JSON/schema ou estrutura equivalente);
-- vocabulário exposto no primeiro slice;
-- distinção entre campo ausente, valor explicitamente definido e opção não suportada;
-- como representar body/heading e regras P1/P2 sem expor detalhes internos desnecessários;
-- validação de tipos/unidades;
-- profile_id/profile_version e futura estratégia de fingerprint;
-- mensagens de erro user-facing versus códigos internos;
-- conversão determinística para `ProcessingProfile`;
-- nenhuma inferência normativa ou default silencioso;
-- compatibilidade futura com P3/P4 e outros aspectos sem quebrar o schema.
+```text
+Profile Input JSON bytes -> ProcessingProfile
+DOCX bytes + ProcessingProfile -> ProductOutputBundle
+```
 
-Este ciclo é de **entrada/configuração de produto**, não de nova mutação OOXML. A princípio ChatGPT + GitHub bastam; auditoria externa só se o schema introduzir autoridade normativa ambígua ou regras implícitas.
+O próximo ciclo deve compor as duas fronteiras numa API user-facing única:
+
+```text
+DOCX bytes + Profile Input JSON bytes
+→ ProductOutputBundle
+```
+
+Sem reimplementar parser de perfil, Processing Session ou Product Output Bundle e sem criar nova normatividade.
+
+O contrato deve fechar:
+- API única de produto;
+- tradução/encapsulamento de `ProfileInputError` e `ProductOutputBundleError` numa fronteira única;
+- preservação das causas e códigos machine-readable;
+- atomicidade: nunca devolver bundle parcial;
+- input/profile bytes imutáveis;
+- determinismo;
+- comportamento de `max_applied_operations`;
+- sem filesystem/UI/filenames/downloads nesta etapa.
+
+Este ciclo é composição/error-boundary. Claude só é necessário se surgir nova autoridade ou ambiguidade de segurança; em princípio ChatGPT + GitHub bastam.
