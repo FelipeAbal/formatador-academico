@@ -6,6 +6,7 @@ from collections import OrderedDict
 from ..classification.model import ClassificationStatus
 from ..decision.model import Actionability
 from ..operation_plan import decision_ref as canonical_decision_ref
+from ..operation_plan.model import OperationTarget
 from ..processing_session.model import ProcessingSessionResult
 from ..transform_log import transform_ref
 from .model import (
@@ -42,7 +43,7 @@ def _build_story_coverage(session_result: ProcessingSessionResult) -> tuple[Stor
             bucket["abstained"] += 1
         elif result.status is ClassificationStatus.NOT_APPLICABLE:
             bucket["not_applicable"] += 1
-        else:  # defensive; frozen enum should make this impossible
+        else:
             raise ProcessingReportIntegrityError("unexpected classification status")
         bucket["warnings"] += len(result.classification_warnings)
 
@@ -56,6 +57,18 @@ def _build_story_coverage(session_result: ProcessingSessionResult) -> tuple[Stor
             warning_count=counts["warnings"],
         )
         for story_id, counts in buckets.items()
+    )
+
+
+def _operation_target_from_decision(decision) -> OperationTarget:
+    target = decision.target
+    return OperationTarget(
+        target_type=target.target_type,
+        structural_path=target.structural_path,
+        physical_hash=target.physical_hash,
+        target_class=target.target_class,
+        aspect_id=target.aspect_id,
+        property_slot=target.property_slot,
     )
 
 
@@ -129,17 +142,7 @@ def build_processing_report(session_result: ProcessingSessionResult) -> Processi
             decision_ref=canonical_decision_ref(decision),
             profile_ref=decision.profile_ref,
             rule_ref=decision.rule_ref,
-            target=__import__(
-                "formatador_academico.operation_plan.model",
-                fromlist=["OperationTarget"],
-            ).OperationTarget(
-                target_type=decision.target.target_type,
-                structural_path=decision.target.structural_path,
-                physical_hash=decision.target.physical_hash,
-                target_class=decision.target.target_class,
-                aspect_id=decision.target.aspect_id,
-                property_slot=decision.target.property_slot,
-            ),
+            target=_operation_target_from_decision(decision),
             compliance=decision.compliance,
             actionability=decision.actionability,
             reason=decision.reason,
