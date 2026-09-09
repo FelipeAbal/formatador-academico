@@ -2,15 +2,9 @@
 
 ## Estado atual
 
-**Fase:** corpus-base v1 congelado; Parser físico v0.4 congelado; Analysis v0.1a/v0.1b congeladas; Decision Vocabulary v0.1 congelado; Decision Layer v0.1 congelada em 0021; Classification Layer v0.1 congelada em 0023; OperationPlan v0.1 congelado em 0025; SafetyGate v0.1 congelado em 0027; Patcher/Applicator v0.1 congelado em 0029; TransformLog / Execution Record v0.1 congelado em 0031; **Processing Session / Orchestration v0.1 implementado, auditado, mergeado e congelado em 0033**.
+**Fase:** corpus-base v1 congelado; Parser físico v0.4 congelado; Analysis v0.1a/v0.1b congeladas; Decision Vocabulary v0.1 congelado; Decision Layer v0.1 congelada em 0021; Classification Layer v0.1 congelada em 0023; OperationPlan v0.1 congelado em 0025; SafetyGate v0.1 congelado em 0027; Patcher/Applicator v0.1 congelado em 0029; TransformLog / Execution Record v0.1 congelado em 0031; Processing Session / Orchestration v0.1 congelado em 0033; **Processing Report v0.1 implementado, auditado, mergeado e congelado em 0035**.
 
 Este é o HANDOFF corrente. O histórico fica no Git; não criar `handoff_vNN`.
-
-### SHA corrente do `main` antes desta atualização
-
-`acefa7f338cc4e626fc6ce2b139021801909cd27`
-
-Esse commit é o freeze 0033. A presente atualização do HANDOFF gera um novo SHA documental, sem alterar contratos congelados.
 
 ## Validação corrente
 
@@ -22,11 +16,13 @@ Esse commit é o freeze 0033. A presente atualização do HANDOFF gera um novo S
 - SafetyGate v0.1: **442 testes descobertos** no freeze próprio;
 - Patcher v0.1: **502/502 OK** no freeze próprio;
 - TransformLog v0.1: **524/524 OK** no freeze próprio;
-- Processing Session / suíte completa atual: **565/565 OK**;
-- GitHub Actions verde no PR #11 e no `main` pós-merge;
+- Processing Session v0.1: **565/565 OK** no freeze próprio;
+- Processing Report / suíte completa atual: **591/591 OK**;
+- GitHub Actions verde no head final do PR #12 e no `main` pós-merge;
 - failures: 0;
 - errors: 0;
-- CI agora elimina a dependência de Kimi pago apenas para execução da suíte.
+- skips: 0;
+- CI é a execução padrão da suíte; não gastar Kimi apenas para testar.
 
 ## PRs / freezes principais
 
@@ -38,7 +34,8 @@ Esse commit é o freeze 0033. A presente atualização do HANDOFF gera um novo S
 - PR #8 — SafetyGate v0.1; squash `d47b8e67d2788eb1912ef951ec7dcedb457376cb`; freeze 0027;
 - PR #9 — Patcher v0.1; squash `559cf8ec812320d066e8b91d431873f7a91f2c1c`; freeze 0029;
 - PR #10 — TransformLog v0.1; squash `eff4770f2f5ec848d0f5d6b9afb6b2cdfdc8e355`; freeze 0031;
-- PR #11 — Processing Session v0.1; head final auditado `20717d2b36f180644675bbc1720357de1e8aa2a6`; squash `17b0a37529012a0873c76f27c1072ce297240f5d`; freeze 0033.
+- PR #11 — Processing Session v0.1; head final `20717d2b36f180644675bbc1720357de1e8aa2a6`; squash `17b0a37529012a0873c76f27c1072ce297240f5d`; freeze 0033;
+- PR #12 — Processing Report v0.1; head final `28ffb60224509cce0bd7916ae39810a2c6397a81`; squash `3328b8f9eb8f582aa19c7ced9168561621f32bfb`; freeze 0035.
 
 ## Regra operacional
 
@@ -50,22 +47,17 @@ Fluxo formal:
 1. ChatGPT propõe;
 2. modelo apropriado audita quando necessário;
 3. ChatGPT integra;
-4. Felipe aprova quando necessário;
+4. Felipe aprova quando realmente necessário;
 5. HANDOFF + decisão/commit.
 
 ### Uso de modelos / custo
 
-- ChatGPT: integração, arquitetura, metodologia, auditoria estática, GitHub e HANDOFF.
+- ChatGPT: integração, arquitetura, metodologia, auditoria estática, implementação quando viável, GitHub e HANDOFF.
 - Claude Opus: auditoria adversarial de alto risco quando houver ganho real.
-- Kimi K3: implementação pesada ou auditoria técnica especializada somente quando necessário.
-- GitHub Actions: execução normal da suíte; não gastar Kimi só para testar.
+- Kimi K3: implementação pesada/auditoria especializada apenas quando ganho justificar custo.
+- GitHub Actions: execução normal da suíte.
 
-Para Kimi:
-- novo chat por etapa técnica grande;
-- começar com HANDOFF + SHA exato do `main` + tarefa fechada;
-- GitHub remoto é fonte de verdade;
-- implementação só conta com branch/commit/PR real ou diff completo;
-- nunca confiar em claim de testes/PR sem inspeção independente.
+Kimi está pago por crédito extra; minimizar agressivamente.
 
 ## Objetivo do MVP
 
@@ -73,7 +65,7 @@ Formatar com segurança DOCX acadêmicos existentes a partir de perfil formal ex
 
 Saídas previstas:
 1. DOCX limpo;
-2. DOCX de revisão;
+2. DOCX de revisão/highlight;
 3. relatório de processamento.
 
 Princípio: **Na dúvida, marcar.**
@@ -90,13 +82,14 @@ Princípio: **Na dúvida, marcar.**
 - abstention correta é sucesso seguro;
 - stale plan/document drift detectado antes de patch;
 - patcher só executa GateClearedOperation;
-- snapshot hash e target physical_hash são revalidados antes da mutação;
+- snapshot hash e target physical_hash revalidados antes da mutação;
 - mutação mínima + allowed-delta + postcondition Analysis obrigatórios;
-- OriginalPackage/snapshot de entrada nunca é mutado in-place;
-- TransformRecord existe apenas para patch `APPLIED` e é proveniência, nunca autorização;
-- Processing Session nunca cria autoridade normativa nova nem reutiliza token stale.
+- OriginalPackage/snapshot nunca mutado in-place;
+- TransformRecord só existe para patch APPLIED e é proveniência, nunca autorização;
+- Processing Session nunca cria autoridade normativa nova nem reutiliza token stale;
+- Processing Report é projeção read-only e nunca reanalisa/reclassifica/redecide.
 
-## Pipeline real congelado até 0033
+## Pipeline real congelado
 
 ```text
 current DOCX bytes
@@ -112,7 +105,8 @@ current DOCX bytes
 → TransformRecord se APPLIED
 → novo snapshot
 → pipeline completo novamente
-→ quiescência segura
+→ ProcessingSessionResult
+→ ProcessingReport
 ```
 
 ## Slice automático atual
@@ -139,9 +133,7 @@ Ainda fora do slice automático:
 - tables/containers/numbering execution;
 - secondary-story execution;
 - structural MOVE/INSERT/MERGE;
-- styles.xml mutation;
-- review/highlight DOCX;
-- relatório user-facing.
+- styles.xml mutation.
 
 ## Processing Session / Orchestration v0.1 — 0032 + freeze 0033
 
@@ -171,36 +163,14 @@ ProcessingProfile:
 
 Não é o schema final de perfil/UI.
 
-Restrições congeladas:
-- target_type == run;
-- target_class body|heading;
-- apenas P1/bold e P2/font_size;
-- uma binding por identidade `(target_class,target_type,aspect_id,property_slot)`;
-- caller order não resolve conflitos;
-- bold usa bool exato;
-- font_size usa Decimal em pt;
-- profile_id/profile_version/rule_id não vazios.
-
-### Ordem e rerun
+### Ordem / rerun / status
 
 - ordem física de parágrafos/runs;
 - bindings em ordem canônica dentro do run;
-- OperationPlan serialization order não define application order;
 - após cada APPLIED, todo o pipeline é reconstruído;
 - tokens do gate anterior são descartados.
 
-### Rejeições e bloqueios
-
-Patcher rejection legítima pode virar finding final apenas para:
-- `noncanonical_run_properties`;
-- `duplicate_target_property`;
-- `unrepresentable_value`.
-
-`snapshot_hash_mismatch` e `unsupported_operation` dentro da sessão são integrity errors, não findings normais.
-
-Gate blocked nunca chega ao Patcher. Bloqueio local não impede progresso independente.
-
-### Status técnico
+Status:
 
 ```text
 quiescent
@@ -208,7 +178,7 @@ quiescent_with_unapplied
 operation_limit_reached
 ```
 
-`quiescent` significa apenas que não há mais automação segura executável. NÃO significa documento plenamente conforme; pode haver review, human_choice, preserve, abstention e conteúdo fora do escopo.
+`quiescent` significa apenas ausência de automação segura restante; não significa documento plenamente conforme.
 
 ### Resultado final
 
@@ -216,29 +186,101 @@ operation_limit_reached
 - processing_session_version;
 - status;
 - profile_ref;
-- input_package_sha256;
-- output_package_sha256;
+- input/output package SHA;
 - output_package_bytes;
 - transforms;
 - final_classifications;
 - final_decisions;
 - findings.
 
-Final classifications e Decisions pertencem ao snapshot final. Findings precisam ligar a uma final Decision `deterministic_change` e ao mesmo target.
+Parser `partial` não é bypassado silenciosamente.
 
-Transform chain é obrigatoriamente contígua do input SHA ao output SHA.
+## Processing Report v0.1 — contrato 0034 + freeze 0035
 
-### Determinismo / limites
+Fronteira:
 
-- default `max_applied_operations = 10000`;
-- cycle por package SHA repetido = `ProcessingSessionIntegrityError`;
-- sem filesystem/network/clock/random/LLM no runtime;
-- mesmo input/profile/budget produz mesma semântica e mesmos output bytes no runtime suportado;
-- caller binding order não muda resultado.
+```text
+build_processing_report(
+    session_result: ProcessingSessionResult,
+) -> ProcessingReport
+```
 
-### Partial parser
+É machine-readable e read-only. Não é ainda o renderer human-readable.
 
-Classification congelada exige PhysicalIR `status == ok`. Processing Session v0.1 herda essa exigência. Parser `partial`, inclusive por story secundária defeituosa, não é silenciosamente bypassado.
+### Famílias de itens
+
+```text
+applied_changes
+unapplied_changes
+review_items
+classification_items
+```
+
+#### AppliedChangeItem
+Fonte exclusiva: TransformRecord. Um record → um item. Preserva transform_ref, decision_ref, operation_ref, profile/rule, target, observed_before, desired_applied e package hashes.
+
+#### UnappliedChangeItem
+Fonte: SessionFinding + final Decision ligada. Cobre gate_blocked, patch_rejected e operation_limit. Reason upstream não é reinterpretado.
+
+#### ReviewItem
+Fonte: final Decisions com `actionability in {review, human_choice}`. `no_action` e `preserve` não geram item.
+
+#### ClassificationItem
+Gerado para `abstained` ou qualquer ClassificationResult com warning. `not_applicable` puro não é individualizado para evitar ruído; permanece contabilizado no summary/StoryCoverage. Abstained + warning gera um único item.
+
+### StoryCoverage
+
+Por `story_id`, em ordem de primeira aparição:
+
+```text
+story_id
+total_count
+classified_count
+abstained_count
+not_applicable_count
+warning_count
+```
+
+Sem julgamento/score.
+
+### Summary
+
+Inclui counts de applied/unapplied/review/classification, final Decisions/Classifications, classified/abstained/not_applicable, warnings, StoryCoverage e input/output SHA.
+
+**Não calcula percentual de conformidade.**
+
+### Serialização / identidade
+
+`PROCESSING_REPORT_VERSION = "0.1"`.
+
+```text
+processing_report_ref(report)
+=
+sha256(serialize_processing_report(report))
+```
+
+JSON canônico UTF-8, keys ordenadas, Decimal→string, enums→value, tuples→arrays, LengthValue como `{value, unit}`. Bytes são rejeitados.
+
+### Deliberações importantes
+
+- ClassificationEvidence não é duplicada no v0.1; reasons/warnings/path bastam para os consumidores atuais e evidence permanece no SessionResult.
+- target_class é preservado quando upstream possui.
+- structural_path permite ao futuro DOCX de revisão localizar itens do slice atual sem nova Analysis.
+- ProcessingReport não promete que todo ClassificationItem seja marcável no DOCX final; stories fora do slice podem existir apenas no relatório.
+- runtime sem DOCX/ZIP/lxml/filesystem/network/clock/random/LLM.
+
+### Validação
+
+- CI final: **591/591 OK**;
+- gate blocked → UnappliedChangeItem;
+- Patcher rejection real por duplicate direct `w:b` → UnappliedChangeItem;
+- operation limit → UnappliedChangeItem;
+- review/human_choice → ReviewItem;
+- no_action/preserve não inflam review;
+- abstention/warnings corretamente projetados;
+- StoryCoverage consistente;
+- cross-hashseed determinism verde;
+- todos regressions anteriores verdes.
 
 ## Corpus-base v1
 
@@ -268,8 +310,14 @@ Classification congelada exige PhysicalIR `status == ok`. Processing Session v0.
 - styles.xml patching;
 - exception telemetry;
 - performance optimization para muitos sequential patches;
+- renderer human-readable do Processing Report;
+- tradução/localização user-facing dos códigos;
 - review/highlight DOCX;
-- Processing Report user-facing.
+- severity/ranking visual;
+- paginação física;
+- drill-down de ClassificationEvidence autocontida;
+- user-facing grouping/dedup visual;
+- UI/API final.
 
 ### Dívida importante antes de uso amplo
 
@@ -277,15 +325,20 @@ Classification congelada exige PhysicalIR `status == ok`. Processing Session v0.
 
 ## Próximo passo operacional
 
-**Processing Report v0.1 — contrato primeiro.**
+**Review/Highlight DOCX v0.1 — contrato primeiro.**
 
-Objetivo do próximo ciclo: transformar exclusivamente os artefatos machine-readable já congelados da `ProcessingSessionResult` em um relatório determinístico, explicável e útil ao usuário, sem criar nova verdade normativa.
+Objetivo: produzir o segundo DOCX do produto a partir do snapshot limpo da Processing Session + ProcessingReport, sem alterar conteúdo substantivo.
 
-O relatório deverá distinguir claramente, no mínimo:
-- alterações efetivamente aplicadas (`TransformRecord`);
-- alterações determinísticas que ficaram bloqueadas/rejeitadas (`SessionFinding`);
-- itens que exigem revisão/human choice (`final_decisions`);
-- abstentions/non-applicability relevantes (`final_classifications`);
-- resumo técnico da sessão e hashes de origem/saída.
+O próximo contrato deve fechar, antes de implementação:
+- quais categorias recebem marca visual no DOCX de revisão;
+- mecanismo OOXML de marcação (highlight, shading, comentário ou combinação);
+- como distinguir applied / unapplied / review / abstention sem ambiguidade;
+- como localizar targets pelo structural_path no snapshot final;
+- o que fazer quando o target não resolve no final;
+- preservação de texto/campos/revisões/estilos;
+- allowed-delta específico da marcação;
+- separação absoluta entre clean DOCX e review DOCX;
+- tratamento de stories/targets não marcáveis;
+- determinismo e ZIP/XML preservation.
 
-Ainda NÃO implementar DOCX de revisão/highlight no mesmo ciclo. Primeiro congelar a fronteira e a semântica do Processing Report v0.1.
+Por ser uma nova camada de mutação DOCX, considerar auditoria adversarial externa (Claude Opus) antes de freeze/implementação.
