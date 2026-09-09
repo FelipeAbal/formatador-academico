@@ -207,6 +207,54 @@ def apply_bold(run: etree._Element, rpr: etree._Element, desired: bool) -> None:
         _insert_canonical(rpr, element)
 
 
+def _exact_half_points(points: Decimal) -> int:
+    """Return exact half-points without context rounding or huge exponent work."""
+
+    sign, digits, exponent = points.as_tuple()
+    if sign:
+        raise Reject(PatchReason.UNREPRESENTABLE_VALUE, "font_size must be strictly positive")
+
+    # Any positive exponent above 3 is already beyond 3276 half-points even
+    # for the smallest positive coefficient. Reject before constructing 10**N.
+    if exponent > 3:
+        raise Reject(
+            PatchReason.UNREPRESENTABLE_VALUE,
+            f"font_size exceeds the v0.1 bound of {MAX_HALF_POINTS} half-points",
+        )
+
+    coefficient = 0
+    for digit in digits:
+        coefficient = coefficient * 10 + digit
+    numerator = coefficient * 2
+
+    if exponent >= 0:
+        half_points = numerator * (10 ** exponent)
+    else:
+        scale = -exponent
+        # `numerator` has at most len(digits)+1 decimal digits. If the scale
+        # is larger, a positive numerator cannot be divisible by 10**scale;
+        # reject before allocating an enormous power of ten.
+        if scale > len(digits) + 1:
+            raise Reject(
+                PatchReason.UNREPRESENTABLE_VALUE,
+                "font_size is not exactly representable in half-points (no rounding)",
+            )
+        denominator = 10 ** scale
+        if numerator % denominator:
+            raise Reject(
+                PatchReason.UNREPRESENTABLE_VALUE,
+                "font_size is not exactly representable in half-points (no rounding)",
+            )
+        half_points = numerator // denominator
+
+    if half_points > MAX_HALF_POINTS:
+        raise Reject(
+            PatchReason.UNREPRESENTABLE_VALUE,
+            f"font_size exceeds the v0.1 bound of {MAX_HALF_POINTS} half-points",
+        )
+    return half_points
+
+
 def half_points_lexical(desired: LengthValue) -> str:
     """Convert a semantic pt length into the canonical w:sz lexical value.
 
@@ -228,18 +276,8 @@ def half_points_lexical(desired: LengthValue) -> str:
         raise Reject(PatchReason.UNREPRESENTABLE_VALUE, "font_size must be finite")
     if points <= 0:
         raise Reject(PatchReason.UNREPRESENTABLE_VALUE, "font_size must be strictly positive")
-    half_points = points * 2
-    if half_points != half_points.to_integral_exact():
-        raise Reject(
-            PatchReason.UNREPRESENTABLE_VALUE,
-            "font_size is not exactly representable in half-points (no rounding)",
-        )
-    if half_points > MAX_HALF_POINTS:
-        raise Reject(
-            PatchReason.UNREPRESENTABLE_VALUE,
-            f"font_size exceeds the v0.1 bound of {MAX_HALF_POINTS} half-points",
-        )
-    return str(int(half_points))
+    half_points = _exact_half_points(points)
+    return str(half_points)
 
 
 def apply_font_size(run: etree._Element, rpr: etree._Element, desired: LengthValue) -> None:
