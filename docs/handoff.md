@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-**Fase:** corpus-base v1 congelado; Parser físico v0.4 congelado; Analysis v0.1a/v0.1b congeladas; Decision Vocabulary v0.1 congelado; Decision Layer v0.1 congelada em 0021; Classification Layer v0.1 congelada em 0023; OperationPlan v0.1 congelado em 0025; SafetyGate v0.1 congelado em 0027; Patcher/Applicator v0.1 congelado em 0029; TransformLog / Execution Record v0.1 congelado em 0031; Processing Session / Orchestration v0.1 congelado em 0033; **Processing Report v0.1 implementado, auditado, mergeado e congelado em 0035**.
+**Fase:** corpus-base v1 congelado; Parser físico v0.4 congelado; Analysis v0.1a/v0.1b congeladas; Decision Vocabulary v0.1 congelado; Decision Layer v0.1 congelada em 0021; Classification Layer v0.1 congelada em 0023; OperationPlan v0.1 congelado em 0025; SafetyGate v0.1 congelado em 0027; Patcher/Applicator v0.1 congelado em 0029; TransformLog / Execution Record v0.1 congelado em 0031; Processing Session / Orchestration v0.1 congelado em 0033; Processing Report v0.1 congelado em 0035; **Review/Highlight DOCX v0.1 implementado, auditado, mergeado e congelado em 0037**.
 
 Este é o HANDOFF corrente. O histórico fica no Git; não criar `handoff_vNN`.
 
@@ -17,11 +17,11 @@ Este é o HANDOFF corrente. O histórico fica no Git; não criar `handoff_vNN`.
 - Patcher v0.1: **502/502 OK** no freeze próprio;
 - TransformLog v0.1: **524/524 OK** no freeze próprio;
 - Processing Session v0.1: **565/565 OK** no freeze próprio;
-- Processing Report / suíte completa atual: **591/591 OK**;
-- GitHub Actions verde no head final do PR #12 e no `main` pós-merge;
+- Processing Report v0.1: **591/591 OK** no freeze próprio;
+- Review/Highlight DOCX / suíte completa atual: **627/627 OK**;
+- GitHub Actions verde no head final do PR #13 e no `main` pós-merge;
 - failures: 0;
 - errors: 0;
-- skips: 0;
 - CI é a execução padrão da suíte; não gastar Kimi apenas para testar.
 
 ## PRs / freezes principais
@@ -35,7 +35,8 @@ Este é o HANDOFF corrente. O histórico fica no Git; não criar `handoff_vNN`.
 - PR #9 — Patcher v0.1; squash `559cf8ec812320d066e8b91d431873f7a91f2c1c`; freeze 0029;
 - PR #10 — TransformLog v0.1; squash `eff4770f2f5ec848d0f5d6b9afb6b2cdfdc8e355`; freeze 0031;
 - PR #11 — Processing Session v0.1; head final `20717d2b36f180644675bbc1720357de1e8aa2a6`; squash `17b0a37529012a0873c76f27c1072ce297240f5d`; freeze 0033;
-- PR #12 — Processing Report v0.1; head final `28ffb60224509cce0bd7916ae39810a2c6397a81`; squash `3328b8f9eb8f582aa19c7ced9168561621f32bfb`; freeze 0035.
+- PR #12 — Processing Report v0.1; head final `28ffb60224509cce0bd7916ae39810a2c6397a81`; squash `3328b8f9eb8f582aa19c7ced9168561621f32bfb`; freeze 0035;
+- PR #13 — Review DOCX v0.1; head final `8458874f8533f2107f85a6d4d8dde8e7cfa09e53`; squash `0b8ebad402dd558b357006d98a0d54014d8b5c58`; freeze 0037.
 
 ## Regra operacional
 
@@ -63,10 +64,12 @@ Kimi está pago por crédito extra; minimizar agressivamente.
 
 Formatar com segurança DOCX acadêmicos existentes a partir de perfil formal explicitamente declarado. Não promete conformidade ABNT genérica.
 
-Saídas previstas:
-1. DOCX limpo;
-2. DOCX de revisão/highlight;
-3. relatório de processamento.
+Saídas previstas e agora tecnicamente existentes no core:
+1. **DOCX limpo** — `ProcessingSessionResult.output_package_bytes`;
+2. **DOCX de revisão/highlight** — `ReviewDocxResult.output_review_package_bytes`;
+3. **relatório de processamento machine-readable** — `ProcessingReport` + serialização canônica.
+
+Ainda não existe uma API de produto única que empacote as três saídas nem renderer human-readable do relatório.
 
 Princípio: **Na dúvida, marcar.**
 
@@ -83,16 +86,18 @@ Princípio: **Na dúvida, marcar.**
 - stale plan/document drift detectado antes de patch;
 - patcher só executa GateClearedOperation;
 - snapshot hash e target physical_hash revalidados antes da mutação;
-- mutação mínima + allowed-delta + postcondition Analysis obrigatórios;
+- mutação mínima + allowed-delta + postcondition Analysis obrigatórios no Patcher normativo;
 - OriginalPackage/snapshot nunca mutado in-place;
 - TransformRecord só existe para patch APPLIED e é proveniência, nunca autorização;
 - Processing Session nunca cria autoridade normativa nova nem reutiliza token stale;
-- Processing Report é projeção read-only e nunca reanalisa/reclassifica/redecide.
+- Processing Report é projeção read-only e nunca reanalisa/reclassifica/redecide;
+- Review DOCX é apresentação visual derivada do clean + report, nunca correção normativa;
+- marca visual do Review DOCX nunca entra em TransformLog e não deve ser reinjetada automaticamente como clean input.
 
-## Pipeline real congelado
+## Pipeline core congelado
 
 ```text
-current DOCX bytes
+input DOCX bytes
 → Parser
 → StyleCatalog / Analysis
 → Classification
@@ -107,6 +112,7 @@ current DOCX bytes
 → pipeline completo novamente
 → ProcessingSessionResult
 → ProcessingReport
+→ Review DOCX derivado do clean final + ProcessingReport
 ```
 
 ## Slice automático atual
@@ -148,27 +154,7 @@ process_document(
 ) -> ProcessingSessionResult
 ```
 
-### Perfil mínimo
-
-```text
-RuleBinding:
-    target_class
-    target_type
-    rule: FormattingRule
-
-ProcessingProfile:
-    profile_ref: ProfileRef
-    bindings: tuple[RuleBinding, ...]
-```
-
-Não é o schema final de perfil/UI.
-
-### Ordem / rerun / status
-
-- ordem física de parágrafos/runs;
-- bindings em ordem canônica dentro do run;
-- após cada APPLIED, todo o pipeline é reconstruído;
-- tokens do gate anterior são descartados.
+Após cada patch APPLIED, todo o pipeline é reconstruído e os tokens anteriores são descartados.
 
 Status:
 
@@ -178,22 +164,7 @@ quiescent_with_unapplied
 operation_limit_reached
 ```
 
-`quiescent` significa apenas ausência de automação segura restante; não significa documento plenamente conforme.
-
-### Resultado final
-
-`ProcessingSessionResult` preserva:
-- processing_session_version;
-- status;
-- profile_ref;
-- input/output package SHA;
-- output_package_bytes;
-- transforms;
-- final_classifications;
-- final_decisions;
-- findings.
-
-Parser `partial` não é bypassado silenciosamente.
+`quiescent` significa ausência de automação segura restante; não significa plena conformidade.
 
 ## Processing Report v0.1 — contrato 0034 + freeze 0035
 
@@ -205,9 +176,9 @@ build_processing_report(
 ) -> ProcessingReport
 ```
 
-É machine-readable e read-only. Não é ainda o renderer human-readable.
+Machine-readable, read-only e determinístico.
 
-### Famílias de itens
+Famílias:
 
 ```text
 applied_changes
@@ -216,42 +187,14 @@ review_items
 classification_items
 ```
 
-#### AppliedChangeItem
-Fonte exclusiva: TransformRecord. Um record → um item. Preserva transform_ref, decision_ref, operation_ref, profile/rule, target, observed_before, desired_applied e package hashes.
+- applied_changes: TransformRecord efetivamente aplicado;
+- unapplied_changes: gate blocked, patch rejected ou operation limit ligados a final Decision;
+- review_items: final Decisions review/human_choice;
+- classification_items: abstention ou warning relevante.
 
-#### UnappliedChangeItem
-Fonte: SessionFinding + final Decision ligada. Cobre gate_blocked, patch_rejected e operation_limit. Reason upstream não é reinterpretado.
+`not_applicable` puro permanece em summary/StoryCoverage para não gerar ruído individual.
 
-#### ReviewItem
-Fonte: final Decisions com `actionability in {review, human_choice}`. `no_action` e `preserve` não geram item.
-
-#### ClassificationItem
-Gerado para `abstained` ou qualquer ClassificationResult com warning. `not_applicable` puro não é individualizado para evitar ruído; permanece contabilizado no summary/StoryCoverage. Abstained + warning gera um único item.
-
-### StoryCoverage
-
-Por `story_id`, em ordem de primeira aparição:
-
-```text
-story_id
-total_count
-classified_count
-abstained_count
-not_applicable_count
-warning_count
-```
-
-Sem julgamento/score.
-
-### Summary
-
-Inclui counts de applied/unapplied/review/classification, final Decisions/Classifications, classified/abstained/not_applicable, warnings, StoryCoverage e input/output SHA.
-
-**Não calcula percentual de conformidade.**
-
-### Serialização / identidade
-
-`PROCESSING_REPORT_VERSION = "0.1"`.
+Identidade:
 
 ```text
 processing_report_ref(report)
@@ -259,28 +202,105 @@ processing_report_ref(report)
 sha256(serialize_processing_report(report))
 ```
 
-JSON canônico UTF-8, keys ordenadas, Decimal→string, enums→value, tuples→arrays, LengthValue como `{value, unit}`. Bytes são rejeitados.
+Não calcula percentual de conformidade.
 
-### Deliberações importantes
+## Review/Highlight DOCX v0.1 — contrato 0036 + freeze 0037
 
-- ClassificationEvidence não é duplicada no v0.1; reasons/warnings/path bastam para os consumidores atuais e evidence permanece no SessionResult.
-- target_class é preservado quando upstream possui.
-- structural_path permite ao futuro DOCX de revisão localizar itens do slice atual sem nova Analysis.
-- ProcessingReport não promete que todo ClassificationItem seja marcável no DOCX final; stories fora do slice podem existir apenas no relatório.
-- runtime sem DOCX/ZIP/lxml/filesystem/network/clock/random/LLM.
+Fronteira:
 
-### Validação
+```text
+build_review_docx(
+    clean_package_snapshot: bytes,
+    processing_report: ProcessingReport,
+) -> ReviewDocxResult
+```
 
-- CI final: **591/591 OK**;
-- gate blocked → UnappliedChangeItem;
-- Patcher rejection real por duplicate direct `w:b` → UnappliedChangeItem;
-- operation limit → UnappliedChangeItem;
-- review/human_choice → ReviewItem;
-- no_action/preserve não inflam review;
-- abstention/warnings corretamente projetados;
-- StoryCoverage consistente;
-- cross-hashseed determinism verde;
-- todos regressions anteriores verdes.
+### Marca visual
+
+Única marca criada:
+
+```xml
+<w:highlight w:val="yellow"/>
+```
+
+Significa apenas: existe informação correspondente no ProcessingReport para este run.
+
+Não representa severity/categoria/compliance.
+
+### Marcáveis
+
+Somente run targets de:
+- AppliedChangeItem;
+- UnappliedChangeItem;
+- ReviewItem.
+
+ClassificationItems são integralmente report-only no v0.1 e contabilizados em `unmarkable_classification_item_count`.
+
+### Existing highlight
+
+Direct highlight preexistente, amarelo ou não:
+
+```text
+unmarked / existing_highlight
+```
+
+Nunca sobrescrever.
+
+Highlight herdado por style não é modelado no v0.1.
+
+### Superfície visual
+
+Marcáveis:
+- w:t com conteúdo;
+- w:sym;
+- w:tab;
+- w:br;
+- runs visíveis em containers compatíveis, inclusive hyperlink e w:ins.
+
+Unmarked normal:
+
+```text
+existing_highlight
+noncanonical_run_properties
+no_visual_surface
+protected_revision_run
+```
+
+`no_visual_surface`: empty/rPr-only, instrText-only, fldChar-only, drawing/object/pict-only.
+
+`protected_revision_run`: delText ou run sob w:del.
+
+### Conservação
+
+- apenas `word/document.xml` pode mudar;
+- usa infraestrutura de package/XML congelada do Patcher;
+- extensões estrangeiras como w14 são preservadas/toleradas somente na camada review;
+- allowed-delta é **assimétrico/set-driven**: neutraliza apenas o highlight criado no AFTER dos paths realmente marked;
+- highlight autoral de run unmarked continua participando da comparação;
+- sem postcondition Analysis, pois Analysis não modela w:highlight; a postcondition física é load-bearing;
+- zero candidatos marcáveis → review bytes exatamente iguais aos clean bytes.
+
+### Target identity / error model
+
+AppliedChangeItem usa structural_path com guard P1/P2/document.xml porque o hash armazenado é pré-transformação.
+
+UnappliedChangeItem/ReviewItem exigem physical_hash do snapshot final.
+
+Drift em path/type/hash é `ReviewDocxIntegrityError`, não resultado normal.
+
+### Resultado
+
+`ReviewDocxResult` registra:
+- review_docx_version;
+- parser_version;
+- processing_report_version/ref;
+- changed_part;
+- input/output SHA;
+- output review bytes;
+- mark_results;
+- unmarkable_classification_item_count.
+
+CI pós-merge: **627/627 OK** no SHA `0b8ebad402dd558b357006d98a0d54014d8b5c58`.
 
 ## Corpus-base v1
 
@@ -312,11 +332,12 @@ JSON canônico UTF-8, keys ordenadas, Decimal→string, enums→value, tuples→
 - performance optimization para muitos sequential patches;
 - renderer human-readable do Processing Report;
 - tradução/localização user-facing dos códigos;
-- review/highlight DOCX;
+- highlight herdado por style;
+- Classification run-level persistida;
+- target_physical_hash_after em TransformRecord;
 - severity/ranking visual;
 - paginação física;
 - drill-down de ClassificationEvidence autocontida;
-- user-facing grouping/dedup visual;
 - UI/API final.
 
 ### Dívida importante antes de uso amplo
@@ -325,20 +346,34 @@ JSON canônico UTF-8, keys ordenadas, Decimal→string, enums→value, tuples→
 
 ## Próximo passo operacional
 
-**Review/Highlight DOCX v0.1 — contrato primeiro.**
+**Product Output Bundle / end-to-end product boundary v0.1 — contrato primeiro.**
 
-Objetivo: produzir o segundo DOCX do produto a partir do snapshot limpo da Processing Session + ProcessingReport, sem alterar conteúdo substantivo.
+Agora os três artefatos centrais existem separadamente. O próximo ciclo deve definir uma fronteira única que receba:
 
-O próximo contrato deve fechar, antes de implementação:
-- quais categorias recebem marca visual no DOCX de revisão;
-- mecanismo OOXML de marcação (highlight, shading, comentário ou combinação);
-- como distinguir applied / unapplied / review / abstention sem ambiguidade;
-- como localizar targets pelo structural_path no snapshot final;
-- o que fazer quando o target não resolve no final;
-- preservação de texto/campos/revisões/estilos;
-- allowed-delta específico da marcação;
-- separação absoluta entre clean DOCX e review DOCX;
-- tratamento de stories/targets não marcáveis;
-- determinismo e ZIP/XML preservation.
+```text
+input DOCX bytes
++ ProcessingProfile
+```
 
-Por ser uma nova camada de mutação DOCX, considerar auditoria adversarial externa (Claude Opus) antes de freeze/implementação.
+e entregue de forma vinculada e determinística:
+
+```text
+clean DOCX bytes
+review DOCX bytes
+ProcessingReport / serialized report
+```
+
+Sem reimplementar nenhum motor congelado e sem criar nova verdade normativa.
+
+O contrato deve fechar antes de implementação:
+- API de produto única;
+- vínculo/hash entre input, clean, report e review;
+- comportamento quando a Processing Session termina com unapplied/operation_limit;
+- nomes/tipos distintos para evitar reinjeção acidental do review como clean;
+- serialização do report como terceiro artefato;
+- atomicidade do bundle;
+- error propagation;
+- determinismo;
+- possibilidade de renderer human-readable como etapa separada, não misturada ao core.
+
+Esse ciclo é de composição/orquestração de outputs, não de nova mutação OOXML. Auditoria externa só será necessária se surgir nova autoridade, novo formato mutável ou mudança nos contracts congelados.
