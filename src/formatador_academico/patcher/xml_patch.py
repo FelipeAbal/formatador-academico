@@ -207,6 +207,35 @@ def apply_bold(run: etree._Element, rpr: etree._Element, desired: bool) -> None:
         _insert_canonical(rpr, element)
 
 
+def _exact_half_points(points: Decimal) -> int:
+    """Return exact half-points using integer arithmetic only.
+
+    This is the executable form of decision 0028's existing no-rounding
+    contract. It intentionally avoids Decimal multiplication/quantization so
+    the result cannot depend on the caller's global Decimal context.
+    """
+
+    sign, digits, exponent = points.as_tuple()
+    if sign:
+        raise Reject(PatchReason.UNREPRESENTABLE_VALUE, "font_size must be strictly positive")
+
+    coefficient = 0
+    for digit in digits:
+        coefficient = coefficient * 10 + digit
+
+    numerator = coefficient * 2
+    if exponent >= 0:
+        return numerator * (10 ** exponent)
+
+    denominator = 10 ** (-exponent)
+    if numerator % denominator:
+        raise Reject(
+            PatchReason.UNREPRESENTABLE_VALUE,
+            "font_size is not exactly representable in half-points (no rounding)",
+        )
+    return numerator // denominator
+
+
 def half_points_lexical(desired: LengthValue) -> str:
     """Convert a semantic pt length into the canonical w:sz lexical value.
 
@@ -228,18 +257,13 @@ def half_points_lexical(desired: LengthValue) -> str:
         raise Reject(PatchReason.UNREPRESENTABLE_VALUE, "font_size must be finite")
     if points <= 0:
         raise Reject(PatchReason.UNREPRESENTABLE_VALUE, "font_size must be strictly positive")
-    half_points = points * 2
-    if half_points != half_points.to_integral_exact():
-        raise Reject(
-            PatchReason.UNREPRESENTABLE_VALUE,
-            "font_size is not exactly representable in half-points (no rounding)",
-        )
+    half_points = _exact_half_points(points)
     if half_points > MAX_HALF_POINTS:
         raise Reject(
             PatchReason.UNREPRESENTABLE_VALUE,
             f"font_size exceeds the v0.1 bound of {MAX_HALF_POINTS} half-points",
         )
-    return str(int(half_points))
+    return str(half_points)
 
 
 def apply_font_size(run: etree._Element, rpr: etree._Element, desired: LengthValue) -> None:
