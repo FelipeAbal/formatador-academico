@@ -1,6 +1,6 @@
 # Decisão 0034 — Processing Report v0.1 — contrato
 
-Status: **PROPOSED**
+Status: **ACCEPTED FOR IMPLEMENTATION**
 
 Date: 2026-09-09
 
@@ -41,7 +41,7 @@ Fora deste slice:
 - cálculo de conformidade global;
 - promessa de “documento conforme”.
 
-## 3. Fronteira pública conceitual
+## 3. Fronteira pública
 
 ```text
 build_processing_report(
@@ -74,7 +74,7 @@ Fonte exclusiva: `ProcessingSessionResult.transforms`.
 
 Um `TransformRecord` gera exatamente um `AppliedChangeItem`.
 
-Campos mínimos:
+Campos:
 
 ```text
 kind = applied_change
@@ -95,6 +95,7 @@ Regras:
 - ordem preserva a ordem real de `session_result.transforms`;
 - `observed_before = TransformRecord.precondition_observed`;
 - `desired_applied = TransformRecord.desired_value`;
+- `target.target_class` é preservado;
 - nenhuma tentativa de reconstruir “valor depois” por Analysis;
 - sem raw XML;
 - sem bytes do DOCX.
@@ -108,7 +109,7 @@ Kinds upstream aceitos:
 - `patch_rejected`;
 - `operation_limit`.
 
-Campos mínimos:
+Campos:
 
 ```text
 kind = unapplied_change
@@ -128,10 +129,11 @@ decision_reason
 ```
 
 Cross-binding obrigatório:
-- `finding.decision_ref` deve resolver para exatamente uma final Decision;
-- target deve coincidir;
-- a final Decision deve ser `deterministic_change`;
+- `finding.decision_ref` resolve para exatamente uma final Decision;
+- target coincide integralmente;
+- a final Decision é `deterministic_change`;
 - `desired_value` vem da Decision, não do finding;
+- `target.target_class` é preservado;
 - reason permanece exatamente o código upstream, sem reinterpretação.
 
 ## 7. ReviewItem
@@ -150,7 +152,7 @@ Racional:
 - `preserve` é contenção intencional, não pendência;
 - `no_action` inclui conformidade/ausência de ação e não deve inflar o relatório.
 
-Campos mínimos:
+Campos:
 
 ```text
 kind = review_item
@@ -167,25 +169,29 @@ evidence_ref | None
 decision_warnings
 ```
 
-Não existe `desired_value` significativo fora de deterministic_change; o campo não deve ser inventado.
+`target.target_class` é preservado.
+
+Não existe `desired_value` significativo fora de deterministic_change; o campo não é inventado.
+
+RuleRef ausente, se ocorrer em Decision upstream válida, é preservado como `None`; o report builder não decide se a ausência torna a revisão mais ou menos relevante.
 
 ## 8. ClassificationItem
 
 Fonte exclusiva: `ProcessingSessionResult.final_classifications`.
 
-Gerar item individual para:
+Gerar item individual quando:
 
 ```text
 status == abstained
 ```
 
-Também gerar item quando `classification_warnings` não estiver vazio, independentemente de status, para não perder anomalias contratuais/executivas já registradas upstream.
+Também gerar item quando `classification_warnings` não estiver vazio, independentemente de status, para não perder anomalias já registradas upstream.
 
 `not_applicable` puro, sem warning, NÃO gera item individual no v0.1.
 
-Racional: `not_applicable` é muitas vezes resultado esperado para story/target fora do slice; itemizar cada ocorrência produziria ruído e falsos alertas. Seu volume continua visível no `summary`.
+Racional: `not_applicable` é frequentemente resultado esperado para story/target fora do slice; itemizar cada ocorrência produziria ruído e falsos alertas. Sua cobertura permanece explícita no summary global e por story.
 
-Campos mínimos:
+Campos:
 
 ```text
 kind = classification_item
@@ -202,13 +208,47 @@ metadata
 classification_warnings
 ```
 
-Evidence detalhada NÃO precisa ser duplicada no item v0.1; permanece no `ProcessingSessionResult` upstream. Se futura UI exigir drill-down sem sessão original, versionar o relatório.
+### Evidence
 
-## 9. Summary
+`ClassificationEvidence` detalhada NÃO é duplicada no ProcessingReport v0.1.
 
-`ProcessingReportSummary` é derivado somente por contagem, sem julgamento.
+Justificativa:
+- reasons + warnings + localização bastam para renderer/review v0.1;
+- evidence continua preservada no `ProcessingSessionResult` upstream;
+- duplicá-la agora aumentaria muito o artefato sem necessidade operacional demonstrada.
 
-Campos mínimos:
+Se futura UI exigir drill-down autocontido sem sessão original, versionar o relatório.
+
+## 9. StoryCoverage
+
+Para transparência sem ruído, o summary contém cobertura agregada por `story_id`.
+
+Modelo conceitual:
+
+```text
+StoryCoverage:
+    story_id
+    total_count
+    classified_count
+    abstained_count
+    not_applicable_count
+    warning_count
+```
+
+Regras:
+- uma entrada por story_id presente em `final_classifications`;
+- ordem de primeira aparição da story em `final_classifications`;
+- counts são somas mecânicas;
+- `classified + abstained + not_applicable == total_count` por story;
+- warning_count soma exatamente o número de `classification_warnings` naquela story.
+
+Não há julgamento de “boa” ou “má” cobertura.
+
+## 10. ProcessingReportSummary
+
+Derivado somente por contagem, sem julgamento.
+
+Campos:
 
 ```text
 session_status
@@ -222,6 +262,7 @@ classified_count
 abstained_count
 not_applicable_count
 classification_warning_count
+story_coverage
 input_package_sha256
 output_package_sha256
 ```
@@ -231,11 +272,12 @@ Invariantes:
 - unapplied count == len(findings);
 - classified + abstained + not_applicable == final_classification_count;
 - warning count é soma exata de `classification_warnings` nas final classifications;
+- story coverage soma exatamente para os totais globais;
 - nenhum percentual de “conformidade” é calculado.
 
-## 10. ProcessingReport
+## 11. ProcessingReport
 
-Campos públicos conceituais:
+Campos públicos:
 
 ```text
 processing_report_version
@@ -261,7 +303,7 @@ Não embute:
 - hostname;
 - ambiente.
 
-## 11. Ordenação determinística
+## 12. Ordenação determinística
 
 ### applied_changes
 Ordem real de `TransformRecord` da sessão.
@@ -275,11 +317,14 @@ Ordem das `final_decisions` congeladas.
 ### classification_items
 Ordem das `final_classifications` congeladas.
 
+### story_coverage
+Ordem da primeira aparição de cada story em `final_classifications`.
+
 O builder não reordena por mensagem, severity, reason ou target_class.
 
-## 12. Identidade / refs
+## 13. Identidade / refs
 
-Refs upstream devem ser preservados quando existem.
+Refs upstream são preservados quando existem.
 
 `decision_ref` usa a serialização canônica congelada da Decision.
 
@@ -287,17 +332,17 @@ Refs upstream devem ser preservados quando existem.
 
 O relatório não cria refs artificiais por item no v0.1.
 
-Opcionalmente o envelope completo terá:
+O envelope completo TEM identidade determinística:
 
 ```text
-processing_report_ref
+processing_report_ref(report)
 =
 sha256(serialize_processing_report(report))
 ```
 
-se a serialização canônica for implementada no mesmo ciclo.
+Isso é obrigatório no v0.1.
 
-## 13. Valores tipados
+## 14. Valores tipados
 
 O relatório preserva os tipos semânticos upstream internamente.
 
@@ -312,7 +357,7 @@ Na serialização canônica:
 
 A tradução para texto é responsabilidade de renderer futuro.
 
-## 14. Nenhuma linguagem user-facing no core
+## 15. Nenhuma linguagem user-facing no core
 
 O core NÃO gera frases como:
 - “Fonte corrigida com sucesso”;
@@ -321,7 +366,7 @@ O core NÃO gera frases como:
 
 Ele fornece códigos e dados estruturados. Um renderer futuro poderá mapear esses códigos para português/inglês e níveis visuais sem alterar a verdade do core.
 
-## 15. Relação com o DOCX de revisão
+## 16. Relação com o DOCX de revisão
 
 O futuro DOCX de revisão pode consumir:
 - `AppliedChangeItem.target.structural_path` para sinalizar alteração aplicada;
@@ -331,7 +376,9 @@ O futuro DOCX de revisão pode consumir:
 
 Processing Report v0.1 NÃO garante que todo ClassificationItem seja marcável no DOCX final. Stories/targets fora do slice podem existir apenas como informação de relatório.
 
-## 16. Deduplicação
+Não é necessária nova Analysis para localizar os itens do slice atual.
+
+## 17. Deduplicação
 
 Não fazer deduplicação sem chave upstream inequívoca.
 
@@ -340,9 +387,11 @@ Não fazer deduplicação sem chave upstream inequívoca.
 - uma ReviewItem em outro aspecto;
 - uma ClassificationWarning no mesmo bloco.
 
+Um `ClassificationResult` que seja simultaneamente abstained e tenha warnings gera UM único ClassificationItem.
+
 O renderer pode agrupar visualmente no futuro, mas o core não perde eventos.
 
-## 17. Invariantes de completude interna
+## 18. Invariantes de completude interna
 
 Obrigatório:
 
@@ -353,11 +402,15 @@ len(unapplied_changes) == len(session_result.findings)
 
 Todo ReviewItem corresponde a exatamente uma final Decision com actionability review|human_choice.
 
+Todo final Decision review|human_choice corresponde a exatamente um ReviewItem.
+
 Todo abstained ClassificationResult corresponde a exatamente um ClassificationItem.
 
-Todo ClassificationResult com warning deve estar representado por ClassificationItem, sem duplicar o mesmo result em dois itens.
+Todo ClassificationResult com warning está representado por ClassificationItem, sem duplicar o mesmo result.
 
-## 18. Status da sessão
+Todo item que possui profile_ref usa `session_result.profile_ref`.
+
+## 19. Status da sessão
 
 O relatório copia `ProcessingSessionStatus` exatamente.
 
@@ -368,7 +421,7 @@ Nunca renomeia:
 
 Interpretação humana pertence ao renderer.
 
-## 19. Segurança
+## 20. Segurança
 
 Processing Report v0.1 é read-only e derivacional.
 
@@ -384,15 +437,21 @@ Proibido:
 - inventar localização;
 - apagar warning por parecer irrelevante.
 
-## 20. Determinismo
+## 21. Determinismo
 
-Mesma instância semanticamente válida de `ProcessingSessionResult` → mesmo ProcessingReport e mesma serialização canônica.
+Mesma instância semanticamente válida de `ProcessingSessionResult` → mesmo ProcessingReport, mesma serialização canônica e mesmo processing_report_ref.
 
 Sem timestamp/UUID/locale.
 
-## 21. Error model
+## 22. Error model
 
-Inputs malformados ou inconsistências impossíveis nos cross-bindings → fail-fast `ProcessingReportContractError` / `ProcessingReportIntegrityError`.
+Inputs malformados ou inconsistências impossíveis nos cross-bindings → fail-fast:
+
+```text
+ProcessingReportError
+ProcessingReportContractError
+ProcessingReportIntegrityError
+```
 
 Não existe “best effort” silencioso.
 
@@ -400,10 +459,24 @@ Exemplos de integrity error:
 - finding sem final Decision correspondente;
 - transform_ref recalculado divergente;
 - item count não bate com upstream;
-- status/classification enum inesperado;
-- duplicate canonical decision refs quando upstream prometeu unicidade.
+- duplicate canonical decision refs quando upstream prometeu unicidade;
+- summary/story coverage incoerentes com os itens upstream.
 
-## 22. Testes mínimos
+## 23. Resultado da auditoria pré-implementação
+
+Perguntas da proposta inicial resolvidas:
+
+1. `ClassificationEvidence` não entra no v0.1; reasons/warnings/localização bastam para os consumidores planejados.
+2. `not_applicable` puro permanece fora dos itens, mas fica visível em counts globais e `StoryCoverage`.
+3. ReviewItem preserva `rule_ref=None` se upstream trouxer isso; o builder não reinterpretará.
+4. applied/unapplied/review/classification + structural_path são suficientes para o futuro DOCX de revisão no slice atual.
+5. `processing_report_ref` é obrigatório já no v0.1.
+6. `target_class` é preservado sempre que upstream o possui.
+7. Nenhuma informação adicional disponível hoje foi identificada como necessária para evitar releitura do DOCX no renderer/review do slice atual.
+
+Conclusão: contrato pronto para implementação sem auditoria externa adicional, porque a camada é estritamente read-only/projetiva e não amplia autoridade nem mutação.
+
+## 24. Testes mínimos
 
 1. sessão sem mudanças → relatório válido, applied=0;
 2. uma mudança bold aplicada;
@@ -422,35 +495,27 @@ Exemplos de integrity error:
 15. abstained com warning gera um único item;
 16. summary counts exatos;
 17. `classified+abstained+not_applicable == total`;
-18. applied item preserva transform_ref/refs/values;
-19. unapplied item liga finding à final Decision;
-20. review item preserva evidence_ref/warnings;
-21. input não mutado;
-22. runtime sem IO/network/clock/random/LLM;
-23. determinismo same-process;
-24. determinismo cross-hashseed;
-25. canonical serialization roundtrip/bytes stable;
-26. Decimal/LengthValue/bool serialização tipada;
-27. report não contém package bytes;
-28. todos regressions 565+ permanecem verdes.
+18. StoryCoverage por story exato;
+19. soma StoryCoverage == global;
+20. applied item preserva transform_ref/refs/values;
+21. unapplied item liga finding à final Decision;
+22. review item preserva evidence_ref/warnings;
+23. input não mutado;
+24. runtime sem IO/network/clock/random/LLM;
+25. determinismo same-process;
+26. determinismo cross-hashseed;
+27. canonical serialization bytes stable;
+28. `processing_report_ref == sha256(serialization)`;
+29. Decimal/LengthValue/bool serialização tipada;
+30. report não contém package bytes;
+31. target_class preservado;
+32. todos regressions 565+ permanecem verdes.
 
-## 23. Perguntas de auditoria antes do freeze
+## 25. Critério de freeze
 
-- `ClassificationItem` deve incorporar evidence agora ou é correto manter evidence somente no SessionResult?
-- `not_applicable` sem warning deve permanecer apenas no summary ou há classes específicas que merecem item individual?
-- ReviewItem deve incluir `rule_ref=None` quando rule absent ou excluir rule-absent decisions por não serem revisão real?
-- applied/unapplied/review/classification são suficientes para o futuro DOCX de revisão sem nova análise?
-- precisamos de `processing_report_ref` já no v0.1?
-- o relatório deve carregar `target_class` em todos os itens em que upstream possui essa informação?
-- há alguma informação já disponível que, se omitida agora, obrigaria reler o DOCX para gerar o renderer futuro?
-
-## 24. Critério de freeze
-
-Só congelar depois de auditoria contra:
-- `ProcessingSessionResult` 0033;
-- TransformRecord 0031;
-- Decision 0021;
-- ClassificationResult 0023;
-- necessidades mínimas do futuro DOCX de revisão.
-
-Nenhuma implementação antes de resolver as perguntas de §23.
+Congelar somente após:
+- implementação em pacote separado;
+- suíte específica verde;
+- CI completo verde;
+- auditoria estática de cross-bindings/serialização;
+- nenhuma alteração semântica em ProcessingSession/TransformLog/Decision/Classification.
