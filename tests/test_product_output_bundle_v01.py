@@ -4,6 +4,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import unittest
+from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
@@ -152,6 +153,36 @@ class ProductOutputBundleRealFlowTests(unittest.TestCase):
         self.assertEqual(a.clean_package_bytes, b.clean_package_bytes)
         self.assertEqual(a.review_package_bytes, b.review_package_bytes)
         self.assertEqual(a.processing_report_json_bytes, b.processing_report_json_bytes)
+
+
+class ProductOutputBundleModelBindingTests(unittest.TestCase):
+    def test_model_rejects_report_json_swap_even_with_matching_ref(self):
+        pkg = _pkg(_paragraph(_run("swap")))
+        bundle = build_product_output_bundle(pkg, _body_profile())
+        fake_json = b"{}"
+        with self.assertRaises(ValueError):
+            replace(
+                bundle,
+                processing_report_json_bytes=fake_json,
+                processing_report_ref=hashlib.sha256(fake_json).hexdigest(),
+            )
+
+    def test_model_rejects_profile_ref_drift_from_typed_report(self):
+        pkg = _pkg(_paragraph(_run("profile")))
+        bundle = build_product_output_bundle(pkg, _body_profile())
+        with self.assertRaises(ValueError):
+            replace(bundle, profile_ref=ProfileRef("other-profile", "1"))
+
+    def test_model_rejects_clean_sha_drift_from_report_lineage(self):
+        pkg = _pkg(_paragraph(_run("lineage")))
+        bundle = build_product_output_bundle(pkg, _body_profile())
+        other_pkg = _pkg(_paragraph(_run("other")))
+        with self.assertRaises(ValueError):
+            replace(
+                bundle,
+                clean_package_bytes=other_pkg,
+                clean_package_sha256=hashlib.sha256(other_pkg).hexdigest(),
+            )
 
 
 class ProductOutputBundleErrorBoundaryTests(unittest.TestCase):
