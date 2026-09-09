@@ -40,3 +40,10 @@ class PatcherDecimalExactnessErratumTests(unittest.TestCase):
         with self.assertRaises(Reject) as cm:
             half_points_lexical(self._length("1638.5"))
         self.assertIs(cm.exception.reason, PatchReason.UNREPRESENTABLE_VALUE)
+
+    def test_extreme_exponents_are_rejected_without_materializing_huge_powers(self):
+        for value in ("1E+1000000", "1E-1000000"):
+            with self.subTest(value=value):
+                with self.assertRaises(Reject) as cm:
+                    half_points_lexical(self._length(value))
+                self.assertIs(cm.exception.reason, PatchReason.UNREPRESENTABLE_VALUE)
