@@ -85,8 +85,7 @@ def canonical_decimal(value: object) -> Decimal:
         digits_list.pop()
         exponent += 1
 
-    canonical = Decimal((sign, tuple(digits_list), exponent))
-    return canonical
+    return Decimal((sign, tuple(digits_list), exponent))
 
 
 def _decimal_capacity(value: Decimal) -> int:
@@ -145,6 +144,16 @@ def canonical_rule_value(property_name: str, value: object) -> object:
     _unsupported("property_unsupported", f"unsupported property: {property_name}")
 
 
+def _canonical_value_sort_key(value: object) -> tuple[int, str]:
+    """Stable per-property set ordering; bool and Decimal never mix in one rule."""
+
+    if type(value) is bool:
+        return (0, "1" if value else "0")
+    if type(value) is Decimal:
+        return (1, str(value))
+    return (2, repr(value))
+
+
 @dataclass(frozen=True)
 class ProfileInputRule:
     target_class: str
@@ -190,6 +199,7 @@ class ProfileInputRule:
         )
         if len(set(canonical_allowed)) != len(canonical_allowed):
             _contract("set_allowed_duplicate", "allowed contains semantic duplicates")
+        canonical_allowed = tuple(sorted(canonical_allowed, key=_canonical_value_sort_key))
         canonical_preferred = None
         if self.preferred is not None:
             canonical_preferred = canonical_rule_value(self.property_name, self.preferred)
