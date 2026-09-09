@@ -148,7 +148,7 @@ def _canonical_value_sort_key(value: object) -> tuple[int, str]:
     """Stable per-property set ordering; bool and Decimal never mix in one rule."""
 
     if type(value) is bool:
-        return (0, "1" if value else "0")
+        return (0, "0" if value else "1")
     if type(value) is Decimal:
         return (1, str(value))
     return (2, repr(value))
