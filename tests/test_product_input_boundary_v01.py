@@ -66,7 +66,7 @@ def _pkg(body):
 class ProductInputBoundaryRealFlowTests(unittest.TestCase):
     def test_no_change_e2e(self):
         pkg = _pkg(_paragraph(_run("ok")))
-        bundle = build_product_from_inputs(pkg, _bold(False)) if False else build_product_from_inputs(pkg, _json(_bold(False)))
+        bundle = build_product_from_inputs(pkg, _json(_bold(False)))
         self.assertEqual(bundle.product_output_bundle_version, "0.1")
         self.assertEqual(bundle.clean_package_bytes, pkg)
         self.assertEqual(bundle.review_package_bytes, pkg)
