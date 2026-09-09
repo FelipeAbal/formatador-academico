@@ -82,3 +82,23 @@ class ProductOutputBundle:
             raise ValueError("processing_report_ref does not match processing_report_json_bytes")
         if not isinstance(self.processing_report, ProcessingReport):
             raise TypeError("processing_report must be ProcessingReport")
+
+        # Public-model self-binding: callers cannot fabricate a Bundle whose
+        # typed report disagrees with the material JSON or with the product
+        # lineage fields, even if they bypass the canonical builder.
+        from ..processing_report import serialize_processing_report
+
+        if serialize_processing_report(self.processing_report) != self.processing_report_json_bytes:
+            raise ValueError("processing_report does not match processing_report_json_bytes")
+        if self.processing_report.processing_report_version != self.processing_report_version:
+            raise ValueError("processing_report version mismatch")
+        if self.processing_report.processing_session_version != self.processing_session_version:
+            raise ValueError("processing_report session version mismatch")
+        if self.processing_report.profile_ref != self.profile_ref:
+            raise ValueError("processing_report profile_ref mismatch")
+        if self.processing_report.summary.session_status is not self.session_status:
+            raise ValueError("processing_report session_status mismatch")
+        if self.processing_report.summary.input_package_sha256 != self.input_package_sha256:
+            raise ValueError("processing_report input SHA mismatch")
+        if self.processing_report.summary.output_package_sha256 != self.clean_package_sha256:
+            raise ValueError("processing_report output SHA mismatch")
