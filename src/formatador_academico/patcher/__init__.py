@@ -19,9 +19,11 @@ from .model import (
     PatcherError,
     PatcherIntegrityError,
 )
+from .xml_patch import MAX_HALF_POINTS
 
 __all__ = [
     "DOCUMENT_PART",
+    "MAX_HALF_POINTS",
     "PATCHER_VERSION",
     "PatchReason",
     "PatchResult",
