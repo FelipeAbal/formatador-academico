@@ -1,6 +1,6 @@
 # 0040 — Profile Input / Form Schema v0.1 — contrato
 
-**Status:** PROPOSTO — auditoria adversarial pendente antes da implementação.
+**Status:** ACEITO PARA IMPLEMENTAÇÃO — auditoria adversarial integrada; freeze somente após implementação + CI + auditoria final.
 
 ## Contexto
 
@@ -20,6 +20,7 @@ Entrada pública canônica:
 
 ```text
 profile JSON bytes
+→ decode UTF-8 estrito
 → parse/validate Profile Input v0.1
 → deterministic adapter
 → ProcessingProfile
@@ -30,19 +31,12 @@ API conceitual:
 ```text
 parse_profile_input_json(profile_json_bytes: bytes) -> ProfileInput
 build_processing_profile(profile_input: ProfileInput) -> ProcessingProfile
-```
-
-Uma convenience API poderá compor ambas:
-
-```text
 processing_profile_from_json(profile_json_bytes: bytes) -> ProcessingProfile
 ```
 
 A fronteira não recebe DOCX e não analisa documento.
 
 ## Formato user-facing v0.1
-
-Exemplo:
 
 ```json
 {
@@ -71,9 +65,7 @@ Exemplo:
 }
 ```
 
-### Campos de topo
-
-Obrigatórios e únicos:
+Campos de topo obrigatórios e únicos:
 
 ```text
 schema_version
@@ -83,9 +75,9 @@ rules
 
 Campos desconhecidos em qualquer nível são rejeitados no v0.1. O adapter não ignora extensões silenciosamente.
 
-### `schema_version`
+## `schema_version`
 
-Valor exato:
+Valor suportado:
 
 ```text
 "0.1"
@@ -93,7 +85,26 @@ Valor exato:
 
 É versão do schema user-facing, distinta de `profile.version` e das versões internas do pipeline.
 
-### `profile`
+### Ordem obrigatória de validação
+
+Para compatibilidade futura e erro determinístico, a ordem é congelada:
+
+1. tipo externo deve ser `bytes` exato;
+2. input não vazio e dentro do limite de tamanho;
+3. rejeitar UTF-8 BOM;
+4. `bytes.decode("utf-8")` estrito; **é proibido passar bytes diretamente a `json.loads`**;
+5. JSON sintaticamente válido, sem constants não finitas e com duplicate-key rejection;
+6. top-level deve ser object;
+7. `schema_version` deve existir, ser string e ser avaliada **antes** de unknown-field/estrutura interna;
+8. `schema_version != "0.1"` → `ProfileInputUnsupportedError`;
+9. validar campos de topo/profile/rules;
+10. validar classes em ordem canônica;
+11. validar propriedades em ordem canônica;
+12. validar rule object/mode/payload/tipos/capacidade.
+
+Quando houver múltiplos erros, vale política **first-error deterministic**, conforme essa ordem e ordenação lexical canônica de classes/propriedades. O mesmo input inválido deve produzir sempre o mesmo código de erro.
+
+## `profile`
 
 ```json
 {
@@ -102,11 +113,25 @@ Valor exato:
 }
 ```
 
-Ambos obrigatórios, strings não vazias após validação lexical.
+Ambos obrigatórios.
 
-Não existe geração automática de `profile.id` ou `profile.version` no v0.1.
+### Regras lexicais de `profile.id` e `profile.version`
 
-`profile.version` é a versão substantiva declarada do conjunto de regras. Mudança substantiva de regra deve implicar nova versão pelo produtor do perfil até existir fingerprint de conteúdo congelado.
+- tipo string exato;
+- comprimento entre 1 e 128 code points;
+- não pode ter whitespace nas bordas;
+- não pode conter caracteres Unicode de categoria `Cc` (controle);
+- não pode conter surrogate code points U+D800–U+DFFF;
+- não é feita normalização NFC/NFD/NFKC/NFKD: **a identidade é a sequência exata de code points declarada pelo usuário**;
+- não existe geração automática.
+
+Isso evita falha tardia de serialização UTF-8 e deixa explícito que formas Unicode visualmente equivalentes podem ser identidades diferentes.
+
+`profile.version` representa versão substantiva declarada do conjunto de regras.
+
+### Limitação conhecida de identidade
+
+Até existir `profile content hash`, o sistema **não consegue detectar** que o produtor alterou valores/semântica sem mudar `profile.version`. Duas configurações substantivamente diferentes usando o mesmo `(profile.id, profile.version)` podem ficar indistinguíveis na provenance. Isso é dívida conhecida, não garantia do sistema.
 
 ## Vocabulário exposto v0.1
 
@@ -124,52 +149,37 @@ bold
 font_size
 ```
 
-O schema não expõe `P1`, `P2`, `target_type=run`, `property_slot`, `RuleBinding`, `FormattingRule`, `RuleRef`, `path` ou outros detalhes internos.
+O schema não expõe `P1`, `P2`, `target_type`, `property_slot`, `RuleBinding`, `FormattingRule`, `RuleRef` ou `path`.
 
-Mapeamento fechado:
+Tabela fechada de mapeamento:
 
 ```text
-body.bold      -> target_class=body,    target_type=run, aspect_id=P1, property_slot=bold
-body.font_size -> target_class=body,    target_type=run, aspect_id=P2, property_slot=font_size
-heading.bold      -> target_class=heading, target_type=run, aspect_id=P1, property_slot=bold
-heading.font_size -> target_class=heading, target_type=run, aspect_id=P2, property_slot=font_size
+public property | target_type | aspect_id | property_slot | unit
+bold            | run         | P1        | bold          | boolean
+font_size       | run         | P2        | font_size     | pt
 ```
+
+`target_class` vem do caminho user-facing (`body` ou `heading`).
 
 Nenhuma outra classe/propriedade é aceita no v0.1.
 
+A unidade é definida **por propriedade** na tabela de mapeamento, não como política global. Em v0.1 apenas `font_size` usa `pt`.
+
 ## Semântica de ausência
 
-### Classe ausente
+- classe ausente = nenhuma regra para aquela classe;
+- propriedade ausente = nenhuma regra para aquela propriedade;
+- `null` nunca significa ausência;
+- nenhuma classe herda regras da outra;
+- nenhum default é criado.
 
-Exemplo:
+`rules: {}` é rejeitado porque produziria `ProcessingProfile.bindings` vazio, inválido no contrato congelado.
 
-```json
-{"rules": {"body": {...}}}
-```
-
-Ausência de `heading` = **nenhuma regra para heading**.
-
-### Propriedade ausente
-
-Exemplo:
-
-```json
-{"body": {"font_size": {...}}}
-```
-
-Ausência de `bold` = **nenhuma regra de bold para body**.
-
-### Objeto `rules` vazio
-
-Rejeitado no v0.1 porque produziria `ProcessingProfile.bindings` vazio, que é inválido no contrato congelado.
-
-### Classe presente mas vazia
-
-Rejeitada no v0.1 para evitar configuração aparentemente ativa que não produz autoridade alguma.
+Classe presente mas vazia também é rejeitada para não produzir configuração aparentemente ativa sem binding.
 
 ## Modos user-facing
 
-O vocabulário público é:
+Vocabulário público:
 
 ```text
 exact
@@ -177,17 +187,15 @@ set
 preserve
 ```
 
-Não expõe o termo interno `containment`.
-
 ### `exact`
 
 ```json
 {"mode":"exact","value":...}
 ```
 
-Significa valor único explicitamente requerido.
-
 Mapeia para `RuleMode.EXACT`.
+
+Campos permitidos: exatamente `mode`, `value`.
 
 ### `set`
 
@@ -199,13 +207,14 @@ Mapeia para `RuleMode.EXACT`.
 }
 ```
 
-`allowed` é obrigatório, array não vazio e sem duplicatas semânticas.
-
-`preferred` é opcional. Se presente, deve pertencer a `allowed`.
-
-Sem `preferred`, mais de um valor permitido não autoriza escolha automática entre eles; o comportamento permanece o já congelado na Decision Layer (`human_choice` quando aplicável).
+- `allowed` obrigatório, array não vazio, sem duplicatas semânticas;
+- `preferred` opcional e, quando presente, deve pertencer a `allowed`;
+- sem `preferred`, mais de um valor permitido não autoriza escolha automática; permanece o comportamento congelado `human_choice` quando aplicável;
+- `allowed` com **um único elemento e sem `preferred` é rejeitado como `ProfileInputContractError`**; usar `exact` ou declarar `preferred` explicitamente.
 
 Mapeia para `RuleMode.SET`.
+
+Nota: `bold` com `set.allowed=[true,false]` cobre todo o domínio observado; é permitido, mas em geral não autoriza mudança automática e pode gerar review quando Analysis estiver ausente. Não deve ser apresentado como garantia de conformidade.
 
 ### `preserve`
 
@@ -215,126 +224,198 @@ Mapeia para `RuleMode.SET`.
 
 Não aceita `value`, `allowed` ou `preferred`.
 
-Semântica user-facing congelada:
+Mapeia estritamente para `RuleMode.CONTAINMENT`.
+
+Semântica:
 
 > **NÃO TOCAR + NÃO SINALIZAR por esta regra.**
 
-Mapeia estritamente para `RuleMode.CONTAINMENT`, preservando a semântica já congelada de contenção.
+### Limitação observável de `preserve`
 
-`preserve` não significa “usar default”, “manter se conforme”, “ignorar erros do documento” ou “herdar outra regra”.
+No pipeline v0.1, `preserve` é **declarativo** e observacionalmente equivalente à omissão para os artefatos de produto:
 
-## Tipos e unidades
+- não produz transformação;
+- não produz `AppliedChangeItem`;
+- não produz `UnappliedChangeItem`;
+- não produz `ReviewItem`;
+- não produz highlight.
+
+A diferença existe internamente em `final_decisions` (CONTAINMENT/PRESERVE), mas não no Processing Report v0.1.
+
+Perfil somente com regras `preserve` é válido e pode terminar `quiescent` com clean/review byte-idênticos e report sem itens. **A camada de produto/UI não pode apresentar isso como evidência de conformidade.**
+
+Não rejeitar perfil só-preserve: o boundary não decide “utilidade” da configuração.
+
+## Tipos e valores
 
 ### `bold`
 
-Valores válidos em `exact.value`, `set.allowed` e `set.preferred`:
+Valores válidos em `exact.value`, `set.allowed`, `set.preferred`:
 
 ```text
 true | false
 ```
 
-Somente JSON boolean real. `0`, `1`, `"true"`, `"false"`, `null` etc. são rejeitados.
+Somente JSON boolean real. `0`, `1`, strings, `null` etc. são `ProfileInputContractError`.
 
 ### `font_size`
 
-Unidade user-facing v0.1 é sempre **pt** e não é escrita no JSON.
+User-facing v0.1: unidade `pt` implícita pela propriedade.
 
-Valores válidos:
-- JSON number finito;
+Valor válido no modelo:
+
+- `Decimal` exato;
+- finito;
 - estritamente positivo;
-- convertido deterministicamente para `Decimal` sem passar por float binário;
-- deve respeitar a representabilidade já exigida pelo slice mutável quando chegar ao Patcher (meio ponto exato); porém o adapter **não deve fingir que uma regra semanticamente válida é executável** se o valor não puder ser representado pelo Patcher atual.
+- forma Decimal canônica;
+- representável exatamente em half-points;
+- dentro do domínio suportado pelo Patcher v0.1.
 
-Decisão v0.1 para evitar autoridade ilusória:
+### Parse numérico
 
-> `font_size` declarado no Profile Input v0.1 deve ser representável em meio ponto exato (`points * 2` inteiro) e dentro do domínio suportado pelo Patcher v0.1. Caso contrário, o perfil é rejeitado no input boundary.
+JSON deve usar:
+
+```text
+parse_float=Decimal
+parse_int=Decimal
+parse_constant=<raiser>
+```
+
+ou mecanismo semanticamente equivalente.
+
+Nunca `Decimal(float)`.
+
+`NaN`, `Infinity`, `-Infinity` nus são `ProfileInputContractError`.
+
+### Canonicalização Decimal
+
+O boundary deve canonicalizar numeric strings semanticamente equivalentes para a mesma representação `Decimal`, **sem depender do contexto Decimal global**.
+
+Forma canônica v0.1:
+
+1. partir de `Decimal.as_tuple()`;
+2. rejeitar não finitos antes;
+3. remover zeros finais do coeficiente enquanto ajusta o expoente exatamente;
+4. zero canônico é `Decimal("0")`;
+5. valores integrais canônicos não mantêm escala redundante (`12`, `12.0`, `1.2e1` → `Decimal("12")`);
+6. `11.50` → `Decimal("11.5")`;
+7. não usar `normalize()` nem aritmética sujeita ao `decimal.getcontext()` como fonte de verdade.
+
+O mesmo valor semântico deve produzir o mesmo `ProcessingProfile`, Decision refs, report bytes e lineage, independentemente da forma lexical JSON.
+
+### Limites de segurança numérica
+
+Para evitar aritmética adversarial e dependência de contexto:
+
+- máximo de **32 dígitos significativos** no literal numérico;
+- expoente Decimal efetivo deve estar no intervalo `[-16, 16]` antes da validação de domínio;
+- excedente → `ProfileInputUnsupportedError`.
+
+Esses limites são de capacidade da versão, não validade normativa.
+
+### Representabilidade exata em half-points
+
+**É proibido validar com `d * 2` usando o contexto Decimal global/default.**
+
+A representabilidade deve ser decidida por aritmética exata derivada de `Decimal.as_tuple()` (ou `localcontext` com precisão calculada a partir do próprio valor), provando que `2 * points` é inteiro sem arredondamento.
 
 Exemplos:
 
 ```text
-12    -> válido
-11.5  -> válido
-11.25 -> rejeitado
+12    -> suportado
+11.5  -> suportado
+11.25 -> não suportado
 ```
 
-O parser JSON deve usar `Decimal` diretamente para números decimais (por exemplo `json.loads(..., parse_float=Decimal, parse_int=Decimal)` ou mecanismo equivalente), nunca `Decimal(float)`.
+Valor não representável ou fora do domínio do executor é `ProfileInputUnsupportedError`, não `ContractError`.
 
-Notação não finita (`NaN`, `Infinity`, `-Infinity`) é rejeitada.
+### Limite de domínio compartilhado
+
+O Profile Input **não deve duplicar magic numbers** do Patcher. O limite superior deve vir de símbolo público compartilhado/exposto pela camada Patcher (ou por módulo comum de contrato de capacidade) e testes devem provar igualdade com a capacidade real do executor.
+
+Até o símbolo público existir, a implementação desta etapa deve promovê-lo de forma aditiva, sem alterar a semântica congelada do Patcher.
 
 ## `null`
 
-`null` nunca significa ausência normativa. Em qualquer campo de regra no v0.1, `null` é inválido.
+`null` nunca significa ausência normativa. Em qualquer campo de regra no v0.1 é inválido.
 
-Para “não declarar regra”, o campo deve estar ausente.
+Para não declarar regra, omitir a propriedade.
 
 ## IDs internos de regra
 
-O usuário não fornece `rule_id` no v0.1.
+O usuário não fornece `rule_id`.
 
-O adapter gera deterministicamente um ID fechado a partir da identidade pública:
+O adapter gera:
 
 ```text
-v0.1:<target_class>:<public_property>
+<target_class>:<public_property>
 ```
 
 Exemplos:
 
 ```text
-v0.1:body:bold
-v0.1:heading:font_size
+body:bold
+heading:font_size
 ```
+
+**Não incluir `schema_version` no `rule_id`.** A identidade da regra não deve mudar apenas porque o envelope user-facing evoluiu.
+
+`target_class` é obrigatório no ID porque `RuleRef` congelado não o carrega.
 
 O ID não incorpora valor, ordem de entrada nem hash do documento.
 
 `FormattingRule.path = None` no v0.1.
 
-A mudança substantiva de valor fica vinculada pela `ProfileRef(profile.id, profile.version)`; por isso `profile.version` deve mudar quando a configuração substantiva muda.
+Comparação cross-schema de uma regra semanticamente preservada pode continuar usando a identidade pública `target_class:property`.
 
 ## Ordenação e determinismo
 
-Ordem das propriedades e classes no JSON não possui significado normativo.
+Ordem das propriedades/classes no JSON não tem significado normativo.
 
-O adapter deve produzir `ProcessingProfile` com bindings em ordem canônica independente da ordem de chaves do JSON.
+`ProfileInput.rules` deve ser armazenado em ordem canônica:
 
-Mesmo conteúdo semântico + mesmo `profile.id/version` deve produzir objeto e serialização interna equivalentes.
+```text
+(target_class, property_name)
+```
 
-Não usar clock, UUID, random, locale, filesystem, rede ou LLM.
+O adapter deve produzir bindings em ordem canônica independente da ordem das chaves.
+
+Mesmo conteúdo semântico + mesmo profile id/version deve produzir objetos e serializações internas equivalentes.
+
+O resultado e o **erro** devem ser independentes de:
+
+- ordem de chaves JSON;
+- `PYTHONHASHSEED`;
+- `decimal.getcontext().prec` do chamador;
+- clock/UUID/random/locale/filesystem/network/LLM.
 
 ## Duplicidade de chaves JSON
 
-**Obrigatório detectar e rejeitar duplicate object keys.**
+Duplicate object keys são `ProfileInputContractError` em **todos os níveis**:
 
-JSON como:
+- top-level;
+- `profile`;
+- `rules`/classe;
+- rule object.
 
-```json
-{"rules":{"body":{"bold":{...},"bold":{...}}}}
-```
+Nunca “last wins”.
 
-não pode ser aceito com política “last wins”. Ambiguidade na própria declaração normativa é contract error.
+## Encoding / tamanho / profundidade
 
-## Encoding
+Entrada pública aceita **somente `bytes` exato**.
 
-Entrada canônica v0.1: UTF-8 bytes.
+`str`, `bytearray`, `memoryview` etc. → `ProfileInputContractError`.
 
-- BOM UTF-8: rejeitado no v0.1 para manter uma forma canônica simples;
-- bytes inválidos em UTF-8: contract error;
-- trailing non-whitespace data: rejeitado;
-- JSON top-level deve ser object.
+- input vazio → ContractError;
+- tamanho máximo: **256 KiB** no v0.1; excedente → ContractError;
+- UTF-8 BOM → ContractError;
+- decode UTF-8 estrito obrigatório;
+- UTF-16/UTF-32 JSON válido → ContractError;
+- trailing non-whitespace data → ContractError;
+- top-level não-object → ContractError;
+- `RecursionError`/profundidade patológica durante parse/validação → ContractError, nunca vazamento cru.
 
-## Validação estrutural
-
-O parser deve distinguir:
-
-```text
-schema/contract error
-unsupported schema vocabulary
-```
-
-mas ambos são falhas de entrada, nunca findings do documento.
-
-O Profile Input boundary não gera `ReviewItem`, não modifica Processing Report e não tenta recuperar perfil malformado.
-
-## Modelos públicos propostos
+## Modelos públicos e invariantes
 
 ```text
 PROFILE_INPUT_SCHEMA_VERSION = "0.1"
@@ -352,85 +433,121 @@ ProfileInputRule
   value | allowed | preferred
 ```
 
-Modelos imutáveis e já canonicalizados.
+Modelos frozen.
 
-Valores de `font_size` permanecem `Decimal` no modelo tipado.
+### `ProfileInputRule.__post_init__`
+
+Deve validar independentemente do parser:
+
+- classe/propriedade suportadas;
+- mode suportado;
+- shape exato por mode;
+- tipos estritos;
+- `allowed` não vazio e sem duplicatas;
+- preferred membro;
+- singleton-set sem preferred rejeitado;
+- `preserve` sem payload;
+- `font_size` positivo, canônico, dentro dos limites e representável exatamente;
+- valores armazenados em forma canônica.
+
+### `ProfileInput.__post_init__`
+
+Deve validar independentemente do parser:
+
+- schema_version suportada;
+- regras lexicais de id/version;
+- `rules` tuple não vazio;
+- todos os itens `ProfileInputRule`;
+- unicidade de `(target_class, property_name)`;
+- ordem canônica já materializada.
+
+A API programática não pode criar estados que o JSON parser rejeitaria semanticamente.
 
 ## Error model
 
-Base:
-
 ```text
 ProfileInputError
-```
-
-Subclasses:
-
-```text
 ProfileInputContractError
 ProfileInputUnsupportedError
 ```
 
+Cada erro deve ter:
+
+```text
+code: string estável machine-readable
+message: string técnica curta em inglês
+```
+
 ### ContractError
 
-Exemplos:
+Forma/declaração malformada:
+
+- tipo externo não-bytes;
+- input vazio/grande demais;
 - JSON inválido;
-- UTF-8 inválido/BOM;
+- encoding/BOM inválido;
 - duplicate key;
 - campo obrigatório ausente;
 - campo desconhecido;
+- schema_version com tipo errado;
 - tipo errado;
-- null onde não permitido;
+- `null` onde não permitido;
 - array vazio/duplicado;
 - preferred fora de allowed;
+- singleton set sem preferred;
 - classe vazia;
 - rules vazio;
-- font_size não finito/não positivo/não representável.
+- mode ausente ou tipo não-string;
+- profile id/version lexicalmente inválidos;
+- non-finite constants.
 
 ### UnsupportedError
 
-Exemplos:
-- `schema_version` diferente de `0.1`;
+Declaração bem formada mas fora da capacidade/vocabulário desta versão:
+
+- schema_version string diferente de `0.1`;
 - classe fora de body/heading;
 - propriedade fora de bold/font_size;
-- mode fora de exact/set/preserve.
+- mode string fora de exact/set/preserve;
+- `font_size` finito/positivo mas não representável em half-points;
+- `font_size` fora do domínio do Patcher;
+- literal numérico excedendo limites de dígitos/expoente da versão.
 
-Não existe fallback de versão nem “best effort”.
+Não existe fallback/best effort.
 
-Mensagens user-facing/localizadas ficam fora desta camada. Os erros devem possuir código estável machine-readable + mensagem técnica curta em inglês para debugging, se o modelo adotado suportar isso sem complexidade excessiva.
+Mensagens localizadas/user-facing ficam fora desta camada.
 
 ## Adapter para `ProcessingProfile`
 
-Mapeamento deve ser mecânico e total para todo `ProfileInput` válido:
+Mapeamento mecânico e total para todo `ProfileInput` válido:
 
 ```text
 ProfileInput profile_id/version -> ProfileRef
 ProfileInputRule -> FormattingRule + RuleBinding
 ```
 
-Regras:
 - `exact` -> `RuleMode.EXACT`;
 - `set` -> `RuleMode.SET`;
 - `preserve` -> `RuleMode.CONTAINMENT`;
-- `bold` mantém bool exato;
-- `font_size` mantém `Decimal` em pontos;
-- IDs internos conforme seção própria;
+- bool permanece bool exato;
+- font_size permanece Decimal canônico em pt;
+- `rule_id = target_class:property_name`;
 - `path=None`;
-- nenhuma regra adicional é criada;
-- nenhuma regra ausente é criada;
+- nenhuma regra adicional/ausente é criada;
 - nenhuma classe herda de outra;
 - nenhum valor é lido do documento.
 
-Após construir, o próprio `ProcessingProfile` congelado permanece como validação upstream adicional.
+O `ProcessingProfile` congelado continua sendo validação upstream adicional.
 
 ## Autoridade negativa
 
 Profile Input / Form Schema v0.1 NÃO:
+
 - interpreta “ABNT”, revista, evento, TCC ou instituição;
 - consulta norma externa;
 - sugere valores;
 - preenche defaults;
-- infere heading a partir de body ou vice-versa;
+- infere regra ausente;
 - analisa DOCX;
 - decide conformidade;
 - classifica conteúdo;
@@ -438,24 +555,34 @@ Profile Input / Form Schema v0.1 NÃO:
 - chama SafetyGate/Patcher;
 - altera OOXML;
 - gera relatório;
-- gera UI visual;
+- gera UI;
 - localiza mensagens;
 - persiste perfis;
-- resolve versionamento/fingerprint automaticamente.
+- calcula fingerprint de conteúdo.
 
-É apenas um contrato de declaração explícita + adapter determinístico.
+É somente declaração explícita + adapter determinístico.
 
 ## Extensibilidade
 
-O v0.1 é fechado por precisão, mas a forma `rules -> target_class -> property -> rule object` deve permitir adicionar futuramente novas propriedades/classes por nova `schema_version` ou extensão explicitamente versionada.
+A forma:
 
-Não reservar comportamento semântico para campos desconhecidos.
+```text
+rules -> target_class -> property -> rule object
+```
 
-P3/P4, italic, referências, citações, margens, etc. NÃO podem ser aceitos silenciosamente antes de contratos próprios.
+permite adicionar propriedades/classes em nova schema_version sem reabrir contratos internos congelados.
+
+- P3/P4: propriedades futuras podem mapear para `target_type=paragraph` pela tabela, sem expor target_type;
+- italic: nova propriedade futura;
+- valores compostos podem usar object como payload em schema futuro;
+- heading-levels dependem de expansão upstream de classes;
+- **margens/seções/configuração de página não pertencem a target_class e deverão usar chave irmã de `rules` em schema futuro**, não ser forçadas em `rules.body`.
+
+Unknown-field rejection garante que nenhuma dessas extensões seja aceita antes de contrato explícito.
 
 ## Integração futura com produto
 
-Após congelado, uma camada superior poderá oferecer:
+Ciclo separado poderá oferecer:
 
 ```text
 DOCX bytes + Profile Input JSON bytes
@@ -464,98 +591,152 @@ DOCX bytes + Profile Input JSON bytes
 → build_product_output_bundle(...)
 ```
 
-Essa convenience boundary será ciclo separado. O schema 0040 não deve modificar `ProductOutputBundle` v0.1.
+0040 não modifica `ProductOutputBundle` v0.1.
 
 ## Testes mínimos obrigatórios
 
-### Parsing / estrutura
-1. exemplo mínimo válido body.bold exact;
-2. body.font_size exact;
-3. heading válido;
-4. body + heading;
-5. ordem de chaves irrelevante;
-6. invalid JSON;
-7. invalid UTF-8;
-8. BOM rejeitado;
-9. top-level não-object;
-10. trailing data;
-11. duplicate top-level key;
-12. duplicate nested property key;
-13. campo top-level desconhecido;
-14. campo de profile desconhecido;
-15. campo de rule desconhecido;
-16. profile.id ausente/vazio;
-17. profile.version ausente/vazio;
-18. rules ausente/vazio;
-19. classe presente vazia;
-20. classe desconhecida -> UnsupportedError;
-21. propriedade desconhecida -> UnsupportedError;
-22. schema_version desconhecida -> UnsupportedError.
+### API/encoding/JSON
+1. bytes exatos aceitos;
+2. str rejeitado;
+3. bytearray/memoryview rejeitados;
+4. input vazio rejeitado;
+5. >256KiB rejeitado;
+6. UTF-8 válido;
+7. UTF-8 inválido;
+8. BOM UTF-8 rejeitado;
+9. JSON UTF-16 válido rejeitado;
+10. JSON UTF-32 válido rejeitado;
+11. invalid JSON;
+12. top-level não-object;
+13. trailing data;
+14. NaN literal rejeitado;
+15. Infinity/-Infinity literais rejeitados;
+16. profundidade/RecursionError vira ContractError.
 
-### Ausência / autoridade
-23. heading ausente gera zero binding heading;
-24. bold ausente gera zero binding bold;
-25. null não equivale a ausência;
-26. nenhum default é criado;
-27. body não herda heading nem vice-versa.
+### Duplicate keys / estrutura
+17. duplicate top-level;
+18. duplicate dentro de profile;
+19. duplicate class/property;
+20. duplicate dentro de rule object;
+21. unknown top-level field;
+22. unknown profile field;
+23. unknown rule field;
+24. schema_version ausente;
+25. schema_version tipo errado -> Contract;
+26. schema_version string desconhecida -> Unsupported antes de unknown fields internos;
+27. profile ausente/não-object;
+28. profile.id/version ausentes;
+29. rules ausente/não-object/vazio;
+30. classe não-object;
+31. classe presente vazia;
+32. rule não-object;
+33. mode ausente/tipo errado;
+34. classe desconhecida -> Unsupported;
+35. propriedade desconhecida -> Unsupported;
+36. mode desconhecido -> Unsupported.
+
+### Identidade lexical
+37. id/version vazios;
+38. leading/trailing whitespace;
+39. control chars;
+40. surrogate solto;
+41. >128 code points;
+42. NFC vs NFD não são normalizados silenciosamente.
+
+### Ausência / preserve
+43. heading ausente gera zero binding heading;
+44. propriedade ausente gera zero binding;
+45. null não equivale a ausência;
+46. nenhum default;
+47. body não herda heading;
+48. preserve válido -> CONTAINMENT;
+49. preserve com payload rejeitado;
+50. perfil só-preserve válido;
+51. perfil só-preserve → quiescent + clean/review idênticos + report sem itens;
+52. preserve e omissão produzem mesmo ProcessingReport quando demais condições são iguais, embora final_decisions possam diferir.
 
 ### Modes
-28. exact shape válido;
-29. exact com allowed/preferred rejeitado;
-30. set non-empty válido;
-31. set duplicate allowed rejeitado;
-32. set preferred membro válido;
-33. set preferred fora rejeitado;
-34. preserve shape válido;
-35. preserve com payload rejeitado;
-36. mode desconhecido -> UnsupportedError.
+53. exact válido;
+54. exact payload inválido;
+55. set multi allowed válido;
+56. duplicate semantic allowed rejeitado;
+57. preferred membro válido;
+58. preferred fora rejeitado;
+59. singleton set sem preferred rejeitado;
+60. singleton set com preferred válido;
+61. bold set [true,false] comportamento documentado.
 
-### Tipos
-37. bold true/false;
-38. bold int/string/null rejeitados;
-39. font integer -> Decimal exato;
-40. font decimal -> Decimal exato;
-41. 11.5 válido;
-42. 11.25 rejeitado;
-43. zero/negativo rejeitados;
-44. NaN/Infinity rejeitados;
-45. bool não aceito como number.
+### Tipos / Decimal
+62. bold true/false;
+63. bold int/string/null rejeitados;
+64. integer JSON -> Decimal canônico;
+65. decimal JSON -> Decimal canônico;
+66. `12`, `12.0`, `1.2e1` -> mesmo Decimal("12") e mesmo ProcessingProfile;
+67. `11.50` -> Decimal("11.5");
+68. 11.5 suportado;
+69. 11.25 -> Unsupported;
+70. zero/negativo -> Contract;
+71. acima do domínio Patcher -> Unsupported;
+72. literal com >32 dígitos -> Unsupported;
+73. expoente fora [-16,16] -> Unsupported;
+74. adversarial >28 dígitos que arredondaria no contexto default -> rejeitado/canonicalizado corretamente sem arredondamento;
+75. contexto Decimal externo com prec baixo não altera resultado;
+76. limite compartilhado com Patcher provado por teste.
 
-### Adapter
-46. ProfileRef exato;
-47. rule_id determinístico;
-48. aspect/property mapping fechado;
-49. preserve -> CONTAINMENT;
-50. exact -> EXACT;
-51. set -> SET;
-52. path None;
-53. binding ordering canônica;
-54. mesmo conteúdo com ordem JSON diferente -> mesmo ProcessingProfile;
-55. ProcessingProfile aceita todo ProfileInput válido.
+### Model invariants
+77. modelos frozen;
+78. construção programática inválida é rejeitada;
+79. ProfileInputRule canonicaliza/valida independentemente do parser;
+80. ProfileInput exige rules em ordem canônica;
+81. duplicate identity programática rejeitada.
 
-### Static / determinismo
-56. modelos frozen;
-57. sem filesystem/network/clock/random/LLM;
-58. repetição determinística;
-59. regressão da suíte completa.
+### Adapter / IDs
+82. ProfileRef exato;
+83. rule_id body:bold;
+84. rule_id heading:font_size;
+85. rule_id não contém schema version;
+86. mapping P1/P2 fechado;
+87. unidade font_size pt;
+88. exact -> EXACT;
+89. set -> SET;
+90. preserve -> CONTAINMENT;
+91. path None;
+92. bindings em ordem canônica;
+93. mesmo conteúdo com ordem JSON diferente -> mesmo ProcessingProfile;
+94. todo ProfileInput válido constrói ProcessingProfile.
 
-## Questões específicas para auditoria adversarial
+### Determinismo / erros
+95. repetição mesmo input -> mesmo objeto;
+96. key order diferente -> mesmo objeto;
+97. hashseed diferente -> mesmo resultado;
+98. decimal context diferente -> mesmo resultado;
+99. input inválido repetido -> mesmo error code;
+100. múltiplos erros -> first-error determinístico;
+101. sem filesystem/network/clock/random/LLM/dynamic import;
+102. regressão suíte completa.
 
-Antes da implementação, auditar especialmente:
-1. se `preserve` -> `CONTAINMENT` é semanticamente seguro e não confunde ausência;
-2. se rejeitar `font_size` não representável no input boundary é correto ou mistura schema com capacidade atual do executor;
-3. se `rule_id` determinístico sem valor é suficiente em conjunto com `profile.version`;
-4. se duplicate-key rejection precisa valer em todos os níveis;
-5. se erros `ContractError` vs `UnsupportedError` estão bem separados;
-6. se schema fechado com unknown-field rejection é a melhor política para v0.1;
-7. se parse_int=Decimal cria alguma armadilha de tipo/JSON;
-8. se falta algum caminho pelo qual ausência/null/default possa gerar autoridade não declarada.
+## Auditoria adversarial incorporada
+
+A auditoria externa concluiu **APROVAR COM AJUSTES** e confirmou:
+
+- ausência permanece ausência;
+- `preserve -> CONTAINMENT` é semanticamente fiel;
+- body/heading não herdam entre si;
+- schema fechado/duplicate-key rejection/extensibilidade não exigem redesenho;
+- nenhum upstream precisa ser expandido para autoridade normativa.
+
+Foram incorporados os blockers de UTF-8 explícito, aritmética Decimal exata e canonicalização Decimal, além dos ajustes de error taxonomy, validação determinística, identidade lexical, self-validating models, rule_id cross-schema, preserve observacional e singleton set.
 
 ## Critério de aceite
 
-Só implementar se a auditoria concluir que:
-- ausência permanece ausência;
-- todo binding interno possui origem explícita em uma regra user-facing;
-- nenhuma declaração ambígua é silenciosamente resolvida;
-- o adapter não introduz normatividade própria;
-- o schema pode evoluir sem obrigar quebra dos contratos internos congelados.
+Só congelar após implementação se:
+
+- ausência permanecer ausência;
+- todo binding interno tiver origem explícita numa rule user-facing;
+- nenhuma declaração ambígua for resolvida silenciosamente;
+- nenhuma aritmética Decimal depender do contexto global;
+- valores semanticamente equivalentes forem canonicalizados antes de entrar no pipeline;
+- erro/código forem determinísticos;
+- modelos públicos se auto-validarem;
+- Profile Input não introduzir normatividade própria;
+- suíte completa e adversarial estiver verde.
