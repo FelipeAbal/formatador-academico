@@ -224,7 +224,7 @@ def render_processing_report(report: ProcessingReport) -> RenderedProcessingRepo
             "",
             "- Este relatório é uma apresentação derivada do processamento e não prova conformidade integral com qualquer norma ou perfil.",
             "- Resultados abstidos ou não aplicáveis permanecem fora de uma conclusão normativa.",
-            "- O DOCX de revisão usa destaque visual apenas para indicar que existe informação correspondente no relatório; a cor não representa gravidade.",
+            "- O DOCX de revisão usa destaque visual apenas para indicar que existe informação correspondente no relatório; a cor não representa prioridade.",
             "- No slice atual, a correção automática de tamanho de fonte não altera `w:szCs`; isso é uma limitação geral e não um diagnóstico específico deste arquivo.",
         ]
     )
