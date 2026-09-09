@@ -136,11 +136,11 @@ Nenhum desses bytes é modificado.
 ## Media types
 
 ```text
-clean_docx      application/vnd.openxmlformats-officedocument.wordprocessingml.document
-review_docx     application/vnd.openxmlformats-officedocument.wordprocessingml.document
+clean_docx       application/vnd.openxmlformats-officedocument.wordprocessingml.document
+review_docx      application/vnd.openxmlformats-officedocument.wordprocessingml.document
 technical_report application/json; charset=utf-8
-human_report    text/markdown; charset=utf-8
-manifest        application/json; charset=utf-8
+human_report     text/markdown; charset=utf-8
+manifest         application/json; charset=utf-8
 ```
 
 ## `base_name`
@@ -161,9 +161,9 @@ Canonicalização determinística:
 3. qualquer sequência de whitespace interno vira um único espaço ASCII;
 4. qualquer sequência de `_` gerada/adjacente vira um único `_`;
 5. remover espaços e pontos finais;
-6. rejeitar resultado vazio, `.` ou `..`;
-7. rejeitar nomes reservados Windows, case-insensitive, antes de sufixos: `CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`;
-8. limitar o base canônico a no máximo 100 codepoints para reservar espaço aos sufixos; se exceder, truncar deterministicamente nos primeiros 100 codepoints e novamente remover espaço/ponto final; se isso resultar inválido, ContractError.
+6. rejeitar resultado vazio, `.`, `..` ou qualquer resultado que comece com `.`;
+7. rejeitar nomes reservados Windows, case-insensitive, considerando a parte anterior ao primeiro ponto: `CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`;
+8. limitar o base canônico a no máximo 100 codepoints para reservar espaço aos sufixos; se exceder, truncar deterministicamente nos primeiros 100 codepoints, novamente remover espaço/ponto final e revalidar integralmente as regras 6–7.
 
 Não realizar Unicode normalization/transliteration. A forma Unicode do usuário é preservada, exceto pelas regras acima.
 
@@ -250,37 +250,38 @@ Uma futura camada de ZIP deve consumir `ProductDelivery`, não reprocessar os ar
 2. tipo de base_name errado;
 3. base vazio/whitespace/pontos;
 4. NUL;
-5. separadores/path traversal;
-6. caracteres Windows proibidos;
-7. whitespace interno canonicalizado;
-8. underscores colapsados;
-9. trailing dot/space removidos;
-10. nomes reservados Windows rejeitados case-insensitive;
-11. Unicode preservado sem normalization;
-12. truncamento determinístico 100 codepoints;
-13. cinco roles/ordem exatos;
-14. filenames esperados e distintos;
-15. nenhuma barra/path nos filenames;
-16. bytes clean idênticos ao Bundle;
-17. bytes review idênticos;
-18. JSON técnico idêntico;
-19. Markdown humano idêntico ao renderer congelado;
-20. SHA/tamanho de cada arquivo;
-21. media types exatos;
-22. bundle_ref canônico correto;
-23. human_report_ref correto;
-24. manifest contém somente quatro arquivos de conteúdo;
-25. manifest hashes/tamanhos/names/roles fecham;
-26. manifest não contém timestamp/path/environment;
-27. manifest JSON determinístico;
-28. inputs não mutados;
-29. repetição byte-idêntica;
-30. runtime sem IO/network/clock/random/locale/LLM;
-31. nenhum import de Parser/Analysis/Classification/Decision/Patcher para reexecução;
-32. E2E real a partir de `build_product_from_inputs` com no-change;
-33. E2E real com alteração aplicada;
-34. E2E com review/unapplied;
-35. suíte completa regressiva verde.
+5. base começando por ponto/hidden-file → rejeitado;
+6. separadores/path traversal;
+7. caracteres Windows proibidos;
+8. whitespace interno canonicalizado;
+9. underscores colapsados;
+10. trailing dot/space removidos;
+11. nomes reservados Windows rejeitados case-insensitive, inclusive `CON.txt`/`LPT1.any`;
+12. Unicode preservado sem normalization;
+13. truncamento determinístico 100 codepoints + revalidação;
+14. cinco roles/ordem exatos;
+15. filenames esperados e distintos;
+16. nenhuma barra/path nos filenames;
+17. bytes clean idênticos ao Bundle;
+18. bytes review idênticos;
+19. JSON técnico idêntico;
+20. Markdown humano idêntico ao renderer congelado;
+21. SHA/tamanho de cada arquivo;
+22. media types exatos;
+23. bundle_ref canônico correto;
+24. human_report_ref correto;
+25. manifest contém somente quatro arquivos de conteúdo;
+26. manifest hashes/tamanhos/names/roles fecham;
+27. manifest não contém timestamp/path/environment;
+28. manifest JSON determinístico;
+29. inputs não mutados;
+30. repetição byte-idêntica;
+31. runtime sem IO/network/clock/random/locale/LLM;
+32. nenhum import de Parser/Analysis/Classification/Decision/Patcher para reexecução;
+33. E2E real a partir de `build_product_from_inputs` com no-change;
+34. E2E real com alteração aplicada;
+35. E2E com review/unapplied;
+36. suíte completa regressiva verde.
 
 ## Critério de aceite
 
