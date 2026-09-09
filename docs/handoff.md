@@ -2,67 +2,52 @@
 
 ## Estado atual
 
-**Fase:** core vertical do MVP integrado até a fronteira user-facing completa.
+**Fase:** core vertical do MVP integrado até a fronteira user-facing completa + relatório humano Markdown.
 
-Congelados:
-- corpus-base v1;
-- Parser físico v0.4;
-- Analysis v0.1a/v0.1b;
-- Decision Vocabulary v0.1;
+Este é o HANDOFF corrente. O histórico detalhado fica no Git; não criar `handoff_vNN`.
+
+## Baseline validado
+
+- Parser físico v0.4 congelado;
+- Analysis v0.1a/v0.1b congeladas;
+- Decision Vocabulary v0.1 congelado;
 - Decision Layer v0.1 — freeze 0021;
 - Classification Layer v0.1 — freeze 0023;
 - OperationPlan v0.1 — freeze 0025;
 - SafetyGate v0.1 — freeze 0027;
 - Patcher/Applicator v0.1 — freeze 0029 + errata Decimal 0041;
-- TransformLog / Execution Record v0.1 — freeze 0031;
-- Processing Session / Orchestration v0.1 — freeze 0033;
+- TransformLog v0.1 — freeze 0031;
+- Processing Session v0.1 — freeze 0033;
 - Processing Report v0.1 — freeze 0035;
 - Review/Highlight DOCX v0.1 — freeze 0037;
 - Product Output Bundle v0.1 — freeze 0039;
 - Profile Input / Form Schema v0.1 — freeze 0042;
-- **Product Input Boundary v0.1 — freeze 0044**.
+- Product Input Boundary v0.1 — freeze 0044;
+- Human-readable Processing Report v0.1 — freeze 0046.
 
-Este é o HANDOFF corrente. O histórico detalhado fica no Git; não criar `handoff_vNN`.
+Suíte completa atual: **716/716 OK** no PR #17 e GitHub Actions `success` no `main` pós-merge `804ce6f3fa1eac05f09e623f5587a9cb29446446`.
 
-## Validação corrente
+Failures: 0. Errors: 0.
 
-Baselines históricos:
-- Parser v0.4: 102/102;
-- Analysis completa: 267/267;
-- Decision Layer: 290/290;
-- Classification: 335/335;
-- OperationPlan: 389/389;
-- SafetyGate: 442 testes no freeze próprio;
-- Patcher: 502/502 no freeze próprio;
-- TransformLog: 524/524;
-- Processing Session: 565/565;
-- Processing Report: 591/591;
-- Review DOCX: 627/627;
-- Product Output Bundle: 644/644;
-- Profile Input: 682/682.
+GitHub Actions é a execução padrão da suíte; não gastar Kimi apenas para testar.
 
-Baseline atual após Product Input Boundary:
-- **699/699 OK** no PR #16;
-- `main` pós-merge: GitHub Actions **success**;
-- failures: 0;
-- errors: 0.
+## PRs / merges principais
 
-GitHub Actions é a execução padrão da suíte. Não gastar Kimi apenas para testar.
-
-## PRs / freezes principais
-
-- PR #5 — Decision Layer; freeze 0021;
-- PR #6 — Classification; freeze 0023;
-- PR #7 — OperationPlan; freeze 0025;
-- PR #8 — SafetyGate; freeze 0027;
-- PR #9 — Patcher; squash `559cf8ec812320d066e8b91d431873f7a91f2c1c`; freeze 0029;
-- PR #10 — TransformLog; squash `eff4770f2f5ec848d0f5d6b9afb6b2cdfdc8e355`; freeze 0031;
-- PR #11 — Processing Session; squash `17b0a37529012a0873c76f27c1072ce297240f5d`; freeze 0033;
-- PR #12 — Processing Report; squash `3328b8f9eb8f582aa19c7ced9168561621f32bfb`; freeze 0035;
-- PR #13 — Review DOCX; squash `0b8ebad402dd558b357006d98a0d54014d8b5c58`; freeze 0037;
-- PR #14 — Product Output Bundle; squash `f87ea08511febd403b75874771ed5aff5db59fc9`; freeze 0039;
-- PR #15 — Profile Input + Patcher Decimal erratum; squash `0429fa5bd115da95e8ed8c55a37099f912854e1a`; errata 0041 + freeze 0042;
-- PR #16 — Product Input Boundary; head final `4b987fca29c42eb5f80ad5da3ef506209fb50945`; squash `5cbf53a798ef7d9e78e56f2993e466af43b21d7f`; freeze 0044.
+- PR #3 — Analysis v0.1b Marco 1;
+- PR #4 — Analysis v0.1b Marco 2;
+- PR #5 — Decision Layer v0.1 — squash `b81f628a0358cbc9483e9207d4f749ea4a2ca475`;
+- PR #6 — Classification v0.1 — squash `736c33036224562549b1b5cb026bd6bfdfd2e112`;
+- PR #7 — OperationPlan v0.1 — squash `1c11d08dcd6fc219bb2f4e0ce5321db027a5801a`;
+- PR #8 — SafetyGate v0.1 — squash `d47b8e67d2788eb1912ef951ec7dcedb457376cb`;
+- PR #9 — Patcher v0.1 — squash `559cf8ec812320d066e8b91d431873f7a91f2c1c`;
+- PR #10 — TransformLog v0.1 — squash `eff4770f2f5ec848d0f5d6b9afb6b2cdfdc8e355`;
+- PR #11 — Processing Session v0.1 — squash `17b0a37529012a0873c76f27c1072ce297240f5d`;
+- PR #12 — Processing Report v0.1 — squash `3328b8f9eb8f582aa19c7ced9168561621f32bfb`;
+- PR #13 — Review DOCX v0.1 — squash `0b8ebad402dd558b357006d98a0d54014d8b5c58`;
+- PR #14 — Product Output Bundle v0.1 — squash `f87ea08511febd403b75874771ed5aff5db59fc9`;
+- PR #15 — Profile Input + Patcher Decimal erratum — squash `0429fa5bd115da95e8ed8c55a37099f912854e1a`;
+- PR #16 — Product Input Boundary v0.1 — squash `5cbf53a798ef7d9e78e56f2993e466af43b21d7f`;
+- PR #17 — Human-readable Processing Report v0.1 — head final `92cb328d8cf86ac3fcf1167d93433b380771f689`; squash `804ce6f3fa1eac05f09e623f5587a9cb29446446`.
 
 ## Regra operacional
 
@@ -70,83 +55,90 @@ GitHub Actions é a execução padrão da suíte. Não gastar Kimi apenas para t
 
 Só postergar quando houver expansão explícita de escopo, dependência não resolvida, impossibilidade técnica demonstrada, contradição normativa/arquitetural nova ou novo risco de segurança.
 
-Fluxo formal:
+Fluxo:
 1. ChatGPT propõe;
-2. modelo apropriado audita quando necessário;
+2. Claude Opus audita quando houver ganho real em segurança/arquitetura;
 3. ChatGPT integra;
-4. Felipe só é interrompido quando sua decisão/conhecimento ou relay externo for realmente necessário;
-5. HANDOFF + decisão/commit ao fechar etapa.
+4. Felipe só é interrompido quando sua decisão/conhecimento é realmente necessário ou quando precisa enviar algo a outro modelo;
+5. implementação em branch/PR;
+6. CI + inspeção final;
+7. freeze + HANDOFF.
 
 ### Uso de modelos / custo
 
-- ChatGPT: integração, arquitetura, implementação, auditoria estática, GitHub e HANDOFF;
-- Claude Opus: auditoria adversarial quando houver ganho real, especialmente fronteiras de segurança/normatividade;
-- Kimi K3: apenas quando execução/implementação especializada justificar custo;
-- GitHub Actions: execução normal da suíte.
+- ChatGPT: arquitetura, integração, metodologia, implementação e GitHub quando viável;
+- Claude Opus: auditoria adversarial de alto risco quando houver ganho real;
+- Kimi K3: somente implementação/auditoria especializada quando ganho justificar custo extra;
+- GitHub Actions: testes normais.
+
+Kimi está pago por crédito extra; minimizar agressivamente.
 
 ## Objetivo do MVP
 
-Formatar com segurança DOCX acadêmicos existentes a partir de perfil formal explicitamente declarado.
+Formatar com segurança DOCX acadêmicos existentes a partir de regras explicitamente declaradas pelo usuário.
 
-Não promete conformidade ABNT genérica.
+Não promete “conformidade ABNT” genérica e não inventa regras ausentes.
 
 Princípio: **Na dúvida, marcar.**
 
-Saídas centrais:
-1. DOCX limpo;
-2. DOCX de revisão/highlight;
-3. Processing Report canônico.
-
-## Fronteira user-facing congelada
-
-API:
-
-```text
-build_product_from_inputs(
-    package_snapshot: bytes,
-    profile_json_bytes: bytes,
-    *,
-    max_applied_operations: int = 10000,
-) -> ProductOutputBundle
-```
-
-Fluxo completo:
+## Fronteira user-facing atual
 
 ```text
 DOCX bytes
 + Profile Input JSON bytes
-→ Product Input Boundary
-    → Profile Input parser/adapter
-    → ProcessingProfile
-    → Product Output Bundle
-        → Processing Session
-            → Parser
-            → StyleCatalog / Analysis
-            → Classification
-            → Decision
-            → OperationPlan
-            → SafetyGate
-            → no máximo 1 GateClearedOperation
-            → Patcher
-            → PatchResult
-            → TransformRecord se APPLIED
-            → rerun completo até quiescência/limite
-        → clean DOCX
-        → ProcessingReport
-        → canonical report JSON
-        → Review DOCX
+→ build_product_from_inputs(...)
 → ProductOutputBundle
 ```
 
-Product Input Boundary valida Profile Input antes de tocar o pipeline de DOCX. Erros são classificados por stage:
+`ProductOutputBundle` entrega atomicamente e vincula:
+
+1. `clean_package_bytes` — DOCX limpo;
+2. `review_package_bytes` — DOCX de revisão/highlight;
+3. `processing_report_json_bytes` — Processing Report JSON canônico;
+4. `processing_report` — modelo tipado correspondente.
+
+O relatório humano é derivado separadamente:
 
 ```text
-external_input
-profile_input
-product_output
+ProcessingReport
+→ render_processing_report(...)
+→ RenderedProcessingReport
 ```
 
-Sem sucesso parcial.
+Saída v0.1: Markdown UTF-8 pt-BR, determinístico, hash-bound ao ProcessingReport.
+
+## Pipeline congelado
+
+```text
+Profile Input JSON bytes
+→ parse_profile_input_json
+→ ProfileInput
+→ build_processing_profile
+→ ProcessingProfile
+
+DOCX bytes + ProcessingProfile
+→ Processing Session
+    → Parser
+    → StyleCatalog / Analysis
+    → Classification
+    → Decision
+    → OperationPlan
+    → SafetyGate
+    → no máximo 1 GateClearedOperation
+    → Patcher
+    → PatchResult
+    → TransformRecord se APPLIED
+    → rerun completo até quiescência/limite
+→ ProcessingSessionResult
+→ clean DOCX
+→ ProcessingReport
+→ canonical report JSON
+→ Review DOCX derivado do clean + report
+→ ProductOutputBundle
+
+ProcessingReport
+→ Human-readable Markdown report
+```
 
 ## Slice automático atual
 
@@ -164,7 +156,45 @@ body
 heading
 ```
 
-Profile Input v0.1 expõe:
+Ainda fora do slice automático:
+- P3 spacing patching;
+- P4 alignment patching;
+- italic patching;
+- long_quote/reference execution;
+- tables/containers/numbering execution;
+- secondary-story execution;
+- structural MOVE/INSERT/MERGE;
+- styles.xml mutation.
+
+## Segurança congelada
+
+- nenhuma invenção ou perda substantiva;
+- só atuar no subaspecto autorizado;
+- ausência de regra continua ausência;
+- `null` não vira default;
+- body/heading não herdam normatividade entre si;
+- ambiguidade não é resolvida silenciosamente;
+- opacos são preservados/protegidos;
+- SafetyGate é veto, nunca autorização;
+- abstention correta é sucesso seguro;
+- stale plan/document drift detectado antes de patch;
+- Patcher só executa `GateClearedOperation`;
+- snapshot SHA + target physical_hash revalidados antes da mutação;
+- mutação mínima + allowed-delta + postcondition Analysis obrigatórios no Patcher;
+- Patcher font_size usa half-points exatos sem depender do `Decimal` context;
+- OriginalPackage/snapshot nunca mutado in-place;
+- TransformRecord só existe para patch APPLIED e nunca autoriza transformação;
+- Processing Session refaz todo o pipeline após cada patch e descarta tokens stale;
+- Processing Report é projeção read-only;
+- Review DOCX é apresentação visual, não correção normativa;
+- marca de Review DOCX não entra em TransformLog e não deve ser reinjetada automaticamente como clean input;
+- Product Output Bundle apenas compõe e prova lineage;
+- Product Input Boundary apenas compõe Profile Input + Product Output Bundle;
+- Human-readable Report apenas projeta o ProcessingReport e não calcula conformidade/severity/recomendação.
+
+## Profile Input v0.1
+
+Schema:
 
 ```text
 schema_version: "0.1"
@@ -172,114 +202,77 @@ profile: {id, version}
 rules -> body|heading -> bold|font_size -> exact|set|preserve
 ```
 
-Ausência não cria regra. `null` não é ausência. Não há defaults/herança normativa entre classes.
+Regras:
+- campo ausente não cria regra;
+- `null` é inválido;
+- JSON strict UTF-8, sem BOM;
+- duplicate keys/unknown fields rejeitados;
+- Decimal exato e canonicalizado;
+- 11.25 pt é unsupported, nunca arredondado;
+- `preserve -> RuleMode.CONTAINMENT`;
+- `set.allowed` canonicalizado; duplicatas semânticas rejeitadas;
+- modelos frozen e auto-validantes.
 
-## Segurança congelada essencial
-
-- nenhuma invenção/perda substantiva;
-- só atuar em subaspecto autorizado;
-- ambiguidade não é resolvida silenciosamente;
-- opacos preservados/protegidos;
-- SafetyGate é veto, nunca autorização;
-- precision > coverage;
-- abstention correta é sucesso seguro;
-- stale snapshot/plan detectado;
-- patcher só executa GateClearedOperation;
-- snapshot hash + physical_hash revalidados;
-- mutação mínima + allowed-delta + postcondition Analysis;
-- OriginalPackage nunca mutado in-place;
-- `font_size` half-point exato, sem arredondamento/contexto Decimal;
-- TransformRecord só para patch APPLIED;
-- Session reexecuta pipeline após cada patch;
-- Processing Report é projeção read-only;
-- Review DOCX é apresentação, não normatividade;
-- Review highlight nunca entra no TransformLog;
-- Product Output Bundle apenas compõe/prova lineage;
-- Profile Input só traduz declaração explícita;
-- Product Input Boundary só compõe Profile Input + Bundle e preserva error lineage.
-
-## Processing Session status
+## Human-readable Processing Report v0.1 — 0045 + freeze 0046
 
 ```text
-quiescent
-quiescent_with_unapplied
-operation_limit_reached
+render_processing_report(report: ProcessingReport)
+→ RenderedProcessingReport
 ```
 
-`quiescent` significa apenas que não resta automação segura dentro do slice; não significa conformidade integral.
+Características:
+- Markdown pt-BR;
+- UTF-8 sem BOM;
+- LF canônico;
+- exactly one final newline;
+- `processing_report_ref` calculado pela API congelada;
+- SHA-256 dos bytes renderizados;
+- resumo + quatro famílias do relatório + limitações;
+- valores bool/Decimal/LengthValue renderizados deterministicamente;
+- tokens machine-readable preservados;
+- dados livres protegidos contra interpretação Markdown;
+- `quiescent` explicitamente não significa conformidade integral;
+- não altera o `ProductOutputBundle` congelado.
 
-## Review DOCX v0.1
+## Dívidas registradas
 
-Única marca criada:
+### Importantes antes de uso amplo
 
-```xml
-<w:highlight w:val="yellow"/>
-```
+- `w:szCs` não é modelado/mutado no slice `font_size`; não prometer correção visual completa de complex-script;
+- profile content hash ainda não existe;
+- equivalência semântica de DOCX reempacotado byte-diferente não está resolvida;
+- performance de muitos patches sequenciais ainda não otimizada.
 
-Significa apenas “há informação correspondente no relatório”. Não representa severidade nem conformidade.
+### Expansões futuras
 
-Direct highlight preexistente nunca é sobrescrito.
-
-## Profile Input / Decimal
-
-- strict UTF-8 bytes;
-- UTF-8 BOM / UTF-16 / UTF-32 rejeitados;
-- duplicate keys e unknown fields rejeitados;
-- JSON numbers → Decimal exato;
-- `12`, `12.0`, `1.2e1` canonicalizam igualmente;
-- `11.25pt` é unsupported, nunca arredondado;
-- `MAX_HALF_POINTS=3276` compartilhado com Patcher;
-- `preserve -> RuleMode.CONTAINMENT`;
-- `set.allowed` canonicalizado; duplicates semânticos rejeitados.
-
-## Fora do slice automático atual
-
-- P3 spacing patching;
-- P4 alignment patching;
-- italic patching;
-- long_quote/reference execution;
 - heading-level rules;
-- tables/containers/numbering execution;
-- secondary-story execution;
-- MOVE/INSERT/MERGE estrutural;
-- styles.xml mutation.
-
-## Dívidas não bloqueadoras imediatas
-
-- profile content hash;
-- pipeline-context hash;
-- equivalência semântica de DOCX reempacotado byte-diferente;
-- partial-story isolation;
-- multi-operation transaction/rollback;
+- P3/P4 patching;
+- italic patching;
+- long_quote/reference executáveis;
+- stories secundárias;
+- transaction/rollback multi-operação;
 - persistence/resume;
+- styles.xml patching;
 - exception telemetry;
-- otimização para muitos patches sequenciais;
-- tradução/localização user-facing dos códigos;
-- filenames e download/delivery;
-- ZIP opcional de entrega;
-- highlight herdado por style;
-- target_physical_hash_after em TransformRecord;
-- severity/ranking visual;
-- paginação física;
-- ClassificationEvidence autocontida;
+- HTML/PDF/DOCX do relatório;
+- multilíngue;
+- localização física por página;
+- severity/ranking;
 - UI/API final.
-
-### Dívida importante antes de uso amplo
-
-`w:szCs` não é modelado/mutado em `font_size`. O sistema NÃO deve prometer correção visual completa de complex-script; `w:szCs` permanece intacto.
 
 ## Próximo passo operacional
 
-**Human-readable Processing Report / Renderer v0.1 — contrato primeiro.**
+**Product Delivery / File Naming v0.1.**
 
-O core já produz `ProcessingReport` JSON canônico e o DOCX de revisão aponta visualmente onde há informação. Falta uma saída legível por pessoa que explique, sem reler/redecidir:
-- o que foi alterado automaticamente;
-- o que não pôde ser alterado;
-- o que precisa de revisão humana;
-- abstentions/warnings relevantes;
-- limitações explícitas do processamento;
-- referências ao perfil/regra e ao alvo sem expor jargão desnecessário.
+Objetivo: transformar resultados já produzidos em artefatos de entrega sem reprocessar o documento.
 
-Esse renderer deve ser derivado exclusivamente do `ProcessingReport`; não pode calcular conformidade, reanalisar o DOCX, inventar severidade, resolver ambiguity ou criar normatividade.
+Deve fechar, antes de implementar:
+- nomes determinísticos e seguros para DOCX limpo, DOCX review, JSON técnico e Markdown humano;
+- sanitização de nome-base fornecido pelo usuário sem inferir título do documento;
+- manifest/hash binding entre os arquivos;
+- decidir se v0.1 retorna coleção tipada de arquivos ou também ZIP determinístico;
+- não alterar ProductOutputBundle congelado;
+- sem filesystem obrigatório no core; bytes in-memory;
+- nenhum novo conteúdo normativo.
 
-Primeiro fechar formato e semântica do renderer. UI/download/API vêm depois.
+Em princípio ChatGPT + GitHub bastam; Claude só se o contrato de ZIP/manifest introduzir risco de integridade ou ambiguidade relevante.
