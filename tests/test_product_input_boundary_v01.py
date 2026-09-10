@@ -79,6 +79,21 @@ class ProductInputBoundaryRealFlowTests(unittest.TestCase):
         self.assertNotEqual(bundle.clean_package_bytes, pkg)
         self.assertNotEqual(bundle.review_package_bytes, bundle.clean_package_bytes)
 
+    def test_alignment_schema_02_e2e(self):
+        pkg = _pkg(
+            '<w:p><w:pPr><w:jc w:val="left"/></w:pPr>'
+            '<w:r><w:rPr><w:sz w:val="24"/></w:rPr><w:t>alignment</w:t></w:r></w:p>'
+        )
+        profile_json = _json(
+            {"body": {"alignment": {"mode": "exact", "value": "justify"}}},
+            schema="0.2",
+        )
+        bundle = build_product_from_inputs(pkg, profile_json)
+        self.assertEqual(bundle.processing_report.summary.applied_change_count, 1)
+        self.assertEqual(bundle.session_status, ProcessingSessionStatus.QUIESCENT)
+        self.assertNotEqual(bundle.clean_package_bytes, pkg)
+        self.assertNotEqual(bundle.review_package_bytes, bundle.clean_package_bytes)
+
     def test_font_change_e2e(self):
         pkg = _pkg(_paragraph(_run("font", half_points=22)))
         bundle = build_product_from_inputs(pkg, _json(_font(12)))
