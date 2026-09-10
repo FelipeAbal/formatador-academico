@@ -173,7 +173,7 @@ class ProductInputBoundaryErrorTests(unittest.TestCase):
     def test_profile_unsupported_preserves_code_and_cause(self):
         pkg = _pkg(_paragraph(_run("x")))
         with self.assertRaises(ProductInputBoundaryUnsupportedError) as cm:
-            build_product_from_inputs(pkg, b'{"schema_version":"0.3"}')
+            build_product_from_inputs(pkg, b'{"schema_version":"0.4"}')
         self.assertEqual(cm.exception.code, "profile_input.schema_version_unsupported")
         self.assertIsNotNone(cm.exception.__cause__)
 
@@ -203,7 +203,7 @@ class ProductInputBoundaryErrorTests(unittest.TestCase):
         pkg = _pkg(_paragraph(_run("profile-first")))
         with patch("formatador_academico.product_input_boundary.builder.build_product_output_bundle") as downstream:
             with self.assertRaises(ProductInputBoundaryUnsupportedError):
-                build_product_from_inputs(pkg, b'{"schema_version":"0.3"}')
+                build_product_from_inputs(pkg, b'{"schema_version":"0.4"}')
         downstream.assert_not_called()
 
     def test_unexpected_exception_is_not_masked(self):
