@@ -57,6 +57,25 @@ class ProfileInputParsingTests(unittest.TestCase):
         self.assertEqual(model.rules[0].property_name, "alignment")
         self.assertEqual(model.rules[0].value, "justify")
 
+    def test_schema_03_accepts_line_spacing_as_multiple(self):
+        model = parse_profile_input_json(
+            _json(
+                {"body": {"line_spacing": {"mode": "exact", "value": 1.5}}},
+                schema="0.3",
+            )
+        )
+        self.assertEqual(model.schema_version, "0.3")
+        self.assertEqual(model.rules[0].property_name, "line_spacing")
+        self.assertEqual(model.rules[0].value, Decimal("1.5"))
+
+    def test_schema_03_canonicalizes_equivalent_decimal_lexemes(self):
+        values = []
+        for value in (b"1.5", b"1.50", b"1.5e0"):
+            raw = b'{"schema_version":"0.3","profile":{"id":"p","version":"1"},"rules":{"body":{"line_spacing":{"mode":"exact","value":' + value + b'}}}}'
+            values.append(parse_profile_input_json(raw))
+        self.assertEqual(values[0], values[1])
+        self.assertEqual(values[1], values[2])
+
     def test_schema_01_rejects_alignment(self):
         with self.assertRaises(ProfileInputUnsupportedError) as cm:
             parse_profile_input_json(
@@ -337,6 +356,19 @@ class AdapterTests(unittest.TestCase):
         self.assertIs(by_id["heading:bold"].rule.mode, RuleMode.CONTAINMENT)
         self.assertEqual(by_id["body:font_size"].rule.preferred, Decimal("12"))
         self.assertIsNone(by_id["body:bold"].rule.path)
+
+    def test_schema_03_line_spacing_adapts_to_p3_paragraph_binding(self):
+        model = parse_profile_input_json(
+            _json(
+                {"body": {"line_spacing": {"mode": "exact", "value": 1.5}}},
+                schema="0.3",
+            )
+        )
+        profile = build_processing_profile(model)
+        binding = profile.bindings[0]
+        self.assertEqual(binding.target_type, "paragraph")
+        self.assertEqual(binding.rule.aspect_id, "P3")
+        self.assertEqual(binding.rule.property_slot, "spacing.line")
 
     def test_schema_02_alignment_adapts_to_paragraph_binding(self):
         model = parse_profile_input_json(
