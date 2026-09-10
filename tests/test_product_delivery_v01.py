@@ -81,7 +81,8 @@ class BaseNameTests(unittest.TestCase):
             canonicalize_delivery_base_name("x" * 121)
 
     def test_path_and_windows_chars_are_sanitized(self):
-        self.assertEqual(canonicalize_delivery_base_name(" ../artigo\\versao:1?*<>| "), "_.._artigo_versao_1_")
+        with self.assertRaises(ProductDeliveryContractError):
+            canonicalize_delivery_base_name(" ../artigo\\versao:1?*<>| ")
         result = canonicalize_delivery_base_name("a\x01b/c")
         self.assertEqual(result, "a_b_c")
         self.assertNotIn("/", result)
