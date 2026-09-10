@@ -1,8 +1,8 @@
 # 0051: Contrato de P3 para `spacing.line`
 
-**Status:** rascunho para auditoria externa  
+**Status:** aprovado para implementação após auditoria Claude Opus  
 **Branch de trabalho:** `implement-0051-p3-line-spacing`  
-**Precedência:** este documento depende de 0048 e 0049. Ele não congela a implementação até que as perguntas abertas sejam respondidas.
+**Precedência:** este documento depende de 0048 e 0049. O contrato foi aprovado após os ajustes registrados em `docs/audits/auditoria_claude_opus_0051.md`.
 
 ## 1. Objetivo
 
@@ -158,20 +158,20 @@ Quando houver item de parágrafo no relatório, o Review DOCX deve marcar apenas
 
 Se nenhum run for marcável, o resultado deve permanecer sem marca e conter `no_markable_run`.
 
-## 8. Perguntas para auditoria do Claude Opus
+## 8. Decisões fechadas após auditoria do Claude Opus
 
-1. A forma pública proposta para P3 deve usar `mode="exact", value=1.5`, com `rule="auto"` implícito, ou o schema deve expor explicitamente `rule="auto"`?
-2. P3 deve aceitar somente `mode="exact"`, ou `allowed` e `preferred` devem ser mantidos para consistência com o formato genérico?
-3. A política de limite superior e o nome da razão de valor não representável estão suficientemente definidos pelo limite de `ST_SignedTwipsMeasure`?
-4. Confirmar o uso do default `auto` do XSD quando `w:line` está presente sem `w:lineRule`.
-5. Confirmar que `w:lineRule="auto"` sem `w:line` é `UNRESOLVED` e não interrompe a cascata.
-6. A rejeição de `w:spacing` duplicado e de atributos desconhecidos deve usar a razão de erro já congelada para propriedades não canônicas?
-7. A exclusão de `w:numPr` e `w:bidi` está corretamente posicionada no slice P3, com item visível no relatório?
-8. A invariante de preservação por atributo não P3 está corretamente especificada para a releitura do XML?
-9. O pós-patch deve exigir sempre `lineRule="auto"` explícito, mesmo se uma biblioteca puder interpretar o default de outra forma?
-10. Há algum ponto de 0049, da implementação de P4 ou do modelo `LineSpacing` que impeça esta forma de P3?
+1. A entrada pública mantém `rule="auto"` implícito. O usuário declara múltiplos de linha, sem expor `lineRule`.
+2. Os modos genéricos `exact`, `set` e `preserve` permanecem disponíveis. Todo valor usado por P3 deve ser um múltiplo positivo válido.
+3. A conversão usa aritmética inteira exata sobre `Decimal.as_tuple()`. Valores não representáveis no limite de `ST_SignedTwipsMeasure` são `UnsupportedError`.
+4. `lineRule` ausente com `line` presente usa o default `auto` do XSD. `lineRule` presente sem `line` é `UNRESOLVED` e não interrompe a cascata.
+5. Unidades universais como `18pt` são válidas no OOXML, mas ficam fora da capacidade declarativa deste slice e devem ser tratadas como não suportadas.
+6. `atLeast` e `exact` observados nunca são convertidos automaticamente para `auto`; seguem para revisão.
+7. As guardas de numbering e bidi precisam ser implementadas no slot de spacing. Elas não são herdadas da resolução de alignment.
+8. A preservação dos atributos não P3 de `w:spacing` é uma invariante verificada por releitura.
+9. O XML escrito sempre contém `w:line` e `w:lineRule="auto"` explicitamente.
+10. `NONCANONICAL_RUN_PROPERTIES` permanece por compatibilidade nesta versão, cobrindo também propriedades de parágrafo. O rename fica reservado a um bump futuro do Patcher.
 
-## 9. Testes mínimos antes de congelar
+## 9. Testes mínimos antes da implementação e da integração
 
 - Profile Input `0.3` aceita `line_spacing`.
 - Profile Input `0.1` e `0.2` rejeitam `line_spacing`.
