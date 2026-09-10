@@ -8,7 +8,7 @@ from decimal import Decimal
 from enum import Enum
 
 from ..classification.model import ClassificationResult
-from ..decision.model import Actionability, Decision, FormattingRule, ProfileRef, RuleMode
+from ..decision.model import Actionability, Decision, FormattingRule, LineSpacingValue, ProfileRef, RuleMode
 from ..operation_plan import decision_ref as canonical_decision_ref
 from ..operation_plan.model import OperationTarget
 from ..patcher.model import PatchReason
@@ -80,7 +80,7 @@ def _validate_rule_value(property_slot: str, value: object) -> None:
             )
         return
     if property_slot == "spacing.line":
-        if type(value).__name__ != "LineSpacingValue":
+        if not isinstance(value, LineSpacingValue):
             raise ProcessingSessionContractError("spacing.line rule values must be LineSpacingValue")
         if value.rule != "auto" or value.unit != "multiple" or value.value is None:
             raise ProcessingSessionContractError("spacing.line rule values must be auto multiples")
