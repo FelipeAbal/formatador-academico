@@ -501,6 +501,34 @@ class ParagraphCascadeTests(unittest.TestCase):
         self.assertEqual(rp.spacing.line.status, RES.UNRESOLVED)
         self.assertEqual(rp.spacing.line.reason, "line_rule_without_line_unsupported")
 
+    def test_spacing_line_rule_without_line_does_not_mask_style_value(self):
+        styles = styles_part(
+            '<w:style w:type="paragraph" w:styleId="P"><w:pPr>'
+            '<w:spacing w:line="360" w:lineRule="auto"/></w:pPr></w:style>'
+        )
+        rp = resolve_par(
+            '<w:p><w:pPr><w:pStyle w:val="P"/>'
+            '<w:spacing w:lineRule="exact"/></w:pPr>'
+            '<w:r><w:t>a</w:t></w:r></w:p>',
+            styles,
+        )
+        self.assertEqual(rp.spacing.line.status, RES.UNRESOLVED)
+        self.assertEqual(rp.spacing.line.reason, "line_rule_without_line_unsupported")
+        self.assertIsNone(rp.spacing.line.value)
+
+    def test_spacing_conflicting_duplicates_are_ambiguous(self):
+        rp = resolve_par(
+            '<w:p><w:pPr><w:spacing w:line="360" w:lineRule="auto"/>'
+            '<w:spacing w:line="480" w:lineRule="auto"/></w:pPr>'
+            '<w:r><w:t>a</w:t></w:r></w:p>'
+        )
+        self.assertEqual(rp.spacing.line.status, RES.AMBIGUOUS)
+        self.assertIsNone(rp.spacing.line.value)
+        self.assertIn("formatting_duplicate_property",
+                      [w.code for w in rp.analysis_warnings])
+        self.assertIn("duplicate_conflict",
+                      [e.detail for e in rp.spacing.line.evidence_chain])
+
     def test_spacing_universal_measure_is_unsupported(self):
         rp = resolve_par('<w:p><w:pPr><w:spacing w:line="18pt"/></w:pPr>'
                          '<w:r><w:t>a</w:t></w:r></w:p>')

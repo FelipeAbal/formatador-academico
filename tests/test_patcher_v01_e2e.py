@@ -209,7 +209,7 @@ class PatcherV01E2E(unittest.TestCase):
         _, _, tokens, decisions = _full_pipeline(pkg, _rules())
         self.assertNotIn("spacing.line", tokens)
         spacing_decision = next(d for d in decisions if d.target.property_slot == "spacing.line")
-        self.assertEqual(spacing_decision.actionability.value, "review")
+        self.assertEqual(spacing_decision.actionability.value, "human_choice")
 
     def test_e2e_spacing_line_preserves_other_spacing_attributes(self):
         body = (

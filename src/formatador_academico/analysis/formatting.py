@@ -486,35 +486,64 @@ def _resolve_spacing_slot(slot_attrs: tuple[str,...], auto_attr: str|None, conve
         return ResolvedValue(ResolutionStatus.UNRESOLVED, None, None, (), R_NUMBERING_SPACING)
     if bidi_relevant:
         return ResolvedValue(ResolutionStatus.UNRESOLVED, None, None, (), R_BIDI_DIRECTION)
-    malformed_line = False
     for level in levels:
         if level.blocked is not None:
-            chain.append(LevelEvidence(level.name,False,level.blocked,None)); return ResolvedValue(ResolutionStatus.UNRESOLVED,None,None,tuple(chain),level.blocked)
+            chain.append(LevelEvidence(level.name,False,level.blocked,None))
+            return ResolvedValue(ResolutionStatus.UNRESOLVED,None,None,tuple(chain),level.blocked)
         spacings=[] if level.bag is None else [e for e in level.bag.entries if e.property_name=="w:spacing"]
         if line_slot:
-            for sp in spacings:
-                if _attr(sp, "w:line") is None and _attr(sp, "w:lineRule") is not None:
-                    malformed_line = True
-                    chain.append(LevelEvidence(level.name,True,"line_rule_without_line",_evidence(level,sp,_attr(sp,"w:lineRule"))))
-        target=next((sp for sp in spacings if any(_attr(sp,a) is not None for a in slot_attrs) and (not line_slot or _attr(sp,"w:line") is not None)),None)
+            line_spacings = [
+                sp for sp in spacings
+                if _attr(sp, "w:line") is not None or _attr(sp, "w:lineRule") is not None
+            ]
+            if len(line_spacings) > 1:
+                values = {(_attr(sp, "w:line"), _attr(sp, "w:lineRule")) for sp in line_spacings}
+                if len(values) > 1:
+                    for sp in line_spacings:
+                        chain.append(LevelEvidence(level.name, True, "duplicate_conflict",
+                                                   _evidence(level, sp, raw_of(sp))))
+                    _warn(warnings, W_DUPLICATE_PROPERTY,
+                          "Duplicate w:spacing with conflicting line values.",
+                          line_spacings[1].structural_path)
+                    return ResolvedValue(ResolutionStatus.AMBIGUOUS, None, None, tuple(chain), None)
+            malformed = next(
+                (sp for sp in line_spacings
+                 if _attr(sp, "w:line") is None and _attr(sp, "w:lineRule") is not None),
+                None,
+            )
+            if malformed is not None:
+                ev = _evidence(level, malformed, _attr(malformed, "w:lineRule"))
+                chain.append(LevelEvidence(level.name, True, "line_rule_without_line", ev))
+                return ResolvedValue(ResolutionStatus.UNRESOLVED, None, None, tuple(chain),
+                                     R_LINE_WITHOUT_VALUE)
+        target=next((sp for sp in spacings
+                     if any(_attr(sp,a) is not None for a in slot_attrs)
+                     and (not line_slot or _attr(sp,"w:line") is not None)),None)
         if target is None and auto_attr is not None:
             for sp in spacings:
                 if _truthy(_attr(sp,auto_attr)):
-                    chain.append(LevelEvidence(level.name,True,"autospacing",_evidence(level,sp,_attr(sp,auto_attr)))); return ResolvedValue(ResolutionStatus.UNRESOLVED,None,None,tuple(chain),R_AUTOSPACING)
-        if target is None: chain.append(LevelEvidence(level.name,False,"not_declared",None)); continue
+                    chain.append(LevelEvidence(level.name,True,"autospacing",
+                                               _evidence(level,sp,_attr(sp,auto_attr))))
+                    return ResolvedValue(ResolutionStatus.UNRESOLVED,None,None,tuple(chain),R_AUTOSPACING)
+        if target is None:
+            chain.append(LevelEvidence(level.name,False,"not_declared",None))
+            continue
         ev=_evidence(level,target,raw_of(target))
-        try: value=convert(target)
+        try:
+            value=convert(target)
         except _UnsupportedObserved:
             chain.append(LevelEvidence(level.name,True,"unsupported",ev))
             reason = R_LINE_RULE_NOT_AUTO if _attr(target,"w:lineRule") in {"exact","atLeast"} else R_LINE_WITHOUT_VALUE
             return ResolvedValue(ResolutionStatus.UNRESOLVED,None,None,tuple(chain),reason)
         except _InvalidLexical:
-            chain.append(LevelEvidence(level.name,True,"invalid",ev)); _warn(warnings,W_INVALID_VALUE,f"Invalid lexical value for w:spacing {slot_attrs[0]}: {raw_of(target)!r}.",target.structural_path); return ResolvedValue(ResolutionStatus.INVALID,None,None,tuple(chain),None)
-        chain.append(LevelEvidence(level.name,True,level.detail_override or "declared",ev)); return ResolvedValue(ResolutionStatus.RESOLVED,value,ev,tuple(chain),None)
-    if malformed_line:
-        return ResolvedValue(ResolutionStatus.UNRESOLVED,None,None,tuple(chain),R_LINE_WITHOUT_VALUE)
+            chain.append(LevelEvidence(level.name,True,"invalid",ev))
+            _warn(warnings,W_INVALID_VALUE,
+                  f"Invalid lexical value for w:spacing {slot_attrs[0]}: {raw_of(target)!r}.",
+                  target.structural_path)
+            return ResolvedValue(ResolutionStatus.INVALID,None,None,tuple(chain),None)
+        chain.append(LevelEvidence(level.name,True,level.detail_override or "declared",ev))
+        return ResolvedValue(ResolutionStatus.RESOLVED,value,ev,tuple(chain),None)
     return ResolvedValue(ResolutionStatus.ABSENT,None,None,tuple(chain),None)
-
 
 def _dedupe_warnings(warnings: list[AnalysisWarning]) -> tuple[AnalysisWarning,...]:
     seen=set(); out=[]
