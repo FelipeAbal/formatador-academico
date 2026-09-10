@@ -28,7 +28,7 @@ Este é o HANDOFF corrente. O histórico detalhado fica no Git; não criar `hand
 
 Suíte completa atual: **745/745 OK** no PR #27, após a implementação integrada de P4/alignment. O CI verde foi a run `34511314480`.
 
-GitHub Actions: `success` na run `34511314480`, sobre o commit da branch `19de3feb3af69532283a170d5b7c392c1835b759`, antes do merge. A main recebeu anteriormente o squash do PR #25 `d3770c055c43ceaea0df32c44095bc3422199627`.
+GitHub Actions: `success` na run `34511533013`, sobre o commit da branch `9d571f688d8e1ce5849bb09d3bb16e58a029eb5a`, antes do merge. A main recebeu o squash do PR #27 `858a33f09104fce0a5804caec6c1df07b0151ad2`.
 
 Failures: 0. Errors: 0.
 
@@ -59,7 +59,7 @@ GitHub Actions é a execução padrão da suíte; não gastar Kimi apenas para t
 - PR #23 — auditoria final do XSD e correções documentais da decisão 0049; merge `1eed32ec...`;
 - PR #24 — Analysis: salvaguardas para alinhamento de parágrafo; merge `843045d...`, CI `34507770885`;
 - PR #25 — Profile Input schema 0.2 para alinhamento; merge squash `d3770c055c43ceaea0df32c44095bc3422199627`, CI `34508799107`.
-- PR #27 — implementação integrada de P4/alignment; CI `34511314480`; merge pendente após a atualização final do handoff.
+- PR #27 — implementação integrada de P4/alignment; merge squash `858a33f09104fce0a5804caec6c1df07b0151ad2`; CI `34511533013`.
 
 ## Regra operacional
 
@@ -411,6 +411,8 @@ A implementação integrada foi concluída na branch `implement-0049-p4-end-to-e
 - 745/745 testes passaram no CI.
 
 O P4 ainda não cobre listas, documentos bidirecionais ou alteração de estilos globais, conforme o contrato 0049.
+
+Próxima etapa aprovada: P3, limitado a `spacing.line`, com declaração user-facing somente em múltiplos de linha e `rule="auto"`. A leitura observada continuará aceitando `auto`, `atLeast` e `exact`.
 
 ## Auditoria final da decisão 0049
 
