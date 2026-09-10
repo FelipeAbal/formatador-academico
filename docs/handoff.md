@@ -373,3 +373,20 @@ Modelos previstos:
 - Claude Sonnet: implementação estreita, se desejado;
 - Claude Opus: auditoria final da ordem de `CT_PPr` e do contrato revisado;
 - Kimi: somente se surgir uma tarefa especializada com ganho claro.
+
+
+## Auditoria final da decisão 0049
+
+Arquivo: `docs/audits/auditoria_xsd_0049_aprovacao.md`.
+
+A conferência direta do `wml.xsd` confirmou a ordem prevista de `CT_PPrBase` e `CT_PPr`, usando duas cópias independentes do schema e validação do método contra a ordem já registrada de `CT_RPr`.
+
+A auditoria classificou a 0049 como **aprovada para implementação**, condicionada a cinco correções de contrato. Todas foram incorporadas nesta branch:
+
+1. remoção das cinco sequências literais que quebravam a renderização dos títulos;
+2. promoção da ordem de `CT_PPr` para ordem verificada, com proveniência ISO/IEC 29500-4:2016;
+3. distinção explícita entre `CT_PPr` e `CT_PPrGeneral`;
+4. separação das regras de posicionamento de `w:pPr` e `w:jc`, incluindo `w:jc` sem `w:val` como forma inválida;
+5. definição de um único conjunto canônico para comparação e escrita de alinhamento.
+
+Após o merge desta correção documental e CI verde, a implementação de P4 poderá ser iniciada em branch própria. A implementação deverá manter atenção especial à separação entre bindings de parágrafo e de run, à leitura de `pPr/w:bidi` e ao bloqueio de razões falsas para exclusões de slice.
