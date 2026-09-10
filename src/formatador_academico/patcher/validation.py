@@ -154,7 +154,13 @@ def _check_output_alignment(paragraph: etree._Element, desired: str) -> None:
 
 
 def _line_twips(desired: LineSpacingValue) -> str:
+    if not isinstance(desired, LineSpacingValue):
+        raise PatcherIntegrityError("desired spacing.line must be LineSpacingValue")
     value = desired.value
+    if desired.rule != "auto" or desired.unit != "multiple" or value is None:
+        raise PatcherIntegrityError("desired spacing.line must be an auto multiple")
+    if not value.is_finite() or value <= 0:
+        raise PatcherIntegrityError("desired spacing.line must be finite and positive")
     sign, digits, exponent = value.as_tuple()
     coefficient = 0
     for digit in digits:
