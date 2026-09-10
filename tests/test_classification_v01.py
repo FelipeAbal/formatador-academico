@@ -203,17 +203,15 @@ class ClassificationV01Fixtures(unittest.TestCase):
         self.assertEqual(result.reasons, (ClassificationReason.UNSUPPORTED_CONTEXT,))
         self.assertIsNone(result.target_class)
 
-    def test_fixture_7_numbering_warning_abstains_unsupported_context(self):
+    def test_fixture_7_numbering_warning_preserves_body_identity(self):
         body = (
             "<w:p><w:pPr><w:numPr><w:ilvl w:val=\"0\"/><w:numId w:val=\"1\"/>"
             '</w:numPr></w:pPr><w:r><w:t>item</w:t></w:r></w:p>'
         )
         _, _, _, results = classify(body, styles_part(NORMAL))
         (result,) = results
-        self.assertEqual(
-            (result.status, result.reasons),
-            (ClassificationStatus.ABSTAINED, (ClassificationReason.UNSUPPORTED_CONTEXT,)),
-        )
+        self.assertEqual(result.status, ClassificationStatus.CLASSIFIED)
+        self.assertEqual(result.target_class, TargetClass.BODY)
 
     def test_fixture_8_run_inherits_body_with_parent_anchor(self):
         _, ir, _, results = classify(
