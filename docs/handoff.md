@@ -159,6 +159,7 @@ Somente:
 ```text
 P1 / run / bold
 P2 / run / font_size
+P3 / paragraph / spacing.line
 P4 / paragraph / alignment
 ```
 
@@ -170,7 +171,6 @@ heading
 ```
 
 Ainda fora do slice automático:
-- P3 spacing patching;
 - italic patching;
 - long_quote/reference execution;
 - tables/containers/numbering execution;
@@ -270,7 +270,6 @@ Características:
 ### Expansões futuras
 
 - heading-level rules;
-- P3/P4 patching;
 - italic patching;
 - long_quote/reference executáveis;
 - stories secundárias;
@@ -463,7 +462,7 @@ Também foram incorporados ao contrato 0051:
 - validação das invariantes de `LineSpacingValue` no modelo;
 - compatibilidade temporária documentada de `NONCANONICAL_RUN_PROPERTIES` para propriedades de parágrafo.
 
-O PR #29 permanece aberto como rascunho documental. A implementação de P3 ainda não começou. Próximo passo após CI: congelar o contrato, caso não surja nova objeção, e iniciar a implementação em ciclo próprio.
+O PR #29 foi integrado na main por squash no commit `08fed75e81541d439bf31bd532ecf4096896a6b2`, com P3/\`spacing.line\` e 758 testes verdes.
 
 
 ## P3 em implementação: `spacing.line`
