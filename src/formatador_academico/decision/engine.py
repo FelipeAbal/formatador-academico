@@ -126,6 +126,20 @@ def decide_property(rule_or_none: FormattingRule | None, resolved: ResolvedValue
     observed = _semantic_value(context.key.property_slot, resolved.value)
     evidence = _evidence_ref(resolved)
 
+    # P3 never changes the spacing model automatically. Observed exact and
+    # atLeast values remain readable in Analysis, but require human review
+    # before a declarative auto-line multiple can replace them.
+    if context.key.property_slot == "spacing.line":
+        if not isinstance(observed, LineSpacingValue):
+            raise ValueError("resolved spacing.line semantic value must be LineSpacingValue")
+        if observed.rule != "auto" or observed.unit != "multiple":
+            return _decision(
+                context, resolved, compliance=ComplianceStatus.NON_COMPLIANT,
+                actionability=Actionability.REVIEW,
+                reason=DecisionReason.HUMAN_CHOICE_REQUIRED,
+                observed=observed, rule_ref=ref, evidence_ref=evidence,
+            )
+
     if rule.mode is RuleMode.EXACT:
         if observed == rule.expected:
             return _decision(
