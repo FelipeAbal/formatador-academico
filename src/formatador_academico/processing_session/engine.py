@@ -5,7 +5,7 @@ import hashlib
 from dataclasses import dataclass
 from typing import Any, Iterator
 
-from ..analysis.formatting import resolve_run_formatting
+from ..analysis.formatting import resolve_paragraph_formatting, resolve_run_formatting
 from ..analysis.formatting_model import ANALYSIS_FORMATTING_VERSION, StyleCatalog
 from ..analysis.style_catalog import build_style_catalog
 from ..classification import (
@@ -165,6 +165,33 @@ def _build_decisions(
                 "classified paragraph cannot be rebound to current PhysicalIR"
             )
         paragraph = binding.paragraph
+        paragraph_matching = tuple(
+            b
+            for b in canonical_bindings
+            if b.target_class == paragraph_result.target_class.value
+            and b.target_type == "paragraph"
+        )
+        if paragraph_matching:
+            paragraph_formatting = resolve_paragraph_formatting(
+                paragraph, catalog, binding.part
+            )
+            paragraph_classification = project_target_classification(paragraph_result)
+            for rule_binding in paragraph_matching:
+                rule = rule_binding.rule
+                key = DecisionKey(
+                    rule_binding.target_type, rule.aspect_id, rule.property_slot
+                )
+                resolved = extract_resolved_value(key, paragraph_formatting)
+                context = DecisionContext(
+                    key, paragraph_classification, profile.profile_ref
+                )
+                produced = evaluate_target(((rule, resolved, context),))
+                if len(produced) != 1:
+                    raise ProcessingSessionIntegrityError(
+                        "single paragraph RuleBinding did not produce exactly one Decision"
+                    )
+                decisions.append(produced[0])
+
         for run in _iter_runs(paragraph):
             run_result = project_run_classification(run, paragraph_result)
             if not eligible_for_automatic_use(run_result):
@@ -175,7 +202,7 @@ def _build_decisions(
                 )
             target_class = run_result.target_class.value
             matching = tuple(
-                b for b in canonical_bindings if b.target_class == target_class
+                b for b in canonical_bindings if b.target_class == target_class and b.target_type == "run"
             )
             if not matching:
                 continue
