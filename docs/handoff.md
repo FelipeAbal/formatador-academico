@@ -487,6 +487,6 @@ Já integrado na branch:
 - correção independente de `mirrorInd` para `mirrorIndents`, com regressão;
 - auditoria integral registrada em `docs/audits/auditoria_claude_opus_0051.md`.
 
-CI atual: **752/752 testes verdes**, run `34516146609`.
+CI atual: **757/757 testes verdes**, run `34525989518`, após a matriz adversarial inicial de P3.
 
 Antes do merge ainda faltam a matriz adversarial específica de P3, a comparação programática da ordem canônica contra o XSD versionado, a validação automatizada dos exemplos JSON dos contratos e uma inspeção final do diff. O PR permanece aberto até essa revisão.
