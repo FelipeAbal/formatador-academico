@@ -285,7 +285,7 @@ Correções finais realizadas após a primeira execução:
 
 Arquivo integral: `docs/audits/auditoria_claude_opus_formatador_565ab01.md`.
 
-A auditoria independente foi executada sobre a main em `565ab01d4afab0dc240f136c70995ebd1227ac79), com verificação do código, execução local da suíte, conferência do CI e inspeção do histórico.
+A auditoria independente foi executada sobre a main em `565ab01d4afab0dc240f136c70995ebd1227ac79`, com verificação do código, execução local da suíte, conferência do CI e inspeção do histórico.
 
 Conclusões registradas:
 
