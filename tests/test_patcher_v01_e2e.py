@@ -199,6 +199,27 @@ class PatcherV01E2E(unittest.TestCase):
         self.assertEqual(resolved.alignment.status, ResolutionStatus.RESOLVED)
         self.assertEqual(resolved.alignment.value, "both")
 
+    def test_e2e_spacing_line_preserves_other_spacing_attributes(self):
+        body = (
+            '<w:p><w:pPr><w:spacing w:before="120" w:after="240" '
+            'w:line="480" w:lineRule="auto"/></w:pPr>'
+            '<w:r><w:rPr><w:sz w:val="24"/></w:rPr>'
+            '<w:t>entrelinha</w:t></w:r></w:p>'
+        )
+        pkg = build_docx(document(body), styles_part(NORMAL))
+        _, _, tokens, _ = _full_pipeline(pkg, _rules())
+        self.assertIn("spacing.line", tokens)
+        result = apply_cleared_operation(pkg, tokens["spacing.line"])
+        self.assertEqual(result.status, PatchStatus.APPLIED)
+        ir = DocxParser().parse_bytes(result.output_package_bytes)
+        catalog = build_style_catalog(result.output_package_bytes, ir)
+        paragraph = ir["stories"][0]["blocks"][0]
+        resolved = resolve_paragraph_formatting(paragraph, catalog, "word/document.xml")
+        self.assertEqual(resolved.spacing.line.value.value, Decimal("1.5"))
+        self.assertEqual(resolved.spacing.line.value.unit, "multiple")
+        self.assertEqual(resolved.spacing.before.value.value, Decimal("6"))
+        self.assertEqual(resolved.spacing.after.value.value, Decimal("12"))
+
     # scenario 49
     def test_e2e_font_size(self):
         _, _, tokens, _ = _full_pipeline(self.pkg, _rules())
