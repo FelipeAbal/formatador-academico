@@ -23,7 +23,8 @@ Este é o HANDOFF corrente. O histórico detalhado fica no Git; não criar `hand
 - Product Output Bundle v0.1 — freeze 0039;
 - Profile Input / Form Schema v0.1 — freeze 0042;
 - Product Input Boundary v0.1 — freeze 0044;
-- Human-readable Processing Report v0.1 — freeze 0046.
+- Human-readable Processing Report v0.1 — freeze 0046;
+- Product Delivery / File Naming v0.1 — freeze 0048.
 
 Suíte completa atual: **735/735 OK** na PR #18, após os commits de correção `453b28e868473ddc5fca2e3036351f12c712eb8d`, `e409ece9768073f5e192ede05a1983f440741454` e `8d66c3ee9c9d034f403a5ab1cc4466f4668d5470`.
 
@@ -302,22 +303,39 @@ Conclusões registradas:
 - a auditoria recomenda uma habilitação de parágrafo com P4/alignment como carga inicial, seguida de P3;
 - a auditoria recomenda formalizar o freeze do Product Delivery antes da próxima decisão de implementação.
 
-## Próximo passo operacional
+## Decisão de Felipe para o próximo ciclo
 
-O próximo ciclo está condicionado a decisões do Felipe, que não devem ser inferidas pelo código:
+A sequência foi aprovada:
 
-1. aprovar ou rejeitar a sequência proposta: freeze do Product Delivery, habilitação de parágrafo com P4 e depois P3;
-2. escolher a política de marcação de parágrafos no Review DOCX;
-3. decidir o versionamento do Profile Input para as novas propriedades;
-4. confirmar a exclusão temporária de parágrafos com `w:numPr` do slice executável;
-5. confirmar se P3 v0.1 governará somente `spacing.line`;
-6. manter itálico fora do slice automático.
+1. 0048: freeze do Product Delivery;
+2. 0049: habilitação de execução em nível de parágrafo, com P4/alignment como carga;
+3. 0051: P3/spacing.line após os trilhos de parágrafo estarem validados.
+
+Escolhas de produto confirmadas para a decisão 0049:
+
+- Review DOCX: marcar somente o primeiro run marcável do parágrafo, em ordem de documento;
+- se nenhum run for marcável, não inserir marca e relatar a razão;
+- a marca passa a indicar informação sobre o alvo do run, e não somente sobre o run;
+- o Review DOCX não usará cores ou marcas diferentes para distinguir achados de run e de parágrafo;
+- Profile Input: `schema_version 0.2` será superconjunto estrito de 0.1;
+- o conjunto de propriedades aceitas será despachado pela versão declarada;
+- perfis 0.1 continuam válidos, mas `alignment` em perfil declarado como 0.1 continua inválido;
+- versões anteriores continuarão aceitas;
+- a versão será incrementada por ciclo de propriedade executável, sem inserir P3 prematuramente no schema 0.2;
+- parágrafos com `w:numPr` direto ou herdado ficarão fora do slice executável e aparecerão no relatório humano com razão explícita;
+- P3 v0.1 governará somente `spacing.line`;
+- P3 aceitará declarativamente apenas múltiplos de linha com `rule="auto"`;
+- o Analysis continuará lendo `atLeast` e `exact` como valores observados, sem permitir sua declaração no primeiro ciclo;
+- itálico permanecerá fora do patching automático, mas poderá entrar futuramente como detecção sem alteração;
+- P4 tratará `start` como equivalente a `left` e `end` como equivalente a `right` em texto LTR;
+- documentos bidirecionais ficarão fora do slice P4;
+- a equivalência lexical será registrada como fato do OOXML, não como regra normativa de formatação.
 
 Nenhuma implementação de P3, P4, UI ou API foi iniciada por este registro.
 
-Modelos previstos, caso a sequência seja aprovada:
+Modelos previstos:
 
 - ChatGPT: integração, implementação e controle do fluxo;
-- Claude Sonnet: redação e implementação do contrato estreito;
-- Claude Opus: auditoria do contrato, principalmente da ordem canônica de `CT_PPr` e do contrato P3;
+- Claude Sonnet: redação e implementação do contrato 0049;
+- Claude Opus: auditoria do contrato 0049, sobretudo a ordem canônica de `CT_PPr` e a equivalência lexical de `w:jc`;
 - Kimi: somente se surgir uma tarefa especializada com ganho claro.
