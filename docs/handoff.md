@@ -25,7 +25,9 @@ Este é o HANDOFF corrente. O histórico detalhado fica no Git; não criar `hand
 - Product Input Boundary v0.1 — freeze 0044;
 - Human-readable Processing Report v0.1 — freeze 0046.
 
-Suíte completa atual: **716/716 OK** no PR #17 e GitHub Actions `success` no `main` pós-merge `804ce6f3fa1eac05f09e623f5587a9cb29446446`.
+Suíte completa atual: **735/735 OK** na PR #18, após os commits de correção `453b28e868473ddc5fca2e3036351f12c712eb8d`, `e409ece9768073f5e192ede05a1983f440741454` e `8d66c3ee9c9d034f403a5ab1cc4466f4668d5470`.
+
+GitHub Actions: `success` na run `34499934438`.
 
 Failures: 0. Errors: 0.
 
@@ -47,7 +49,8 @@ GitHub Actions é a execução padrão da suíte; não gastar Kimi apenas para t
 - PR #14 — Product Output Bundle v0.1 — squash `f87ea08511febd403b75874771ed5aff5db59fc9`;
 - PR #15 — Profile Input + Patcher Decimal erratum — squash `0429fa5bd115da95e8ed8c55a37099f912854e1a`;
 - PR #16 — Product Input Boundary v0.1 — squash `5cbf53a798ef7d9e78e56f2993e466af43b21d7f`;
-- PR #17 — Human-readable Processing Report v0.1 — head final `92cb328d8cf86ac3fcf1167d93433b380771f689`; squash `804ce6f3fa1eac05f09e623f5587a9cb29446446`.
+- PR #17 — Human-readable Processing Report v0.1 — head final `92cb328d8cf86ac3fcf1167d93433b380771f689`; squash `804ce6f3fa1eac05f09e623f5587a9cb29446446`;
+- PR #18 — Product Delivery / File Naming v0.1 — CI final `34499934438`, head `8d66c3ee9c9d034f403a5ab1cc4466f4668d5470`.
 
 ## Regra operacional
 
@@ -260,9 +263,27 @@ Características:
 - severity/ranking;
 - UI/API final.
 
+## Etapa concluída: Product Delivery / File Naming v0.1 — decisão 0047
+
+Implementada e validada na PR #18.
+
+- cinco arquivos tipados em ordem fixa;
+- bytes derivados exatamente do ProductOutputBundle e do renderer humano congelado;
+- manifest canônico com hashes, tamanhos, roles e media types;
+- nomes determinísticos, sem paths, traversal ou nomes reservados do Windows;
+- processamento inteiramente em memória;
+- sem ZIP, filesystem ou nova autoridade normativa;
+- 735/735 testes verdes na CI.
+
+Correções finais realizadas após a primeira execução:
+
+- normalização correta de tabulações e quebras de linha;
+- teste de path traversal alinhado à rejeição de nomes ocultos;
+- teste do relatório humano ajustado para texto UTF-8 com acentos.
+
 ## Próximo passo operacional
 
-**Product Delivery / File Naming v0.1.**
+Definir a próxima decisão de produto após o fechamento da PR #18.
 
 Objetivo: transformar resultados já produzidos em artefatos de entrega sem reprocessar o documento.
 
