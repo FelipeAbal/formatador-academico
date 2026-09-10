@@ -199,6 +199,18 @@ class PatcherV01E2E(unittest.TestCase):
         self.assertEqual(resolved.alignment.status, ResolutionStatus.RESOLVED)
         self.assertEqual(resolved.alignment.value, "both")
 
+    def test_e2e_exact_observation_requires_review_without_patch(self):
+        body = (
+            '<w:p><w:pPr><w:spacing w:line="240" w:lineRule="exact"/></w:pPr>'
+            '<w:r><w:rPr><w:sz w:val="24"/></w:rPr>'
+            '<w:t>revisao</w:t></w:r></w:p>'
+        )
+        pkg = build_docx(document(body), styles_part(NORMAL))
+        _, _, tokens, decisions = _full_pipeline(pkg, _rules())
+        self.assertNotIn("spacing.line", tokens)
+        spacing_decision = next(d for d in decisions if d.target.property_slot == "spacing.line")
+        self.assertEqual(spacing_decision.actionability.value, "review")
+
     def test_e2e_spacing_line_preserves_other_spacing_attributes(self):
         body = (
             '<w:p><w:pPr><w:spacing w:before="120" w:after="240" '
