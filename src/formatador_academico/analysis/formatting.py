@@ -262,7 +262,7 @@ def _conv_line_spacing(prop) -> LineSpacing:
     raw_line = _attr(prop, "w:line"); raw_rule = _attr(prop, "w:lineRule"); rule = raw_rule or "auto"
     if raw_line is None:
         raise _UnsupportedObserved()
-    if any(raw_line.endswith(unit) for unit in ("pt", "cm", "in")):
+    if not raw_line.lstrip("-").isdigit():
         raise _UnsupportedObserved()
     line = _int_lexical(raw_line)
     if rule == "auto": return LineSpacing(rule=rule, value=Decimal(line) / 240, unit="multiple", raw_line=raw_line, raw_rule=raw_rule)
