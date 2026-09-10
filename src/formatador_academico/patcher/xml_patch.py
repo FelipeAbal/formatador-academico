@@ -24,6 +24,9 @@ from .model import PatchReason
 
 MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
 
+W_P = f"{{{W_NS}}}p"
+W_PPR = f"{{{W_NS}}}pPr"
+W_JC = f"{{{W_NS}}}jc"
 W_R = f"{{{W_NS}}}r"
 W_RPR = f"{{{W_NS}}}rPr"
 W_B = f"{{{W_NS}}}b"
@@ -31,6 +34,19 @@ W_SZ = f"{{{W_NS}}}sz"
 W_SZCS = f"{{{W_NS}}}szCs"
 W_RPRCHANGE = f"{{{W_NS}}}rPrChange"
 W_VAL = f"{{{W_NS}}}val"
+
+PPR_CANONICAL_ORDER: tuple[str, ...] = (
+    "pStyle", "keepNext", "keepLines", "pageBreakBefore", "framePr",
+    "widowControl", "numPr", "suppressLineNumbers", "pBdr", "shd", "tabs",
+    "suppressAutoHyphens", "kinsoku", "wordWrap", "overflowPunct",
+    "topLinePunct", "autoSpaceDE", "autoSpaceDN", "bidi", "adjustRightInd",
+    "snapToGrid", "spacing", "ind", "contextualSpacing", "mirrorInd",
+    "suppressOverlap", "jc", "textDirection", "textAlignment",
+    "textboxTightWrap", "outlineLvl", "divId", "cnfStyle", "rPr",
+    "sectPr", "pPrChange",
+)
+PPR_CANONICAL_RANK = {f"{{{W_NS}}}{local}": rank for rank, local in enumerate(PPR_CANONICAL_ORDER)}
+
 MC_ALTERNATE_CONTENT = f"{{{MC_NS}}}AlternateContent"
 
 # Canonical CT_RPr child order (EG_RPrBase then rPrChange), verified against
@@ -142,6 +158,67 @@ def validate_rpr_shape(run: etree._Element, target_tag: str) -> etree._Element |
             "pre-existing w:rPr children are not in canonical schema order",
         )
     return rpr
+
+
+def validate_ppr_shape(paragraph: etree._Element, target_tag: str) -> etree._Element | None:
+    """Validate direct w:pPr shape and its canonical CT_PPr order."""
+    pprs = _direct_children(paragraph, W_PPR)
+    if len(pprs) > 1:
+        raise Reject(PatchReason.NONCANONICAL_RUN_PROPERTIES, "more than one direct w:pPr")
+    if not pprs:
+        return None
+    ppr = pprs[0]
+    first_element = next((c for c in paragraph if isinstance(c.tag, str)), None)
+    if first_element is not ppr:
+        raise Reject(PatchReason.NONCANONICAL_RUN_PROPERTIES, "sole direct w:pPr is not the first child of w:p")
+    if _direct_children(ppr, MC_ALTERNATE_CONTENT):
+        raise Reject(PatchReason.NONCANONICAL_RUN_PROPERTIES, "direct mc:AlternateContent inside target w:pPr")
+    targets = _direct_children(ppr, target_tag)
+    if len(targets) > 1:
+        raise Reject(PatchReason.DUPLICATE_TARGET_PROPERTY, "more than one direct w:jc")
+    ranks = []
+    for child in _element_children(ppr):
+        rank = PPR_CANONICAL_RANK.get(child.tag)
+        if rank is None:
+            raise Reject(PatchReason.NONCANONICAL_RUN_PROPERTIES, f"direct w:pPr child outside canonical rank table: {child.tag}")
+        ranks.append(rank)
+    if ranks != sorted(ranks):
+        raise Reject(PatchReason.NONCANONICAL_RUN_PROPERTIES, "pre-existing w:pPr children are not in canonical schema order")
+    return ppr
+
+
+def ensure_ppr(paragraph: etree._Element, ppr: etree._Element | None) -> etree._Element:
+    if ppr is not None:
+        return ppr
+    ppr = etree.Element(W_PPR)
+    paragraph.insert(0, ppr)
+    return ppr
+
+
+def apply_alignment(paragraph: etree._Element, ppr: etree._Element, desired: str) -> None:
+    if desired not in {"left", "center", "right", "both"}:
+        raise Reject(PatchReason.UNSUPPORTED_OPERATION, f"alignment desired value is not canonical: {desired!r}")
+    targets = _direct_children(ppr, W_JC)
+    if targets:
+        element = targets[0]
+        if _element_children(element) or set(element.attrib) - {W_VAL}:
+            raise Reject(PatchReason.NONCANONICAL_RUN_PROPERTIES, "direct w:jc is outside the canonical shape")
+        if element.get(W_VAL) is None:
+            raise Reject(PatchReason.NONCANONICAL_RUN_PROPERTIES, "direct w:jc lacks required w:val")
+        element.set(W_VAL, desired)
+    else:
+        element = etree.Element(W_JC)
+        element.set(W_VAL, desired)
+        _insert_ppr_canonical(ppr, element)
+
+
+def _insert_ppr_canonical(ppr: etree._Element, element: etree._Element) -> None:
+    rank = PPR_CANONICAL_RANK[element.tag]
+    for child in _element_children(ppr):
+        if PPR_CANONICAL_RANK[child.tag] > rank:
+            child.addprevious(element)
+            return
+    ppr.append(element)
 
 
 def ensure_rpr(run: etree._Element, rpr: etree._Element | None) -> etree._Element:
@@ -302,6 +379,14 @@ def apply_font_size(run: etree._Element, rpr: etree._Element, desired: LengthVal
         element = etree.Element(W_SZ)
         element.set(W_VAL, lexical)
         _insert_canonical(rpr, element)
+
+
+def mutate_paragraph(paragraph: etree._Element, property_slot: str, desired) -> None:
+    if property_slot != "alignment":
+        raise Reject(PatchReason.UNSUPPORTED_OPERATION, f"unsupported paragraph property: {property_slot}")
+    ppr = validate_ppr_shape(paragraph, W_JC)
+    ppr = ensure_ppr(paragraph, ppr)
+    apply_alignment(paragraph, ppr, desired)
 
 
 def mutate_run(run: etree._Element, property_slot: str, desired) -> None:
