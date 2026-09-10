@@ -6,6 +6,7 @@ from decimal import Decimal
 from enum import Enum
 
 from ..operation_plan.model import LengthValue
+from ..decision.model import LineSpacingValue
 from ..processing_report import ProcessingReport, processing_report_ref
 from .model import (
     HUMAN_REPORT_MEDIA_TYPE,
@@ -25,6 +26,8 @@ _CLASS_LABELS = {
 _PROPERTY_LABELS = {
     "bold": "Negrito",
     "font_size": "Tamanho da fonte",
+    "alignment": "Alinhamento",
+    "spacing.line": "Entrelinha",
 }
 
 
@@ -80,6 +83,12 @@ def _value_text(value) -> str:
         return "sim" if value else "não"
     if isinstance(value, Decimal):
         return _decimal_text(value)
+    if isinstance(value, LineSpacingValue):
+        if value.value is None:
+            return "não disponível"
+        if value.unit == "multiple":
+            return f"{_decimal_text(value.value)} linhas"
+        return f"{_decimal_text(value.value)} {_escape_text(value.unit)} ({_escape_text(value.rule)})"
     if isinstance(value, LengthValue):
         return f"{_decimal_text(value.value)} {_escape_text(value.unit)}"
     if isinstance(value, str):

@@ -44,6 +44,18 @@ def _bold(value=False):
 def _font(value=12):
     return {"body": {"font_size": {"mode": "exact", "value": value}}}
 
+def _line_spacing(value=1.5, schema="0.3"):
+    return json.dumps(
+        {
+            "schema_version": schema,
+            "profile": {"id": "human-report-p3", "version": "1"},
+            "rules": {"body": {"line_spacing": {"mode": "exact", "value": value}}},
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+
 
 def _run(text, *, bold_xml='<w:b w:val="0"/>', half_points=24):
     return (
@@ -106,6 +118,33 @@ class HumanReportRealFlowTests(unittest.TestCase):
         self.assertIn("Tamanho da fonte", text)
         self.assertIn("- Antes: 11 pt", text)
         self.assertIn("- Aplicado: 12 pt", text)
+
+    def test_applied_line_spacing_real(self):
+        body = (
+            '<w:p><w:pPr><w:pStyle w:val="Normal"/>'
+            '<w:spacing w:line="480" w:lineRule="auto"/></w:pPr>'
+            '<w:r><w:t>spacing</w:t></w:r></w:p>'
+        )
+        report = build_product_from_inputs(
+            _pkg(body), _line_spacing(1.5)
+        ).processing_report
+        text = _text(render_processing_report(report))
+        self.assertIn("Entrelinha", text)
+        self.assertIn("- Antes: 2 linhas", text)
+        self.assertIn("- Aplicado: 1.5 linhas", text)
+
+    def test_review_line_spacing_real(self):
+        body = (
+            '<w:p><w:pPr><w:pStyle w:val="Normal"/>'
+            '<w:spacing w:line="240" w:lineRule="exact"/></w:pPr>'
+            '<w:r><w:t>spacing</w:t></w:r></w:p>'
+        )
+        report = build_product_from_inputs(
+            _pkg(body), _line_spacing(1.5)
+        ).processing_report
+        self.assertEqual(len(report.review_items), 1)
+        text = _text(render_processing_report(report))
+        self.assertIn("- Observado: 12 pt (exact)", text)
 
     def test_unapplied_real_patch_rejection(self):
         report = _report(_pkg(_paragraph(_run("dup", bold_xml="<w:b/><w:b/>"))), _bold(False))

@@ -75,14 +75,14 @@ def validate_identity_string(name: str, value: object) -> str:
     return value
 
 
-def canonical_decimal(value: object) -> Decimal:
+def canonical_decimal(value: object, property_name: str = "font_size") -> Decimal:
     """Canonicalize a finite Decimal exactly, independent of global context."""
 
     if type(value) is not Decimal:
-        _contract("font_size_type", "font_size must be a JSON number")
+        _contract(f"{property_name}_type", f"{property_name} must be a JSON number")
     assert isinstance(value, Decimal)
     if not value.is_finite():
-        _contract("font_size_non_finite", "font_size must be finite")
+        _contract(f"{property_name}_non_finite", f"{property_name} must be finite")
 
     sign, digits, exponent = value.as_tuple()
     digits_list = list(digits)
@@ -156,7 +156,7 @@ def canonical_rule_value(property_name: str, value: object) -> object:
             _unsupported("alignment_value_unsupported", f"unsupported alignment value: {value}")
         return value
     if property_name == "line_spacing":
-        canonical = canonical_decimal(value)
+        canonical = canonical_decimal(value, "line_spacing")
         _line_spacing_twips(canonical)
         return canonical
     _unsupported("property_unsupported", f"unsupported property: {property_name}")

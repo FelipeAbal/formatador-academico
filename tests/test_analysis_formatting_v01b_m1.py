@@ -488,6 +488,26 @@ class ParagraphCascadeTests(unittest.TestCase):
         self.assertEqual(ls.value.value, Decimal("1.5"))
         self.assertEqual(ls.value.unit, "multiple")
 
+    def test_spacing_accepts_schema_integer_whitespace_and_plus(self):
+        for raw in (" 360 ", "+360"):
+            with self.subTest(raw=raw):
+                rp = resolve_par(
+                    f'<w:p><w:pPr><w:spacing w:line="{raw}" '
+                    'w:lineRule="auto"/></w:pPr><w:r><w:t>a</w:t></w:r></w:p>'
+                )
+                self.assertEqual(rp.spacing.line.status, RES.RESOLVED)
+                self.assertEqual(rp.spacing.line.value.value, Decimal("1.5"))
+
+    def test_observed_conversions_ignore_global_decimal_precision(self):
+        from decimal import localcontext
+        with localcontext() as ctx:
+            ctx.prec = 1
+            rp = resolve_par(
+                '<w:p><w:pPr><w:spacing w:line="360" '
+                'w:lineRule="auto"/></w:pPr><w:r><w:t>a</w:t></w:r></w:p>'
+            )
+            self.assertEqual(rp.spacing.line.value.value, Decimal("1.5"))
+
     def test_spacing_line_rule_defaults_to_auto(self):
         rp = resolve_par('<w:p><w:pPr><w:spacing w:line="360"/></w:pPr>'
                          '<w:r><w:t>a</w:t></w:r></w:p>')
