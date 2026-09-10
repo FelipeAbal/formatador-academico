@@ -21,7 +21,7 @@ import zipfile
 
 from lxml import etree
 
-from ..analysis.formatting import resolve_run_formatting
+from ..analysis.formatting import resolve_paragraph_formatting, resolve_run_formatting
 from ..analysis.formatting_model import Length, ResolutionStatus
 from ..analysis.style_catalog import build_style_catalog
 from ..decision.model import DecisionKey
@@ -32,7 +32,7 @@ from ..safety_gate.targets import find_story, paragraph_ancestor, resolve_target
 from .. import parser_api
 from .document import parse_document_xml
 from .model import DOCUMENT_PART, PatcherIntegrityError
-from .xml_patch import RPR_CANONICAL_RANK, W_B, W_R, W_RPR, W_SZ, W_VAL
+from .xml_patch import PPR_CANONICAL_RANK, RPR_CANONICAL_RANK, W_B, W_JC, W_P, W_PPR, W_R, W_RPR, W_SZ, W_VAL
 
 _TARGET_TAG = {"bold": W_B, "font_size": W_SZ}
 _TARGET_KEY = {
@@ -122,6 +122,70 @@ def _check_output_property(run: etree._Element, property_slot: str, desired) -> 
             )
 
 
+def _strip_alignment_for_comparison(paragraph: etree._Element) -> None:
+    for ppr in _direct(paragraph, W_PPR):
+        for element in _direct(ppr, W_JC):
+            ppr.remove(element)
+        if not [c for c in ppr if isinstance(c.tag, str)] and not ppr.attrib:
+            paragraph.remove(ppr)
+
+
+def _check_output_alignment(paragraph: etree._Element, desired: str) -> None:
+    pprs = _direct(paragraph, W_PPR)
+    if len(pprs) != 1:
+        raise PatcherIntegrityError("output paragraph must contain exactly one direct w:pPr")
+    ppr = pprs[0]
+    ranks = [PPR_CANONICAL_RANK.get(c.tag) for c in ppr if isinstance(c.tag, str)]
+    if any(rank is None for rank in ranks) or ranks != sorted(ranks):
+        raise PatcherIntegrityError("output w:pPr children are not in canonical schema order")
+    targets = _direct(ppr, W_JC)
+    if len(targets) != 1:
+        raise PatcherIntegrityError("output paragraph must contain exactly one direct w:jc")
+    element = targets[0]
+    if [c for c in element if isinstance(c.tag, str)] or set(element.attrib) != {W_VAL}:
+        raise PatcherIntegrityError("output w:jc is not in the canonical shape")
+    if element.get(W_VAL) != desired:
+        raise PatcherIntegrityError(
+            f"output w:jc lexical value {element.get(W_VAL)!r} != desired {desired!r}"
+        )
+
+
+def _validate_alignment_delta(
+    original_document_xml: bytes,
+    output_document_xml: bytes,
+    target_path: str,
+    desired: str,
+) -> None:
+    original_tree = parse_document_xml(original_document_xml, DOCUMENT_PART)
+    output_tree = parse_document_xml(output_document_xml, DOCUMENT_PART)
+    try:
+        original_paragraph = parser_api.resolve_structural_path(
+            original_tree.getroot(), target_path
+        )
+        output_paragraph = parser_api.resolve_structural_path(
+            output_tree.getroot(), target_path
+        )
+    except parser_api.StructuralPathError as exc:
+        raise PatcherIntegrityError(f"alignment target resolution failed: {exc}") from exc
+    if original_paragraph.tag != W_P or output_paragraph.tag != W_P:
+        raise PatcherIntegrityError("alignment target is not a w:p in both documents")
+    _check_output_alignment(output_paragraph, desired)
+    _strip_alignment_for_comparison(original_paragraph)
+    _strip_alignment_for_comparison(output_paragraph)
+    if _c14n(original_tree.getroot()) != _c14n(output_tree.getroot()):
+        raise PatcherIntegrityError(
+            "allowed-delta violation: document XML differs beyond paragraph alignment"
+        )
+    if _prolog_epilog(original_tree.getroot()) != _prolog_epilog(output_tree.getroot()):
+        raise PatcherIntegrityError(
+            "allowed-delta violation: prolog/epilog comments/PIs changed"
+        )
+    if _docinfo_fingerprint(original_tree) != _docinfo_fingerprint(output_tree):
+        raise PatcherIntegrityError(
+            "allowed-delta violation: XML declaration semantics changed"
+        )
+
+
 def validate_allowed_delta(
     original_document_xml: bytes,
     output_document_xml: bytes,
@@ -130,6 +194,12 @@ def validate_allowed_delta(
     desired,
 ) -> None:
     """Narrow authorized-delta proof over relread output bytes (§20)."""
+
+    if property_slot == "alignment":
+        _validate_alignment_delta(
+            original_document_xml, output_document_xml, target_path, desired
+        )
+        return
 
     target_tag = _TARGET_TAG[property_slot]
     original_tree = parse_document_xml(original_document_xml, DOCUMENT_PART)
@@ -184,6 +254,23 @@ def verify_postcondition(output_package_bytes: bytes, operation) -> None:
             "postcondition target resolution did not yield exactly one record"
         )
     record, ancestors = matches[0]
+    if operation.target.target_type == "paragraph":
+        if record.get("source_type") != "paragraph":
+            raise PatcherIntegrityError("postcondition target is not a paragraph record")
+        analysis = resolve_paragraph_formatting(record, catalog, DOCUMENT_PART)
+        key = DecisionKey("paragraph", "P4", "alignment")
+        resolved = extract_resolved_value(key, analysis)
+        if resolved.status is not ResolutionStatus.RESOLVED:
+            raise PatcherIntegrityError(
+                f"postcondition Analysis did not resolve paragraph alignment: {resolved.status}"
+            )
+        if resolved.value != operation.desired_value:
+            raise PatcherIntegrityError(
+                f"postcondition mismatch: current {resolved.value!r} != desired "
+                f"{operation.desired_value!r}"
+            )
+        return
+
     if record.get("source_type") != "run_raw":
         raise PatcherIntegrityError("postcondition target is not a run_raw record")
     paragraph = paragraph_ancestor(ancestors)
