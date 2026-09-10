@@ -167,7 +167,7 @@ class HumanReportRealFlowTests(unittest.TestCase):
         body = (
             '<w:p><w:pPr><w:pStyle w:val="Normal"/>'
             '<w:spacing w:line="360" w:lineRule="auto"/></w:pPr>'
-            '<w:r><w:t>lista</w:t></w:r></w:p>'
+            '<w:r><w:rPr><w:sz w:val="24"/></w:rPr><w:t>lista</w:t></w:r></w:p>'
         )
         profile = json.dumps(
             {
