@@ -190,6 +190,9 @@ def _check_output_spacing_line(paragraph: etree._Element, desired: LineSpacingVa
     if len(targets) != 1:
         raise PatcherIntegrityError("output paragraph must contain exactly one direct w:spacing")
     element = targets[0]
+    allowed = {W_LINE, W_LINE_RULE, f"{{{W_NS}}}before", f"{{{W_NS}}}beforeLines", f"{{{W_NS}}}beforeAutospacing", f"{{{W_NS}}}after", f"{{{W_NS}}}afterLines", f"{{{W_NS}}}afterAutospacing"}
+    if set(element.attrib) - allowed:
+        raise PatcherIntegrityError("output w:spacing carries unknown attributes")
     if [c for c in element if isinstance(c.tag, str)]:
         raise PatcherIntegrityError("output w:spacing must not have element children")
     if element.get(W_LINE_RULE) != "auto" or element.get(W_LINE) != _line_twips(desired):
