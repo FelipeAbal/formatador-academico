@@ -510,8 +510,6 @@ def _resolve_spacing_slot(slot_attrs: tuple[str,...], auto_attr: str|None, conve
             return ResolvedValue(ResolutionStatus.UNRESOLVED,None,None,tuple(chain),reason)
         except _InvalidLexical:
             chain.append(LevelEvidence(level.name,True,"invalid",ev)); _warn(warnings,W_INVALID_VALUE,f"Invalid lexical value for w:spacing {slot_attrs[0]}: {raw_of(target)!r}.",target.structural_path); return ResolvedValue(ResolutionStatus.INVALID,None,None,tuple(chain),None)
-        if line_slot and value.rule in {"exact", "atLeast"}:
-            chain.append(LevelEvidence(level.name,True,"non_auto_rule",ev)); return ResolvedValue(ResolutionStatus.UNRESOLVED,None,None,tuple(chain),R_LINE_RULE_NOT_AUTO)
         chain.append(LevelEvidence(level.name,True,level.detail_override or "declared",ev)); return ResolvedValue(ResolutionStatus.RESOLVED,value,ev,tuple(chain),None)
     if malformed_line:
         return ResolvedValue(ResolutionStatus.UNRESOLVED,None,None,tuple(chain),R_LINE_WITHOUT_VALUE)
