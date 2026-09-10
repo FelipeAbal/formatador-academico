@@ -53,10 +53,10 @@ A entrada pública deve permanecer compatível com o formato de regras existente
 ```json
 {
   "schema_version": "0.3",
+  "profile": { "id": "exemplo", "version": "1" },
   "rules": {
-    "line_spacing": {
-      "mode": "exact",
-      "value": 1.5
+    "body": {
+      "line_spacing": { "mode": "exact", "value": 1.5 }
     }
   }
 }
@@ -76,7 +76,7 @@ A Analysis deve continuar lendo a informação efetivamente presente no document
 - a unidade observada deve permanecer distinguível de `multiple`, quando aplicável;
 - ausência, token inválido ou valor lexical inválido não deve ser convertido em um valor presumido.
 
-A comparação entre o valor desejado e o observado deve ser semântica. P3 pode corrigir uma observação `atLeast` ou `exact` para o valor declarativo `auto` quando o resultado pós-patch satisfizer exatamente o contrato desejado.
+A comparação entre o valor desejado e o observado deve ser semântica. A mudança determinística só é autorizada quando a observação resolvida já tiver `rule="auto"`, `unit="multiple"` e valor válido. Observações `atLeast` e `exact` devem permanecer sem patch automático e ser encaminhadas para revisão como `UNRESOLVED`, com razão explícita `line_rule_not_auto_unsupported`. O Patcher não deve ser usado como bloqueio tardio, pois uma rejeição nessa etapa derruba a sessão.
 
 ## 5. Seleção do alvo
 
@@ -84,7 +84,7 @@ O alvo de P3 é o parágrafo físico representado por `w:p`.
 
 Parágrafos que tenham `w:numPr` direto ou herdado ficam fora do slice executável. Essa exclusão deve produzir item de revisão com razão explícita e aparecer no relatório humano. Não pode ser tratada como ausência silenciosa de achado.
 
-Parágrafos com `w:bidi` ativo também ficam fora deste slice, seguindo a fronteira definida em 0049 para propriedades de parágrafo direcionais.
+As guardas de `w:numPr` e `w:bidi` não são herdadas da implementação de P4: precisam existir novamente na resolução do slot de spacing. Parágrafos com `w:bidi` ativo também ficam fora deste slice, com razão explícita própria ou reutilizada conforme o vocabulário congelado.
 
 ## 6. Regras XML
 
@@ -99,9 +99,10 @@ A implementação deve rejeitar, em vez de normalizar silenciosamente:
 - `w:pPr` duplicado;
 - `w:spacing` duplicado no mesmo `w:pPr`;
 - elementos fora da forma canônica já definida para o patcher;
-- `w:line` sem a estrutura necessária para determinar seu significado;
 - token de `w:lineRule` desconhecido;
-- valor lexical não inteiro quando a forma OOXML exigir inteiro.
+- forma lexical não suportada de `w:line`, incluindo unidades universais como `18pt`.
+
+A ausência de `w:lineRule` com `w:line` presente usa o default `auto` definido pelo XSD, não uma inferência da aplicação. A ausência de `w:line` não deve ser convertida em zero: `w:lineRule` presente sem `w:line` é `UNRESOLVED` com razão explícita e não pode interromper a busca de valor herdado. O XSD também declara default lexical `0` para `w:line`, mas esse default não autoriza a aplicação a declarar uma entrelinha de zero.
 
 ### 6.2 Mutação mínima
 
@@ -111,7 +112,7 @@ Ao corrigir P3, a implementação pode alterar apenas:
 - `w:lineRule`;
 - a criação de `w:pPr` ou `w:spacing`, quando ausentes.
 
-Atributos de `w:spacing` relativos a `before`, `after`, `beforeLines`, `afterLines` e outros atributos não pertencentes a P3 devem ser preservados byte a byte sempre que a biblioteca permitir.
+Após a mutação, todos os atributos de `w:spacing` fora de `{w:line, w:lineRule}` devem ter valor idêntico ao anterior, verificado por releitura. Isso inclui os atributos de `CT_Spacing` não pertencentes a P3, nominalmente `before`, `beforeLines`, `beforeAutospacing`, `after`, `afterLines` e `afterAutospacing`. A garantia é semântica e verificável, não uma expectativa condicional sobre a biblioteca.
 
 A forma canônica proposta para um múltiplo é:
 
@@ -121,7 +122,7 @@ A forma canônica proposta para um múltiplo é:
 
 para `1.5` linhas, pois OOXML usa unidades de 240 avos de linha para `auto`.
 
-A conversão deve ser exata: `multiple * 240` precisa resultar em inteiro sem arredondamento. O contrato deve estabelecer limites mínimo e máximo e a política para casas decimais excessivas.
+A conversão deve ser exata: `multiple * 240` precisa resultar em inteiro sem arredondamento. O cálculo deve usar aritmética inteira sobre `Decimal.as_tuple()`, sem multiplicação dependente do contexto global. O valor deve ser estritamente positivo, obedecer às constantes de precisão e expoente já existentes no Profile Input e ser rejeitado como `UnsupportedError` quando não couber em `ST_SignedTwipsMeasure`. Assim, `1.5`, `1.50` e `1.5e0` têm o mesmo valor canônico, enquanto `1.001` não é representável exatamente.
 
 ### 6.3 Precondição e pós-condição
 
@@ -161,12 +162,12 @@ Se nenhum run for marcável, o resultado deve permanecer sem marca e conter `no_
 
 1. A forma pública proposta para P3 deve usar `mode="exact", value=1.5`, com `rule="auto"` implícito, ou o schema deve expor explicitamente `rule="auto"`?
 2. P3 deve aceitar somente `mode="exact"`, ou `allowed` e `preferred` devem ser mantidos para consistência com o formato genérico?
-3. Quais limites e precisão decimal devem ser aceitos para o múltiplo de linha?
-4. Como tratar `w:lineRule` ausente quando `w:line` está presente?
-5. Como tratar `w:lineRule="auto"` sem `w:line`?
+3. A política de limite superior e o nome da razão de valor não representável estão suficientemente definidos pelo limite de `ST_SignedTwipsMeasure`?
+4. Confirmar o uso do default `auto` do XSD quando `w:line` está presente sem `w:lineRule`.
+5. Confirmar que `w:lineRule="auto"` sem `w:line` é `UNRESOLVED` e não interrompe a cascata.
 6. A rejeição de `w:spacing` duplicado e de atributos desconhecidos deve usar a razão de erro já congelada para propriedades não canônicas?
 7. A exclusão de `w:numPr` e `w:bidi` está corretamente posicionada no slice P3, com item visível no relatório?
-8. A preservação byte a byte de atributos não P3 é viável com o modelo XML atual, ou o contrato deve exigir apenas preservação semântica?
+8. A invariante de preservação por atributo não P3 está corretamente especificada para a releitura do XML?
 9. O pós-patch deve exigir sempre `lineRule="auto"` explícito, mesmo se uma biblioteca puder interpretar o default de outra forma?
 10. Há algum ponto de 0049, da implementação de P4 ou do modelo `LineSpacing` que impeça esta forma de P3?
 
@@ -177,16 +178,27 @@ Se nenhum run for marcável, o resultado deve permanecer sem marca e conter `no_
 - Valor não múltiplo, negativo, zero ou fora dos limites é rejeitado.
 - Analysis lê `auto`, `atLeast` e `exact`.
 - Ausência e tokens inválidos permanecem não resolvidos.
+- Observações `exact` e `atLeast` não são alteradas e geram revisão.
+- `lineRule` sem `line` não mascara valor herdado.
+- `w:line="18pt"` é tratado como não suportado, não como inválido.
 - Patcher cria `pPr` e `spacing` na posição canônica.
 - Patcher altera somente `line` e `lineRule`.
-- Atributos `before` e `after` são preservados.
-- Listas e bidi são relatados com razão explícita.
+- Atributos `before`, `after` e os demais atributos não P3 são preservados por releitura.
+- `1.5`, `1.50` e `1.5e0` produzem perfil e hashes idênticos.
+- Listas e bidi são relatados com razão explícita também no slot de spacing.
+- `w:mirrorIndents` em um parágrafo alvo não é falsamente rejeitado.
 - Precondição, delta e pós-condição falham de forma determinística quando o XML muda.
 - Transform Log contém valor observado e desejado.
 - Review DOCX marca somente o primeiro run elegível.
 - Suite completa e CI permanecem verdes.
 
-## 10. Não objetivos
+## 10. Compatibilidade de razões e emendas de modelo
+
+A razão machine-readable `NONCANONICAL_RUN_PROPERTIES` é mantida nesta versão por compatibilidade com o vocabulário fechado do Patcher, embora também cubra propriedades de parágrafo. Um rename para `NONCANONICAL_PARAGRAPH_PROPERTIES` fica reservado ao próximo bump do Patcher por outro motivo.
+
+O modelo `LineSpacing` existente é suficiente. O modelo do Profile Input deve garantir que o valor declarado seja não nulo, estritamente positivo, `rule="auto"` e `unit="multiple"`. A validação correspondente também deve existir no ramo `spacing.line` de `_validate_rule_value`, para que a invariante não dependa apenas do parser.
+
+## 11. Não objetivos
 
 Este ciclo não implementa:
 
