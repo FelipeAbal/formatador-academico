@@ -49,7 +49,7 @@ class ProfileInputParsingTests(unittest.TestCase):
     def test_schema_02_accepts_user_alignment_vocabulary(self):
         model = parse_profile_input_json(
             _json(
-                {"body": {"alignment": {"mode": "exact", "value": "justify"}},
+                {"body": {"alignment": {"mode": "exact", "value": "justify"}}},
                 schema="0.2",
             )
         )
@@ -61,7 +61,7 @@ class ProfileInputParsingTests(unittest.TestCase):
         with self.assertRaises(ProfileInputUnsupportedError) as cm:
             parse_profile_input_json(
                 _json(
-                    {"body": {"alignment": {"mode": "exact", "value": "justify"}},
+                    {"body": {"alignment": {"mode": "exact", "value": "justify"}}},
                     schema="0.1",
                 )
             )
@@ -71,7 +71,7 @@ class ProfileInputParsingTests(unittest.TestCase):
         with self.assertRaises(ProfileInputUnsupportedError) as cm:
             parse_profile_input_json(
                 _json(
-                    {"body": {"line_spacing": {"mode": "exact", "value": 1.5}},
+                    {"body": {"line_spacing": {"mode": "exact", "value": 1.5}}},
                     schema="0.2",
                 )
             )
