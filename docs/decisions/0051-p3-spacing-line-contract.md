@@ -76,7 +76,7 @@ A Analysis deve continuar lendo a informação efetivamente presente no document
 - a unidade observada deve permanecer distinguível de `multiple`, quando aplicável;
 - ausência, token inválido ou valor lexical inválido não deve ser convertido em um valor presumido.
 
-A comparação entre o valor desejado e o observado deve ser semântica. A mudança determinística só é autorizada quando a observação resolvida já tiver `rule="auto"`, `unit="multiple"` e valor válido. Observações `atLeast` e `exact` devem permanecer sem patch automático e exigir escolha humana, com `HUMAN_CHOICE` e razão explícita `human_choice_required`. O Patcher não deve ser usado como bloqueio tardio, pois uma rejeição nessa etapa derruba a sessão.
+A comparação entre o valor desejado e o observado deve ser semântica. A mudança determinística só é autorizada quando a observação resolvida já tiver `rule="auto"`, `unit="multiple"` e valor válido. Observações `atLeast` e `exact` devem permanecer sem patch automático e exigir escolha humana, com `HUMAN_CHOICE` e razão explícita `human_choice_required`. A regra geral é: quando a Analysis resolve o valor, mas ele é incomensurável com a regra declarada, a Decision registra não conformidade e exige escolha humana. A razão específica da Analysis, quando existir, é transportada separadamente em `analysis_reason`, sem alterar o vocabulário semântico congelado. O Patcher não deve ser usado como bloqueio tardio, pois uma rejeição nessa etapa derruba a sessão.
 
 ## 5. Seleção do alvo
 
