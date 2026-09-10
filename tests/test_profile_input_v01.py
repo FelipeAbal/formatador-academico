@@ -152,7 +152,7 @@ class ProfileInputParsingTests(unittest.TestCase):
                 self.assertEqual(cm.exception.code, "duplicate_key")
 
     def test_schema_version_precedes_unknown_field(self):
-        raw = b'{"schema_version":"0.3","new_future_field":1}'
+        raw = b'{"schema_version":"0.4","new_future_field":1}'
         with self.assertRaises(ProfileInputUnsupportedError) as cm:
             parse_profile_input_json(raw)
         self.assertEqual(cm.exception.code, "schema_version_unsupported")
