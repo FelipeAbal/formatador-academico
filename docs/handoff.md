@@ -439,3 +439,28 @@ A etapa de Profile Input 0.2 está concluída e integrada. A próxima branch é 
 Próximo passo: adaptar Processing Session para separar bindings de parágrafo e de run, mantendo o ciclo atual de rerun, os tokens stale e os limites de operação. Patcher, TransformLog e Review DOCX só serão alterados depois que esse contrato intermediário estiver coberto por testes.
 
 
+
+
+## Auditoria Claude Opus da decisão 0051 e correção independente
+
+Em 2026-09-10, a auditoria do Claude Opus sobre o rascunho 0051 foi registrada em `docs/audits/auditoria_claude_opus_0051.md`.
+
+A auditoria aprovou o desenho geral com ajustes e encontrou um defeito independente já presente na implementação de P4: a tabela `PPR_CANONICAL_ORDER` usava `mirrorInd` em vez de `mirrorIndents`. A correção foi aplicada na branch `implement-0051-p3-line-spacing`, acompanhada de teste de regressão.
+
+Também foram incorporados ao contrato 0051:
+
+- exemplo JSON corrigido com `profile` e classe `body`;
+- mudança automática restrita a observações `rule="auto"`;
+- observações `atLeast` e `exact` encaminhadas para revisão;
+- `lineRule` ausente tratado pelo default `auto` do XSD quando `line` existe;
+- `lineRule` presente sem `line` tratado como não resolvido;
+- unidade universal como `18pt` tratada como não suportada;
+- preservação verificável dos atributos de `w:spacing` fora do P3;
+- guardas de numbering e bidi explicitamente repetidas na resolução de spacing;
+- conversão por aritmética inteira exata sobre múltiplos de 240;
+- modos `exact`, `set` e `preserve` mantidos, com validação de múltiplos;
+- `rule="auto"` implícito na entrada e explícito no XML escrito;
+- validação das invariantes de `LineSpacingValue` no modelo;
+- compatibilidade temporária documentada de `NONCANONICAL_RUN_PROPERTIES` para propriedades de parágrafo.
+
+O PR #29 permanece aberto como rascunho documental. A implementação de P3 ainda não começou. Próximo passo após CI: congelar o contrato, caso não surja nova objeção, e iniciar a implementação em ciclo próprio.
