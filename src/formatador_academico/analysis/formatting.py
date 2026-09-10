@@ -12,6 +12,9 @@ from typing import Any, Callable
 
 from .formatting_model import (
     R_AUTOSPACING,
+    R_NUMBERING_ALIGNMENT,
+    R_BIDI_DIRECTION,
+    R_ALIGNMENT_TOKEN,
     R_NUMBERING_INDENT,
     R_STYLE_CYCLE,
     R_STYLES_UNAVAILABLE,
@@ -20,6 +23,7 @@ from .formatting_model import (
     W_INVALID_VALUE,
     W_MISSING_STYLE,
     W_NUMBERING_PRESENT,
+    W_UNSUPPORTED_VALUE,
     W_STYLE_CYCLE,
     W_WRONG_STYLE_TYPE,
     FontSpec,
@@ -47,6 +51,10 @@ _FALSE_TOKENS = {"0", "false", "off"}
 
 
 class _InvalidLexical(Exception):
+    pass
+
+
+class _UnsupportedObserved(Exception):
     pass
 
 
@@ -135,6 +143,10 @@ def _cascade(
             chain.append(LevelEvidence(level.name, True, "invalid", ev))
             _warn(warnings, W_INVALID_VALUE, f"Invalid lexical value for {prop_name}: {raw_value!r}.", chosen.structural_path)
             return ResolvedValue(ResolutionStatus.INVALID, None, None, tuple(chain), None)
+        except _UnsupportedObserved:
+            chain.append(LevelEvidence(level.name, True, "unsupported", ev))
+            _warn(warnings, W_UNSUPPORTED_VALUE, f"Unsupported observed value for {prop_name}: {raw_value!r}.", chosen.structural_path)
+            return ResolvedValue(ResolutionStatus.UNRESOLVED, None, None, tuple(chain), R_ALIGNMENT_TOKEN)
         chain.append(LevelEvidence(level.name, True, level.detail_override or "declared", ev))
         return ResolvedValue(ResolutionStatus.RESOLVED, value, ev, tuple(chain), None)
     return ResolvedValue(ResolutionStatus.ABSENT, None, None, tuple(chain), None)
@@ -258,6 +270,20 @@ def _conv_token(prop) -> str:
     return raw
 
 
+_ALIGNMENT_CANONICAL = frozenset({"left", "center", "right", "both"})
+_ALIGNMENT_ALIASES = {"start": "left", "end": "right"}
+
+
+def _conv_alignment_token(prop) -> str:
+    raw = _attr(prop, "w:val")
+    if raw is None:
+        raise _InvalidLexical()
+    normalized = _ALIGNMENT_ALIASES.get(raw, raw)
+    if normalized not in _ALIGNMENT_CANONICAL:
+        raise _UnsupportedObserved()
+    return normalized
+
+
 def _conv_underline(prop) -> str:
     return _attr(prop, "w:val") or "single"
 
@@ -284,6 +310,58 @@ def _declares_attr(attr: str) -> Callable[[Any], bool]:
 
 def _always(prop) -> bool:
     return True
+
+
+def _resolve_alignment(
+    levels: tuple[_Level, ...],
+    warnings: list[AnalysisWarning],
+) -> ResolvedValue:
+    for level in levels:
+        if level.bag is None:
+            continue
+        if any(e.property_name == "w:numPr" for e in level.bag.entries):
+            _warn(
+                warnings,
+                W_NUMBERING_PRESENT,
+                "Alignment may depend on numbering.xml, which is outside the executable slice.",
+                level.bag.source_path,
+            )
+            return ResolvedValue(
+                ResolutionStatus.UNRESOLVED,
+                None,
+                None,
+                (),
+                R_NUMBERING_ALIGNMENT,
+            )
+        if any(e.property_name == "w:bidi" for e in level.bag.entries):
+            bidi_props = [e for e in level.bag.entries if e.property_name == "w:bidi"]
+            active = any(
+                (_attr_present(prop, "w:val")[1] is None)
+                or _truthy(_attr(prop, "w:val"))
+                for prop in bidi_props
+            )
+            if active:
+                _warn(
+                    warnings,
+                    W_UNSUPPORTED_VALUE,
+                    "Paragraph bidi direction is outside the executable alignment slice.",
+                    level.bag.source_path,
+                )
+                return ResolvedValue(
+                    ResolutionStatus.UNRESOLVED,
+                    None,
+                    None,
+                    (),
+                    R_BIDI_DIRECTION,
+                )
+    return _cascade(
+        levels,
+        "w:jc",
+        _conv_alignment_token,
+        warnings,
+        raw_of=lambda p: _attr(p, "w:val"),
+        declares=_always,
+    )
 
 
 def _parse_onoff(prop) -> tuple[bool | None, str | None]:
@@ -431,7 +509,7 @@ def resolve_paragraph_formatting(paragraph: dict[str,Any], catalog: StyleCatalog
     pstyle_id=paragraph_style_id.value if paragraph_style_id.status is ResolutionStatus.RESOLVED else None
     style_levels=_resolve_start_style(catalog,pstyle_id,"paragraph","paragraph_style","ppr_bag",warnings,True,anchor)
     doc_defaults=_doc_defaults_level(catalog,"ppr_bag"); all_levels=(direct_level,*style_levels,doc_defaults)
-    alignment=_cascade(all_levels,"w:jc",_conv_token,warnings,raw_of=lambda p:_attr(p,"w:val"),declares=_always)
+    alignment=_resolve_alignment(all_levels,warnings)
     spacing=SpacingSpec(before=_resolve_spacing_slot(("w:before",),"w:beforeAutospacing",_conv_twips("w:before"),lambda p:_attr(p,"w:before"),all_levels,warnings),after=_resolve_spacing_slot(("w:after",),"w:afterAutospacing",_conv_twips("w:after"),lambda p:_attr(p,"w:after"),all_levels,warnings),before_lines=_resolve_spacing_slot(("w:beforeLines",),None,_conv_hundredths_of_line("w:beforeLines"),lambda p:_attr(p,"w:beforeLines"),all_levels,warnings),after_lines=_resolve_spacing_slot(("w:afterLines",),None,_conv_hundredths_of_line("w:afterLines"),lambda p:_attr(p,"w:afterLines"),all_levels,warnings),line=_resolve_spacing_slot(("w:line","w:lineRule"),None,_conv_line_spacing,lambda p:_attr(p,"w:line") or _attr(p,"w:lineRule"),all_levels,warnings))
     numbering_relevant=_has_property(direct_bag,"w:numPr") or any(_has_property(level.bag,"w:numPr") for level in style_levels)
     indents=IndentSpec(**{slot:_resolve_indent_slot(slot,attr,chars,all_levels,numbering_relevant,part,warnings) for slot,attr,chars in _INDENT_SLOTS})
