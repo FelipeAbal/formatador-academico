@@ -20,6 +20,7 @@ from lxml import etree
 
 from ..docx_parser import W_NS
 from ..operation_plan.model import LengthValue
+from ..decision.model import LineSpacingValue
 from .model import PatchReason
 
 MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -27,6 +28,9 @@ MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
 W_P = f"{{{W_NS}}}p"
 W_PPR = f"{{{W_NS}}}pPr"
 W_JC = f"{{{W_NS}}}jc"
+W_SPACING = f"{{{W_NS}}}spacing"
+W_LINE = f"{{{W_NS}}}line"
+W_LINE_RULE = f"{{{W_NS}}}lineRule"
 W_R = f"{{{W_NS}}}r"
 W_RPR = f"{{{W_NS}}}rPr"
 W_B = f"{{{W_NS}}}b"
@@ -69,6 +73,7 @@ RPR_CANONICAL_RANK: dict[str, int] = {
 }
 
 MAX_HALF_POINTS = 3276  # 1638 pt upper bound (decision 0028 §15)
+MAX_LINE_TWIPS = 2_147_483_647
 
 
 class Reject(Exception):
