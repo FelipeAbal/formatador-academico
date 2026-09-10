@@ -12,7 +12,13 @@ Habilitar a primeira operação executável em nível de parágrafo no pipeline,
 
 Esta decisão não implementa P3, spacing, itálico, citações, referências, listas, tabelas, containers ou alterações de estilos. O objetivo é validar os trilhos de parágrafo com uma propriedade escalar, de tokens fechados e sem conversão de unidades.
 
-## 2. Princípios preservados
+## 2. Tipo XML abrangido
+
+A operação desta decisão atua exclusivamente sobre o elemento `w:pPr` de parágrafo, cujo tipo no XSD é `CT_PPr`.
+
+`CT_PPrGeneral` é um tipo distinto, usado em estilos, defaults, níveis de numeração e propriedades de estilo de tabela. Ele fica fora do escopo desta decisão. A ordem de `CT_PPr` não pode ser reutilizada por analogia para `pPr` de `styles.xml`, `numbering.xml` ou outros documentos.
+
+## 3. Princípios preservados
 
 - regras só existem quando declaradas explicitamente pelo usuário;
 - nenhuma norma é inferida do conteúdo do documento;
@@ -25,7 +31,7 @@ Esta decisão não implementa P3, spacing, itálico, citações, referências, l
 - nenhuma camada posterior pode autorizar uma operação recusada;
 - `styles.xml`, `numbering.xml`, settings e stories secundárias não são alterados.
 
-## 3. Entrada declarativa
+## 4. Entrada declarativa
 
 A propriedade `alignment` será aceita somente em `schema_version: "0.2"`.
 
@@ -61,7 +67,7 @@ Forma mínima:
 
 O conjunto declarativo deve ser fechado e explicitamente validado pelo Profile Input. O executor não pode aceitar token arbitrário recebido por JSON.
 
-## 4. Escopo executável
+## 5. Escopo executável
 
 Uma regra executável deve ter:
 
@@ -83,7 +89,7 @@ value: token canônico
 
 A operação pode criar `w:pPr` ou `w:jc` quando ausentes, desde que respeite a ordem canônica de `CT_PPr`. A operação não pode tocar qualquer outro filho ou atributo de `w:pPr`.
 
-## 5. Tokens, vocabulário e equivalências lexicais
+## 6. Tokens, vocabulário e equivalências lexicais
 
 O vocabulário exposto ao usuário é fechado e não expõe tokens internos do OOXML:
 
@@ -94,7 +100,7 @@ right
 justify
 ```
 
-O adapter converte esses valores para os tokens de escrita definidos abaixo:
+O adapter converte esses valores para os tokens de escrita definidos abaixo. O conjunto canônico abaixo é a única referência comum para comparação semântica e escrita XML:
 
 | Valor do perfil | Token escrito em `w:jc` |
 |---|---|
@@ -103,7 +109,7 @@ O adapter converte esses valores para os tokens de escrita definidos abaixo:
 | `right` | `right` |
 | `justify` | `both` |
 
-A Analysis normaliza o valor observado antes da comparação, preservando o token físico bruto em `FormattingEvidence.raw_value`:
+A Analysis normaliza o valor observado para o conjunto canônico abaixo antes da comparação, preservando o token físico bruto em `FormattingEvidence.raw_value`:
 
 - `start` e `left` são aliases lexicais equivalentes do OOXML;
 - `end` e `right` são aliases lexicais equivalentes do OOXML;
@@ -117,7 +123,9 @@ A Analysis normaliza o valor observado antes da comparação, preservando o toke
 
 Token declarado fora do vocabulário acima é erro de Profile Input. Token observado fora do conjunto tratado pela Analysis, como `distribute`, `mediumKashida`, `lowKashida`, `highKashida`, `thaiDistribute` ou `numTab`, gera revisão, nunca erro de perfil.
 
-A direção do parágrafo deve ser lida do atributo `w:bidi` no raw property bag de `pPr`. `LanguageSpec.bidi` não é essa fonte: ele se refere à informação bidirecional dentro da especificação de idioma do run e não à direção do parágrafo.\n\n## 6. Exclusões obrigatórias e camada responsável
+A direção do parágrafo deve ser lida do atributo `w:bidi` no raw property bag de `pPr`. `LanguageSpec.bidi` não é essa fonte: ele se refere à informação bidirecional dentro da especificação de idioma do run e não à direção do parágrafo.
+
+## 7. Exclusões obrigatórias e camada responsável
 
 As exclusões precisam ser tratadas na camada que conhece a razão, sem reciclar enums fechados com significado diferente.
 
@@ -157,7 +165,9 @@ O contrato deve distinguir:
 
 Nenhuma exclusão pode ser silenciosa. Parágrafos de lista e parágrafos com direção bidirecional devem aparecer no relatório humano como revisão, não como simples ausência de resultado.
 
-A decisão 0049 não cria novos valores em `DecisionReason` ou `GateReason`. Se a implementação demonstrar que um caso não pode ser representado pelos contratos atuais, a implementação deve parar e abrir emenda específica, sem reutilizar uma razão falsa.\n\n## 7. Resolução da propriedade
+A decisão 0049 não cria novos valores em `DecisionReason` ou `GateReason`. Se a implementação demonstrar que um caso não pode ser representado pelos contratos atuais, a implementação deve parar e abrir emenda específica, sem reutilizar uma razão falsa.
+
+## 8. Resolução da propriedade
 
 O Analysis continua sendo a fonte única da leitura do valor efetivo. A cadeia de evidência deve preservar se o valor veio de:
 
@@ -174,7 +184,7 @@ Não será feita mutação de `styles.xml`. O desacoplamento entre o parágrafo 
 
 A resolução de `numbering.xml` não faz parte desta decisão. A exclusão de parágrafos com `w:numPr` é a barreira temporária adotada para evitar decisões baseadas em valor efetivo incompleto.
 
-## 8. Decisão e segurança
+## 9. Decisão e segurança
 
 A matriz de decisão congelada permanece vigente:
 
@@ -188,7 +198,7 @@ A matriz de decisão congelada permanece vigente:
 
 A operação deve ser recusada quando houver qualquer dúvida sobre o alvo, o valor, a forma física, a herança relevante, a direção do texto ou a preservação dos demais campos.
 
-## 9. Review DOCX
+## 10. Review DOCX
 
 A marca de um item de parágrafo terá semântica própria:
 
@@ -209,7 +219,7 @@ Não marcar todos os runs do parágrafo. O objetivo do Review DOCX é localizar 
 
 A emenda ao contrato Review DOCX deve registrar que a marca mudou de referência: de informação sobre o run para informação sobre o alvo ao qual o run pertence.
 
-## 10. Camadas e fluxo a emendar
+## 11. Camadas e fluxo a emendar
 
 A implementação deverá emendar formalmente, sem quebrar os contratos anteriores:
 
@@ -223,7 +233,9 @@ A implementação deverá emendar formalmente, sem quebrar os contratos anterior
 
 A mudança no Processing Session não é mero afrouxamento de validação. O fluxo precisa impedir que um binding de parágrafo seja avaliado dentro do laço de runs. Com um parágrafo de cinco runs e uma regra de alinhamento, deve existir exatamente uma decisão canônica para o parágrafo e não cinco decisões idênticas.
 
-A Analysis deve ser a camada onde ocorre a normalização lexical. A Decision Layer continua comparando valores semânticos já normalizados, sem introduzir comparação especial para `w:jc`.\n\n## 11. Allowed delta e precondições
+A Analysis deve ser a camada onde ocorre a normalização lexical. A Decision Layer continua comparando valores semânticos já normalizados, sem introduzir comparação especial para `w:jc`.
+
+## 12. Allowed delta e precondições
 
 A mutação deve preservar todos os atributos e filhos de `w:pPr`, exceto a inserção ou alteração autorizada de `w:jc`.
 
@@ -232,6 +244,8 @@ O patcher deve comprovar:
 - somente `word/document.xml` foi alterado;
 - somente o parágrafo alvo foi alterado;
 - nenhum atributo ou filho não autorizado foi removido;
+- `w:pPr`, quando criado, é inserido como primeiro filho de `w:p`, antes de qualquer run, bookmark, hyperlink ou marca de revisão;
+- `w:jc`, quando criado, é inserido na posição correspondente da sequência de `CT_PPr`, depois de `spacing`, `ind` e `contextualSpacing`, e antes de `textDirection`;
 - a posição de `w:pPr` e `w:jc` respeita o schema;
 - a releitura do valor produz o mesmo valor semântico;
 - o `physical_hash` do alvo é revalidado imediatamente antes da mutação;
@@ -250,7 +264,9 @@ textAlignment, textboxTightWrap, outlineLvl, divId, cnfStyle,
 rPr, sectPr, pPrChange
 ```
 
-Essa sequência é uma hipótese de trabalho até a conferência no XSD. Nenhuma implementação deve tratá-la como autoridade sem a verificação citada.\n\n## 12. Testes mínimos
+A sequência foi verificada contra duas cópias independentes do ISO/IEC 29500-4:2016, `wml.xsd`, nas definições `CT_PPrBase` e `CT_PPr`. O procedimento também foi conferido contra a ordem de `CT_RPr` já documentada no código. A implementação deve manter essa proveniência no comentário de `P_PPR_CANONICAL_ORDER`.
+
+## 13. Testes mínimos
 
 Antes do merge, a implementação deverá incluir:
 
@@ -261,6 +277,7 @@ Antes do merge, a implementação deverá incluir:
 - `w:pPr` ausente;
 - `w:jc` ausente;
 - forma não canônica rejeitada;
+- `w:jc` sem o atributo obrigatório `w:val` é forma física inválida e deve ser rejeitado, não tratado como propriedade ausente;
 - lista com `w:numPr` não alterada e relatada;
 - tabela e story secundária não alteradas;
 - documento bidi não alterado e relatado;
@@ -289,7 +306,9 @@ Antes do merge, a implementação deverá incluir:
 - manifest com hashes e tamanhos corretos;
 - segunda passada com zero operações;
 - execução repetida determinística;
-- suíte anterior integralmente verde.\n\n## 13. Critérios de aceitação
+- suíte anterior integralmente verde.
+
+## 14. Critérios de aceitação
 
 A decisão só poderá ser congelada após:
 
