@@ -341,23 +341,35 @@ Modelos previstos:
 - Kimi: somente se surgir uma tarefa especializada com ganho claro.
 
 
-## Decisão 0049 em proposta: Paragraph Target Enablement v0.1
+## Decisão 0049 revisada após auditoria do Claude Opus
 
-Arquivo: `docs/decisions/0049-paragraph-target-enable-p4-contract.md`.
+Arquivos:
 
-A proposta foi redigida para auditoria do Claude Opus e ainda não autoriza implementação.
+- contrato: `docs/decisions/0049-paragraph-target-enable-p4-contract.md`;
+- auditoria: `docs/audits/auditoria_claude_opus_0049.md`.
 
-Escopo proposto:
+A auditoria classificou a proposta como **APROVAR COM AJUSTES**. Os ajustes foram incorporados nesta branch, sem alteração de código de produção.
 
-- primeira operação executável em nível de parágrafo;
-- P4/alignment como carga;
-- schema 0.2 como superconjunto estrito de 0.1;
-- uma fonte única para propriedades aceitas por versão;
-- equivalência `start` = `left` e `end` = `right` em texto LTR;
-- documentos bidirecionais fora do slice;
-- parágrafos com `w:numPr` fora do slice, sempre relatados;
-- Review DOCX marcando somente o primeiro run marcável do parágrafo;
-- `styles.xml`, `numbering.xml` e stories secundárias sem alteração;
-- P3, `before`, `after` e patching automático de itálico fora desta decisão.
+Correções incorporadas:
 
-A proposta deverá ser auditada pelo Claude Opus antes de qualquer implementação. Após a auditoria, o contrato poderá ser ajustado e então implementado em branch própria por ChatGPT, com Sonnet como opção para implementação estreita.
+- exemplo JSON corrigido para usar `value` em modo `exact`;
+- Analysis 0018 incluída entre as camadas a emendar;
+- normalização de `w:jc` atribuída à Analysis, preservando `raw_value`;
+- `w:bidi` de `pPr` distinguido de `LanguageSpec.bidi`;
+- exclusões com camada responsável e diferença entre `review` e `unapplied_change`;
+- fluxo do Processing Session separado entre bindings de parágrafo e de run;
+- vocabulário user-facing definido como `left`, `center`, `right` e `justify`;
+- tokens de escrita definidos, com `justify` convertido para `both`;
+- revalidação de `physical_hash` mantida como precondição, sem prometer campo inexistente no TransformRecord;
+- ordem de `CT_PPr` incluída como hipótese a conferir diretamente no `wml.xsd`;
+- testes de compatibilidade de schema, equivalência lexical, cardinalidade de decisões e marcação única adicionados;
+- `line_spacing` explicitamente fora do schema 0.2.
+
+A decisão continua pendente de aprovação final do contrato e da conferência do `wml.xsd`. Nenhuma implementação de P4 foi autorizada.
+
+Modelos previstos:
+
+- ChatGPT: integração e implementação após aprovação;
+- Claude Sonnet: implementação estreita, se desejado;
+- Claude Opus: auditoria final da ordem de `CT_PPr` e do contrato revisado;
+- Kimi: somente se surgir uma tarefa especializada com ganho claro.

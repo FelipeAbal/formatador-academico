@@ -1,6 +1,6 @@
 # Decisão 0049: Paragraph Target Enablement v0.1, com P4/alignment
 
-**Status:** PROPOSTA PARA AUDITORIA  
+**Status:** REVISADA APÓS AUDITORIA, PENDENTE DE APROVAÇÃO  
 **Data:** 2026-09-10  
 **Depende de:** decisão 0048, Product Delivery / File Naming v0.1 - freeze  
 **Auditoria prevista:** Claude Opus  
@@ -52,7 +52,7 @@ Forma mínima:
     "body": {
       "alignment": {
         "mode": "exact",
-        "preferred": "both"
+        "value": "justify"
       }
     }
   }
@@ -83,42 +83,81 @@ value: token canônico
 
 A operação pode criar `w:pPr` ou `w:jc` quando ausentes, desde que respeite a ordem canônica de `CT_PPr`. A operação não pode tocar qualquer outro filho ou atributo de `w:pPr`.
 
-## 5. Tokens e equivalências lexicais
+## 5. Tokens, vocabulário e equivalências lexicais
 
-Para o recorte P4:
+O vocabulário exposto ao usuário é fechado e não expõe tokens internos do OOXML:
 
-- o texto é considerado LTR;
-- documentos bidirecionais ficam fora do slice executável;
-- `start` e `left` são tratados como equivalentes semânticos em texto LTR;
-- `end` e `right` são tratados como equivalentes semânticos em texto LTR;
-- a equivalência é uma normalização lexical do OOXML, não uma regra normativa de formatação;
-- o valor declarado pelo usuário deve ser comparado após normalização;
-- se os valores forem semanticamente equivalentes, não há achado nem patch;
-- tokens fora do conjunto fechado são rejeitados ou encaminhados para revisão conforme a camada responsável;
-- valores de orientação bidi, tokens especializados ou casos cuja direção não possa ser determinada não entram no slice executável.
+```text
+left
+center
+right
+justify
+```
 
-O conjunto final de tokens aceitos deve ser enumerado no código e coberto por testes. Não é permitido usar comparação textual bruta quando a normalização LTR for aplicável.
+O adapter converte esses valores para os tokens de escrita definidos abaixo:
 
-## 6. Exclusões obrigatórias
+| Valor do perfil | Token escrito em `w:jc` |
+|---|---|
+| `left` | `left` |
+| `center` | `center` |
+| `right` | `right` |
+| `justify` | `both` |
 
-O alvo não pode ser executado quando:
+A Analysis normaliza o valor observado antes da comparação, preservando o token físico bruto em `FormattingEvidence.raw_value`:
 
-- o parágrafo tiver `w:numPr` direto;
-- o parágrafo herdar `w:numPr` de estilo;
-- o documento exigir resolução de `numbering.xml`;
-- o parágrafo estiver em tabela ou container não incluído no slice;
-- o parágrafo estiver sob `w:del` ou `w:ins`;
-- o parágrafo estiver em story secundária;
-- o documento for bidirecional ou tiver direção não resolvida;
-- o alvo estiver fora de `word/document.xml`;
-- houver drift entre o plano e o documento físico;
-- `pPr` ou `jc` tiver forma física não canônica;
-- o token não pertencer ao conjunto fechado;
-- a pré-condição física não puder ser comprovada.
+- `start` e `left` são aliases lexicais equivalentes do OOXML;
+- `end` e `right` são aliases lexicais equivalentes do OOXML;
+- a equivalência lexical não depende da direção do texto;
+- a intenção visual de valores como esquerda e direita depende da direção;
+- por isso, o recorte executável aceita apenas texto LTR;
+- documentos bidirecionais ou com direção não resolvida ficam fora do slice;
+- se o valor observado e o valor declarado forem semanticamente equivalentes, não há achado nem patch;
+- o token físico original permanece preservado quando não há alteração;
+- quando houver alteração, o token de escrita será o definido nesta tabela, sem tentar inferir o dialeto predominante do documento.
 
-Toda exclusão deve gerar item de revisão com razão explícita. Nenhuma lista pode ser silenciosamente omitida. O relatório humano deve tornar visível que a cobertura foi reduzida pela exclusão.
+Token declarado fora do vocabulário acima é erro de Profile Input. Token observado fora do conjunto tratado pela Analysis, como `distribute`, `mediumKashida`, `lowKashida`, `highKashida`, `thaiDistribute` ou `numTab`, gera revisão, nunca erro de perfil.
 
-## 7. Resolução da propriedade
+A direção do parágrafo deve ser lida do atributo `w:bidi` no raw property bag de `pPr`. `LanguageSpec.bidi` não é essa fonte: ele se refere à informação bidirecional dentro da especificação de idioma do run e não à direção do parágrafo.\n\n## 6. Exclusões obrigatórias e camada responsável
+
+As exclusões precisam ser tratadas na camada que conhece a razão, sem reciclar enums fechados com significado diferente.
+
+### Analysis
+
+A Analysis deve produzir `UNRESOLVED` para:
+
+- parágrafo com `w:numPr` direto ou herdado de estilo, quando a resolução depender de `numbering.xml`;
+- direção `w:bidi` presente ou não resolvida;
+- qualquer outra condição semântica que impeça declarar com segurança o alinhamento efetivo.
+
+Esses estados devem usar a cadeia de evidência e as razões de análise já previstas para valores não resolvidos, com identificadores explícitos como `numbering_alignment_unsupported` e `bidi_direction_unsupported`. A matriz congelada de decisão produzirá revisão sem criar falsos significados em `DecisionReason` ou `GateReason`.
+
+A Analysis 0018 deve ser emendada para:
+
+- ler `w:bidi` no `pPr`, sem usar `LanguageSpec.bidi`;
+- sinalizar a dependência de `numbering.xml` para alinhamento;
+- preservar o token bruto observado em `FormattingEvidence.raw_value`;
+- normalizar aliases lexicais antes da comparação;
+- manter `atLeast` e `exact` como valores observados somente no futuro contrato P3, sem relação com P4.
+
+### Processing Session e camadas posteriores
+
+As seguintes condições são identificadas pelos mecanismos já existentes e não devem ser falsamente convertidas em razões de Analysis:
+
+- tabelas e containers fora do slice;
+- stories secundárias;
+- alvo fora de `word/document.xml`;
+- `w:del` e `w:ins`;
+- drift e hash divergente;
+- forma física não canônica.
+
+O contrato deve distinguir:
+
+- `review`: condição conhecida que torna a decisão insegura, com item de revisão e razão explícita;
+- `unapplied_change`: decisão já produzida, mas operação recusada a jusante, com registro da recusa correspondente.
+
+Nenhuma exclusão pode ser silenciosa. Parágrafos de lista e parágrafos com direção bidirecional devem aparecer no relatório humano como revisão, não como simples ausência de resultado.
+
+A decisão 0049 não cria novos valores em `DecisionReason` ou `GateReason`. Se a implementação demonstrar que um caso não pode ser representado pelos contratos atuais, a implementação deve parar e abrir emenda específica, sem reutilizar uma razão falsa.\n\n## 7. Resolução da propriedade
 
 O Analysis continua sendo a fonte única da leitura do valor efetivo. A cadeia de evidência deve preservar se o valor veio de:
 
@@ -170,20 +209,21 @@ Não marcar todos os runs do parágrafo. O objetivo do Review DOCX é localizar 
 
 A emenda ao contrato Review DOCX deve registrar que a marca mudou de referência: de informação sobre o run para informação sobre o alvo ao qual o run pertence.
 
-## 10. Camadas a emendar
+## 10. Camadas e fluxo a emendar
 
 A implementação deverá emendar formalmente, sem quebrar os contratos anteriores:
 
-- Processing Session 0033: aceitar `target_type="paragraph"` para o binding previsto;
+- Analysis 0018: ler direção de `pPr/w:bidi`, sinalizar dependências de `numbering.xml`, preservar `raw_value` e normalizar aliases de `w:jc`;
+- Processing Session 0033: separar duas passagens, avaliando cada binding de parágrafo uma vez por parágrafo e cada binding de run uma vez por run;
 - Patcher 0029: habilitar `w:pPr` e `w:jc`, com `PPR_CANONICAL_ORDER` verificado contra ECMA-376;
 - TransformLog 0031: aceitar `("paragraph", "P4", "alignment")`;
 - Review DOCX 0037: aceitar item de parágrafo e aplicar a política do primeiro run marcável;
-- Profile Input 0042: aceitar `alignment` em schema 0.2;
+- Profile Input 0042: aceitar `alignment` em schema 0.2, usando uma única fonte para as propriedades suportadas por versão;
 - demais camadas: preservar os contratos existentes e aceitar apenas a extensão estritamente necessária.
 
-A constante de propriedades suportadas do Profile Input deve ter uma única fonte de verdade. O conjunto por versão não pode permanecer duplicado em `model.py` e `parser.py`.
+A mudança no Processing Session não é mero afrouxamento de validação. O fluxo precisa impedir que um binding de parágrafo seja avaliado dentro do laço de runs. Com um parágrafo de cinco runs e uma regra de alinhamento, deve existir exatamente uma decisão canônica para o parágrafo e não cinco decisões idênticas.
 
-## 11. Allowed delta
+A Analysis deve ser a camada onde ocorre a normalização lexical. A Decision Layer continua comparando valores semânticos já normalizados, sem introduzir comparação especial para `w:jc`.\n\n## 11. Allowed delta e precondições
 
 A mutação deve preservar todos os atributos e filhos de `w:pPr`, exceto a inserção ou alteração autorizada de `w:jc`.
 
@@ -194,10 +234,23 @@ O patcher deve comprovar:
 - nenhum atributo ou filho não autorizado foi removido;
 - a posição de `w:pPr` e `w:jc` respeita o schema;
 - a releitura do valor produz o mesmo valor semântico;
-- o `physical_hash` do alvo é atualizado e registrado;
-- a pós-condição do Analysis é satisfeita.
+- o `physical_hash` do alvo é revalidado imediatamente antes da mutação;
+- `target_physical_hash_after` continua sendo dívida registrada e não é adicionado ao TransformRecord nesta decisão;
+- a pós-condição da Analysis é satisfeita.
 
-## 12. Testes mínimos
+A sequência de `CT_PPrBase` deve ser verificada diretamente contra o `wml.xsd` do ECMA-376 antes do merge. O comentário e a validação devem registrar a fonte da ordem, nos moldes da documentação já existente para `CT_RPr`. A sequência prevista para revisão é:
+
+```text
+pStyle, keepNext, keepLines, pageBreakBefore, framePr, widowControl,
+numPr, suppressLineNumbers, pBdr, shd, tabs, suppressAutoHyphens,
+kinsoku, wordWrap, overflowPunct, topLinePunct, autoSpaceDE,
+autoSpaceDN, bidi, adjustRightInd, snapToGrid, spacing, ind,
+contextualSpacing, mirrorIndents, suppressOverlap, jc, textDirection,
+textAlignment, textboxTightWrap, outlineLvl, divId, cnfStyle,
+rPr, sectPr, pPrChange
+```
+
+Essa sequência é uma hipótese de trabalho até a conferência no XSD. Nenhuma implementação deve tratá-la como autoridade sem a verificação citada.\n\n## 12. Testes mínimos
 
 Antes do merge, a implementação deverá incluir:
 
@@ -211,25 +264,32 @@ Antes do merge, a implementação deverá incluir:
 - lista com `w:numPr` não alterada e relatada;
 - tabela e story secundária não alteradas;
 - documento bidi não alterado e relatado;
-- `start` equivalente a `left`;
-- `end` equivalente a `right`;
-- token não suportado;
+- direção lida de `pPr/w:bidi`, nunca de `LanguageSpec.bidi`;
+- `start` observado equivalente a `left` declarado;
+- `end` observado equivalente a `right` declarado;
+- equivalência lexical produz zero operações e preserva o token físico original;
+- vocabulário declarado aceita `justify` e mapeia para `both`;
+- token OOXML observado não tratado gera revisão;
+- token declarado não suportado é rejeitado no Profile Input;
+- perfil `schema_version 0.1` que declara `alignment` é rejeitado;
+- `line_spacing` não é aceito em schema 0.2;
 - valor ausente;
 - regra ausente;
 - modo `preserve`;
 - modo `set` não determinístico;
 - parágrafo sob revisão;
+- parágrafo com cinco runs produz exatamente uma decisão;
+- parágrafo com achado de run e de parágrafo produz uma única marca;
 - primeiro run marcável;
 - nenhum run marcável;
 - marca preexistente preservada;
 - relatório JSON e Markdown coerentes;
+- exclusão de lista e bidi aparece no relatório humano com razão explícita;
 - ProductOutputBundle com cinco arquivos;
 - manifest com hashes e tamanhos corretos;
 - segunda passada com zero operações;
 - execução repetida determinística;
-- suíte anterior integralmente verde.
-
-## 13. Critérios de aceitação
+- suíte anterior integralmente verde.\n\n## 13. Critérios de aceitação
 
 A decisão só poderá ser congelada após:
 
