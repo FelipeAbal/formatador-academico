@@ -135,7 +135,7 @@ def decide_property(rule_or_none: FormattingRule | None, resolved: ResolvedValue
         if observed.rule != "auto" or observed.unit != "multiple":
             return _decision(
                 context, resolved, compliance=ComplianceStatus.NON_COMPLIANT,
-                actionability=Actionability.REVIEW,
+                actionability=Actionability.HUMAN_CHOICE,
                 reason=DecisionReason.HUMAN_CHOICE_REQUIRED,
                 observed=observed, rule_ref=ref, evidence_ref=evidence,
             )
