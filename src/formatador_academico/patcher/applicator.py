@@ -41,9 +41,13 @@ from .model import (
 )
 from .package import read_package_parts, repackage, verify_package_scope
 from .validation import relread_document_xml, validate_allowed_delta, verify_postcondition
-from .xml_patch import Reject, W_R, mutate_run
+from .xml_patch import Reject, W_P, W_R, mutate_paragraph, mutate_run
 
-_EXECUTABLE_SLICE = frozenset({("run", "P1", "bold"), ("run", "P2", "font_size")})
+_EXECUTABLE_SLICE = frozenset({
+    ("run", "P1", "bold"),
+    ("run", "P2", "font_size"),
+    ("paragraph", "P4", "alignment"),
+})
 
 
 def _sha256(data: bytes) -> str:
@@ -89,7 +93,7 @@ def apply_cleared_operation(
     if (
         operation.kind is not OperationKind.SET_PROPERTY
         or (key.target_type, key.aspect_id, key.property_slot) not in _EXECUTABLE_SLICE
-        or operation.target.target_type != "run"
+        or operation.target.target_type != key.target_type
     ):
         return rejected(PatchReason.UNSUPPORTED_OPERATION)
 
@@ -111,9 +115,10 @@ def apply_cleared_operation(
             raise PatcherIntegrityError(
                 f"snapshot matched but target path does not resolve: {exc}"
             ) from exc
-        if not isinstance(target.tag, str) or target.tag != W_R:
+        expected_tag = W_P if key.target_type == "paragraph" else W_R
+        if not isinstance(target.tag, str) or target.tag != expected_tag:
             raise PatcherIntegrityError(
-                "snapshot matched but the resolved target is not a w:r"
+                f"snapshot matched but the resolved target is not a {expected_tag}"
             )
 
         # Step 5 — mandatory physical identity recheck (parser semantics).
@@ -127,7 +132,10 @@ def apply_cleared_operation(
             )
 
         # Mutation (ordinary shape rejections surface as PatchResult).
-        mutate_run(target, key.property_slot, operation.desired_value)
+        if key.target_type == "paragraph":
+            mutate_paragraph(target, key.property_slot, operation.desired_value)
+        else:
+            mutate_run(target, key.property_slot, operation.desired_value)
     except Reject as exc:
         return rejected(exc.reason)
 
