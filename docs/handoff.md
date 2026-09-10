@@ -464,3 +464,29 @@ Também foram incorporados ao contrato 0051:
 - compatibilidade temporária documentada de `NONCANONICAL_RUN_PROPERTIES` para propriedades de parágrafo.
 
 O PR #29 permanece aberto como rascunho documental. A implementação de P3 ainda não começou. Próximo passo após CI: congelar o contrato, caso não surja nova objeção, e iniciar a implementação em ciclo próprio.
+
+
+## P3 em implementação: `spacing.line`
+
+O contrato 0051 foi aprovado após a auditoria Claude Opus e a implementação inicial está na branch `implement-0051-p3-line-spacing`, PR #29.
+
+Já integrado na branch:
+
+- Profile Input schema 0.3, cumulativo com 0.1 e 0.2;
+- declaração pública de múltiplos de linha, com `rule="auto"` implícito;
+- conversão exata por aritmética inteira sobre unidades de 240 avos de linha;
+- adapter para `paragraph/P3/spacing.line`;
+- validação de invariantes no Processing Session;
+- Analysis com leitura observacional de `auto`, `atLeast` e `exact`;
+- `lineRule` sem `line` não mascara valor herdado;
+- unidades universais como `18pt` tratadas como não suportadas;
+- listas e bidi bloqueados no slot de spacing;
+- Decision Layer impede troca automática de `exact` ou `atLeast` para `auto`;
+- Patcher altera somente `w:line` e `w:lineRule`, preservando os demais atributos de `w:spacing`;
+- Transform Log e Review DOCX reconhecem P3;
+- correção independente de `mirrorInd` para `mirrorIndents`, com regressão;
+- auditoria integral registrada em `docs/audits/auditoria_claude_opus_0051.md`.
+
+CI atual: **752/752 testes verdes**, run `34516146609`.
+
+Antes do merge ainda faltam a matriz adversarial específica de P3, a comparação programática da ordem canônica contra o XSD versionado, a validação automatizada dos exemplos JSON dos contratos e uma inspeção final do diff. O PR permanece aberto até essa revisão.
