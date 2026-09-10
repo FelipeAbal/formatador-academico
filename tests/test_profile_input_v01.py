@@ -338,6 +338,21 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(by_id["body:font_size"].rule.preferred, Decimal("12"))
         self.assertIsNone(by_id["body:bold"].rule.path)
 
+    def test_schema_02_alignment_adapts_to_paragraph_binding(self):
+        model = parse_profile_input_json(
+            _json(
+                {"body": {"alignment": {"mode": "exact", "value": "justify"}},
+                schema="0.2",
+            )
+        )
+        profile = build_processing_profile(model)
+        self.assertEqual(len(profile.bindings), 1)
+        binding = profile.bindings[0]
+        self.assertEqual(binding.target_type, "paragraph")
+        self.assertEqual(binding.rule.aspect_id, "P4")
+        self.assertEqual(binding.rule.property_slot, "alignment")
+        self.assertEqual(binding.rule.expected, "both")
+
     def test_no_absent_binding_or_cross_class_inheritance(self):
         profile = processing_profile_from_json(_json({"body": {"font_size": {"mode": "exact", "value": 12}}}))
         self.assertEqual(len(profile.bindings), 1)
