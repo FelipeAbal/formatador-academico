@@ -76,7 +76,7 @@ A Analysis deve continuar lendo a informação efetivamente presente no document
 - a unidade observada deve permanecer distinguível de `multiple`, quando aplicável;
 - ausência, token inválido ou valor lexical inválido não deve ser convertido em um valor presumido.
 
-A comparação entre o valor desejado e o observado deve ser semântica. A mudança determinística só é autorizada quando a observação resolvida já tiver `rule="auto"`, `unit="multiple"` e valor válido. Observações `atLeast` e `exact` devem permanecer sem patch automático e ser encaminhadas para revisão como `UNRESOLVED`, com razão explícita `line_rule_not_auto_unsupported`. O Patcher não deve ser usado como bloqueio tardio, pois uma rejeição nessa etapa derruba a sessão.
+A comparação entre o valor desejado e o observado deve ser semântica. A mudança determinística só é autorizada quando a observação resolvida já tiver `rule="auto"`, `unit="multiple"` e valor válido. Observações `atLeast` e `exact` devem permanecer sem patch automático e exigir escolha humana, com `HUMAN_CHOICE` e razão explícita `human_choice_required`. O Patcher não deve ser usado como bloqueio tardio, pois uma rejeição nessa etapa derruba a sessão.
 
 ## 5. Seleção do alvo
 
@@ -165,7 +165,7 @@ Se nenhum run for marcável, o resultado deve permanecer sem marca e conter `no_
 3. A conversão usa aritmética inteira exata sobre `Decimal.as_tuple()`. Valores não representáveis no limite de `ST_SignedTwipsMeasure` são `UnsupportedError`.
 4. `lineRule` ausente com `line` presente usa o default `auto` do XSD. `lineRule` presente sem `line` é `UNRESOLVED` e não interrompe a cascata.
 5. Unidades universais como `18pt` são válidas no OOXML, mas ficam fora da capacidade declarativa deste slice e devem ser tratadas como não suportadas.
-6. `atLeast` e `exact` observados nunca são convertidos automaticamente para `auto`; seguem para revisão.
+6. `atLeast` e `exact` observados nunca são convertidos automaticamente para `auto`; seguem para escolha humana.
 7. As guardas de numbering e bidi precisam ser implementadas no slot de spacing. Elas não são herdadas da resolução de alignment.
 8. A preservação dos atributos não P3 de `w:spacing` é uma invariante verificada por releitura.
 9. O XML escrito sempre contém `w:line` e `w:lineRule="auto"` explicitamente.
@@ -178,7 +178,7 @@ Se nenhum run for marcável, o resultado deve permanecer sem marca e conter `no_
 - Valor não múltiplo, negativo, zero ou fora dos limites é rejeitado.
 - Analysis lê `auto`, `atLeast` e `exact`.
 - Ausência e tokens inválidos permanecem não resolvidos.
-- Observações `exact` e `atLeast` não são alteradas e geram revisão.
+- Observações `exact` e `atLeast` não são alteradas e exigem escolha humana.
 - `lineRule` sem `line` não mascara valor herdado.
 - `w:line="18pt"` é tratado como não suportado, não como inválido.
 - Patcher cria `pPr` e `spacing` na posição canônica.
