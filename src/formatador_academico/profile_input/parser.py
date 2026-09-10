@@ -1,4 +1,4 @@
-"""Strict JSON parser for Profile Input / Form Schema v0.2 (decisions 0040 and 0049)."""
+"""Strict JSON parser for Profile Input / Form Schema v0.3 (decisions 0040, 0049 and 0051)."""
 from __future__ import annotations
 
 import json

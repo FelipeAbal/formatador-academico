@@ -20,6 +20,7 @@ from lxml import etree
 
 from ..docx_parser import W_NS
 from ..operation_plan.model import LengthValue
+from ..decision.model import LineSpacingValue
 from .model import PatchReason
 
 MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -27,6 +28,9 @@ MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
 W_P = f"{{{W_NS}}}p"
 W_PPR = f"{{{W_NS}}}pPr"
 W_JC = f"{{{W_NS}}}jc"
+W_SPACING = f"{{{W_NS}}}spacing"
+W_LINE = f"{{{W_NS}}}line"
+W_LINE_RULE = f"{{{W_NS}}}lineRule"
 W_R = f"{{{W_NS}}}r"
 W_RPR = f"{{{W_NS}}}rPr"
 W_B = f"{{{W_NS}}}b"
@@ -40,7 +44,7 @@ PPR_CANONICAL_ORDER: tuple[str, ...] = (
     "widowControl", "numPr", "suppressLineNumbers", "pBdr", "shd", "tabs",
     "suppressAutoHyphens", "kinsoku", "wordWrap", "overflowPunct",
     "topLinePunct", "autoSpaceDE", "autoSpaceDN", "bidi", "adjustRightInd",
-    "snapToGrid", "spacing", "ind", "contextualSpacing", "mirrorInd",
+    "snapToGrid", "spacing", "ind", "contextualSpacing", "mirrorIndents",
     "suppressOverlap", "jc", "textDirection", "textAlignment",
     "textboxTightWrap", "outlineLvl", "divId", "cnfStyle", "rPr",
     "sectPr", "pPrChange",
@@ -69,6 +73,7 @@ RPR_CANONICAL_RANK: dict[str, int] = {
 }
 
 MAX_HALF_POINTS = 3276  # 1638 pt upper bound (decision 0028 §15)
+MAX_LINE_TWIPS = 2_147_483_647
 
 
 class Reject(Exception):
@@ -194,6 +199,53 @@ def ensure_ppr(paragraph: etree._Element, ppr: etree._Element | None) -> etree._
     paragraph.insert(0, ppr)
     return ppr
 
+
+
+def line_twips_lexical(desired: LineSpacingValue) -> str:
+    if not isinstance(desired, LineSpacingValue):
+        raise Reject(PatchReason.UNSUPPORTED_OPERATION, "spacing.line desired value must be LineSpacingValue")
+    if desired.rule != "auto" or desired.unit != "multiple" or desired.value is None:
+        raise Reject(PatchReason.UNREPRESENTABLE_VALUE, "spacing.line must be an auto multiple")
+    value = desired.value
+    if not isinstance(value, Decimal) or not value.is_finite() or value <= 0:
+        raise Reject(PatchReason.UNREPRESENTABLE_VALUE, "spacing.line multiple must be finite and positive")
+    sign, digits, exponent = value.as_tuple()
+    coefficient = 0
+    for digit in digits:
+        coefficient = coefficient * 10 + digit
+    if exponent >= 0:
+        numerator, denominator = coefficient * (10 ** exponent) * 240, 1
+    else:
+        numerator, denominator = coefficient * 240, 10 ** (-exponent)
+    if numerator % denominator:
+        raise Reject(PatchReason.UNREPRESENTABLE_VALUE, "spacing.line is not exactly representable in auto-line units")
+    twips = numerator // denominator
+    if twips > MAX_LINE_TWIPS:
+        raise Reject(PatchReason.UNREPRESENTABLE_VALUE, "spacing.line exceeds the OOXML range")
+    return str(twips)
+
+
+_SPACING_ATTRS = {
+    f"{{{W_NS}}}before", f"{{{W_NS}}}beforeLines", f"{{{W_NS}}}beforeAutospacing",
+    f"{{{W_NS}}}after", f"{{{W_NS}}}afterLines", f"{{{W_NS}}}afterAutospacing",
+    W_LINE, W_LINE_RULE,
+}
+
+
+def apply_spacing_line(paragraph: etree._Element, ppr: etree._Element, desired: LineSpacingValue) -> None:
+    lexical = line_twips_lexical(desired)
+    targets = _direct_children(ppr, W_SPACING)
+    if targets:
+        element = targets[0]
+        if _element_children(element) or set(element.attrib) - _SPACING_ATTRS:
+            raise Reject(PatchReason.NONCANONICAL_RUN_PROPERTIES, "direct w:spacing is outside the canonical shape")
+        element.set(W_LINE, lexical)
+        element.set(W_LINE_RULE, "auto")
+    else:
+        element = etree.Element(W_SPACING)
+        element.set(W_LINE, lexical)
+        element.set(W_LINE_RULE, "auto")
+        _insert_ppr_canonical(ppr, element)
 
 def apply_alignment(paragraph: etree._Element, ppr: etree._Element, desired: str) -> None:
     if desired not in {"left", "center", "right", "both"}:
@@ -382,11 +434,15 @@ def apply_font_size(run: etree._Element, rpr: etree._Element, desired: LengthVal
 
 
 def mutate_paragraph(paragraph: etree._Element, property_slot: str, desired) -> None:
-    if property_slot != "alignment":
+    target_tag = {"alignment": W_JC, "spacing.line": W_SPACING}.get(property_slot)
+    if target_tag is None:
         raise Reject(PatchReason.UNSUPPORTED_OPERATION, f"unsupported paragraph property: {property_slot}")
-    ppr = validate_ppr_shape(paragraph, W_JC)
+    ppr = validate_ppr_shape(paragraph, target_tag)
     ppr = ensure_ppr(paragraph, ppr)
-    apply_alignment(paragraph, ppr, desired)
+    if property_slot == "alignment":
+        apply_alignment(paragraph, ppr, desired)
+    else:
+        apply_spacing_line(paragraph, ppr, desired)
 
 
 def mutate_run(run: etree._Element, property_slot: str, desired) -> None:

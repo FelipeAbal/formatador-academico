@@ -23,6 +23,7 @@ from lxml import etree
 
 from ..analysis.formatting import resolve_paragraph_formatting, resolve_run_formatting
 from ..analysis.formatting_model import Length, ResolutionStatus
+from ..decision.model import LineSpacingValue
 from ..analysis.style_catalog import build_style_catalog
 from ..decision.model import DecisionKey
 from ..decision.vocabulary import extract_resolved_value
@@ -32,7 +33,7 @@ from ..safety_gate.targets import find_story, paragraph_ancestor, resolve_target
 from .. import parser_api
 from .document import parse_document_xml
 from .model import DOCUMENT_PART, PatcherIntegrityError
-from .xml_patch import PPR_CANONICAL_RANK, RPR_CANONICAL_RANK, W_B, W_JC, W_P, W_PPR, W_R, W_RPR, W_SZ, W_VAL
+from .xml_patch import PPR_CANONICAL_RANK, RPR_CANONICAL_RANK, W_B, W_JC, W_LINE, W_LINE_RULE, W_P, W_PPR, W_R, W_RPR, W_SPACING, W_SZ, W_VAL
 
 _TARGET_TAG = {"bold": W_B, "font_size": W_SZ}
 _TARGET_KEY = {
@@ -150,6 +151,54 @@ def _check_output_alignment(paragraph: etree._Element, desired: str) -> None:
         )
 
 
+
+
+def _line_twips(desired: LineSpacingValue) -> str:
+    value = desired.value
+    sign, digits, exponent = value.as_tuple()
+    coefficient = 0
+    for digit in digits:
+        coefficient = coefficient * 10 + digit
+    if exponent >= 0:
+        return str(coefficient * (10 ** exponent) * 240)
+    numerator, denominator = coefficient * 240, 10 ** (-exponent)
+    if numerator % denominator:
+        raise PatcherIntegrityError("desired spacing.line is not exactly representable")
+    return str(numerator // denominator)
+
+
+def _strip_spacing_line_for_comparison(paragraph: etree._Element) -> None:
+    for ppr in _direct(paragraph, W_PPR):
+        for spacing in _direct(ppr, W_SPACING):
+            for attr in (W_LINE, W_LINE_RULE):
+                spacing.attrib.pop(attr, None)
+            if not spacing.attrib and not [c for c in spacing if isinstance(c.tag, str)]:
+                ppr.remove(spacing)
+        if not [c for c in ppr if isinstance(c.tag, str)] and not ppr.attrib:
+            paragraph.remove(ppr)
+
+
+def _check_output_spacing_line(paragraph: etree._Element, desired: LineSpacingValue) -> None:
+    pprs = _direct(paragraph, W_PPR)
+    if len(pprs) != 1:
+        raise PatcherIntegrityError("output paragraph must contain exactly one direct w:pPr")
+    ppr = pprs[0]
+    ranks = [PPR_CANONICAL_RANK.get(c.tag) for c in ppr if isinstance(c.tag, str)]
+    if any(rank is None for rank in ranks) or ranks != sorted(ranks):
+        raise PatcherIntegrityError("output w:pPr children are not in canonical schema order")
+    targets = _direct(ppr, W_SPACING)
+    if len(targets) != 1:
+        raise PatcherIntegrityError("output paragraph must contain exactly one direct w:spacing")
+    element = targets[0]
+    allowed = {W_LINE, W_LINE_RULE, f"{{{W_NS}}}before", f"{{{W_NS}}}beforeLines", f"{{{W_NS}}}beforeAutospacing", f"{{{W_NS}}}after", f"{{{W_NS}}}afterLines", f"{{{W_NS}}}afterAutospacing"}
+    if set(element.attrib) - allowed:
+        raise PatcherIntegrityError("output w:spacing carries unknown attributes")
+    if [c for c in element if isinstance(c.tag, str)]:
+        raise PatcherIntegrityError("output w:spacing must not have element children")
+    if element.get(W_LINE_RULE) != "auto" or element.get(W_LINE) != _line_twips(desired):
+        raise PatcherIntegrityError("output w:spacing line is not canonical")
+
+
 def _validate_alignment_delta(
     original_document_xml: bytes,
     output_document_xml: bytes,
@@ -186,6 +235,29 @@ def _validate_alignment_delta(
         )
 
 
+
+
+def _validate_spacing_line_delta(original_document_xml: bytes, output_document_xml: bytes, target_path: str, desired: LineSpacingValue) -> None:
+    original_tree = parse_document_xml(original_document_xml, DOCUMENT_PART)
+    output_tree = parse_document_xml(output_document_xml, DOCUMENT_PART)
+    try:
+        original_paragraph = parser_api.resolve_structural_path(original_tree.getroot(), target_path)
+        output_paragraph = parser_api.resolve_structural_path(output_tree.getroot(), target_path)
+    except parser_api.StructuralPathError as exc:
+        raise PatcherIntegrityError(f"spacing.line target resolution failed: {exc}") from exc
+    if original_paragraph.tag != W_P or output_paragraph.tag != W_P:
+        raise PatcherIntegrityError("spacing.line target is not a w:p in both documents")
+    _check_output_spacing_line(output_paragraph, desired)
+    _strip_spacing_line_for_comparison(original_paragraph)
+    _strip_spacing_line_for_comparison(output_paragraph)
+    if _c14n(original_tree.getroot()) != _c14n(output_tree.getroot()):
+        raise PatcherIntegrityError("allowed-delta violation: document XML differs beyond paragraph spacing.line")
+    if _prolog_epilog(original_tree.getroot()) != _prolog_epilog(output_tree.getroot()):
+        raise PatcherIntegrityError("allowed-delta violation: XML prolog/epilog changed")
+    if _docinfo_fingerprint(original_tree) != _docinfo_fingerprint(output_tree):
+        raise PatcherIntegrityError("allowed-delta violation: XML declaration semantics changed")
+
+
 def validate_allowed_delta(
     original_document_xml: bytes,
     output_document_xml: bytes,
@@ -194,6 +266,10 @@ def validate_allowed_delta(
     desired,
 ) -> None:
     """Narrow authorized-delta proof over relread output bytes (§20)."""
+
+    if property_slot == "spacing.line":
+        _validate_spacing_line_delta(original_document_xml, output_document_xml, target_path, desired)
+        return
 
     if property_slot == "alignment":
         _validate_alignment_delta(
@@ -258,13 +334,22 @@ def verify_postcondition(output_package_bytes: bytes, operation) -> None:
         if record.get("source_type") != "paragraph":
             raise PatcherIntegrityError("postcondition target is not a paragraph record")
         analysis = resolve_paragraph_formatting(record, catalog, DOCUMENT_PART)
-        key = DecisionKey("paragraph", "P4", "alignment")
+        key = DecisionKey("paragraph", operation.key.aspect_id, operation.key.property_slot)
         resolved = extract_resolved_value(key, analysis)
         if resolved.status is not ResolutionStatus.RESOLVED:
             raise PatcherIntegrityError(
                 f"postcondition Analysis did not resolve paragraph alignment: {resolved.status}"
             )
-        if resolved.value != operation.desired_value:
+        if operation.key.property_slot == "spacing.line":
+            desired = operation.desired_value
+            current = resolved.value
+            if not isinstance(desired, LineSpacingValue):
+                raise PatcherIntegrityError("spacing.line postcondition desired value is invalid")
+            if current.rule != "auto" or current.unit != "multiple" or current.value != desired.value:
+                raise PatcherIntegrityError(
+                    f"postcondition mismatch: current {current!r} != desired {desired!r}"
+                )
+        elif resolved.value != operation.desired_value:
             raise PatcherIntegrityError(
                 f"postcondition mismatch: current {resolved.value!r} != desired "
                 f"{operation.desired_value!r}"

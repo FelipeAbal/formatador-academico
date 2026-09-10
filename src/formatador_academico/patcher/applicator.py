@@ -47,6 +47,7 @@ _EXECUTABLE_SLICE = frozenset({
     ("run", "P1", "bold"),
     ("run", "P2", "font_size"),
     ("paragraph", "P4", "alignment"),
+    ("paragraph", "P3", "spacing.line"),
 })
 
 

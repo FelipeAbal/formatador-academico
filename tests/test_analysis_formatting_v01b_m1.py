@@ -488,6 +488,36 @@ class ParagraphCascadeTests(unittest.TestCase):
         self.assertEqual(ls.value.value, Decimal("1.5"))
         self.assertEqual(ls.value.unit, "multiple")
 
+    def test_spacing_line_rule_defaults_to_auto(self):
+        rp = resolve_par('<w:p><w:pPr><w:spacing w:line="360"/></w:pPr>'
+                         '<w:r><w:t>a</w:t></w:r></w:p>')
+        self.assertEqual(rp.spacing.line.status, RES.RESOLVED)
+        self.assertEqual(rp.spacing.line.value.rule, "auto")
+        self.assertEqual(rp.spacing.line.value.value, Decimal("1.5"))
+
+    def test_spacing_line_rule_without_line_is_unresolved(self):
+        rp = resolve_par('<w:p><w:pPr><w:spacing w:lineRule="auto"/></w:pPr>'
+                         '<w:r><w:t>a</w:t></w:r></w:p>')
+        self.assertEqual(rp.spacing.line.status, RES.UNRESOLVED)
+        self.assertEqual(rp.spacing.line.reason, "line_rule_without_line_unsupported")
+
+    def test_spacing_universal_measure_is_unsupported(self):
+        rp = resolve_par('<w:p><w:pPr><w:spacing w:line="18pt"/></w:pPr>'
+                         '<w:r><w:t>a</w:t></w:r></w:p>')
+        self.assertEqual(rp.spacing.line.status, RES.UNRESOLVED)
+
+    def test_spacing_numbering_and_bidi_are_outside_slice(self):
+        for property_xml, reason in ((
+            '<w:numPr><w:ilvl w:val="0"/></w:numPr>',
+            "numbering_spacing_unsupported",
+        ), ('<w:bidi w:val="1"/>', "bidi_direction_unsupported")):
+            with self.subTest(reason=reason):
+                rp = resolve_par('<w:p><w:pPr>' + property_xml +
+                                 '<w:spacing w:line="360"/></w:pPr>'
+                                 '<w:r><w:t>a</w:t></w:r></w:p>')
+                self.assertEqual(rp.spacing.line.status, RES.UNRESOLVED)
+                self.assertEqual(rp.spacing.line.reason, reason)
+
     def test_spacing_exact_and_atleast(self):
         rp = resolve_par('<w:p><w:pPr><w:spacing w:line="240" w:lineRule="exact"/></w:pPr>'
                          '<w:r><w:t>a</w:t></w:r></w:p>')

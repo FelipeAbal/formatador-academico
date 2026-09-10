@@ -12,7 +12,10 @@ from typing import Any, Callable
 
 from .formatting_model import (
     R_AUTOSPACING,
+    R_LINE_RULE_NOT_AUTO,
+    R_LINE_WITHOUT_VALUE,
     R_NUMBERING_ALIGNMENT,
+    R_NUMBERING_SPACING,
     R_BIDI_DIRECTION,
     R_ALIGNMENT_TOKEN,
     R_NUMBERING_INDENT,
@@ -257,11 +260,14 @@ def _conv_hundredths_of_line(attr: str) -> Callable[[Any], Decimal]:
 
 def _conv_line_spacing(prop) -> LineSpacing:
     raw_line = _attr(prop, "w:line"); raw_rule = _attr(prop, "w:lineRule"); rule = raw_rule or "auto"
-    if raw_line is None: return LineSpacing(rule=rule, value=None, unit=None, raw_line=None, raw_rule=raw_rule)
+    if raw_line is None:
+        raise _UnsupportedObserved()
+    if not raw_line.lstrip("-").isdigit():
+        raise _UnsupportedObserved()
     line = _int_lexical(raw_line)
     if rule == "auto": return LineSpacing(rule=rule, value=Decimal(line) / 240, unit="multiple", raw_line=raw_line, raw_rule=raw_rule)
     if rule in ("atLeast", "exact"): return LineSpacing(rule=rule, value=Decimal(line) / 20, unit="pt", raw_line=raw_line, raw_rule=raw_rule)
-    return LineSpacing(rule=rule, value=None, unit=None, raw_line=raw_line, raw_rule=raw_rule)
+    raise _UnsupportedObserved()
 
 
 def _conv_token(prop) -> str:
@@ -473,13 +479,24 @@ def _resolve_indent_slot(slot: str, attr: str, chars_attr: str, levels: tuple[_L
 
 
 def _resolve_spacing_slot(slot_attrs: tuple[str,...], auto_attr: str|None, convert: Callable[[Any],Any],
-                          raw_of: Callable[[Any],str|None], levels: tuple[_Level,...], warnings: list[AnalysisWarning]) -> ResolvedValue:
+                          raw_of: Callable[[Any],str|None], levels: tuple[_Level,...], warnings: list[AnalysisWarning], *,
+                          numbering_relevant: bool = False, bidi_relevant: bool = False, line_slot: bool = False) -> ResolvedValue:
     chain: list[LevelEvidence]=[]
+    if numbering_relevant:
+        return ResolvedValue(ResolutionStatus.UNRESOLVED, None, None, (), R_NUMBERING_SPACING)
+    if bidi_relevant:
+        return ResolvedValue(ResolutionStatus.UNRESOLVED, None, None, (), R_BIDI_DIRECTION)
+    malformed_line = False
     for level in levels:
         if level.blocked is not None:
             chain.append(LevelEvidence(level.name,False,level.blocked,None)); return ResolvedValue(ResolutionStatus.UNRESOLVED,None,None,tuple(chain),level.blocked)
         spacings=[] if level.bag is None else [e for e in level.bag.entries if e.property_name=="w:spacing"]
-        target=next((sp for sp in spacings if any(_attr(sp,a) is not None for a in slot_attrs)),None)
+        if line_slot:
+            for sp in spacings:
+                if _attr(sp, "w:line") is None and _attr(sp, "w:lineRule") is not None:
+                    malformed_line = True
+                    chain.append(LevelEvidence(level.name,True,"line_rule_without_line",_evidence(level,sp,_attr(sp,"w:lineRule"))))
+        target=next((sp for sp in spacings if any(_attr(sp,a) is not None for a in slot_attrs) and (not line_slot or _attr(sp,"w:line") is not None)),None)
         if target is None and auto_attr is not None:
             for sp in spacings:
                 if _truthy(_attr(sp,auto_attr)):
@@ -487,9 +504,15 @@ def _resolve_spacing_slot(slot_attrs: tuple[str,...], auto_attr: str|None, conve
         if target is None: chain.append(LevelEvidence(level.name,False,"not_declared",None)); continue
         ev=_evidence(level,target,raw_of(target))
         try: value=convert(target)
+        except _UnsupportedObserved:
+            chain.append(LevelEvidence(level.name,True,"unsupported",ev))
+            reason = R_LINE_RULE_NOT_AUTO if _attr(target,"w:lineRule") in {"exact","atLeast"} else R_LINE_WITHOUT_VALUE
+            return ResolvedValue(ResolutionStatus.UNRESOLVED,None,None,tuple(chain),reason)
         except _InvalidLexical:
             chain.append(LevelEvidence(level.name,True,"invalid",ev)); _warn(warnings,W_INVALID_VALUE,f"Invalid lexical value for w:spacing {slot_attrs[0]}: {raw_of(target)!r}.",target.structural_path); return ResolvedValue(ResolutionStatus.INVALID,None,None,tuple(chain),None)
         chain.append(LevelEvidence(level.name,True,level.detail_override or "declared",ev)); return ResolvedValue(ResolutionStatus.RESOLVED,value,ev,tuple(chain),None)
+    if malformed_line:
+        return ResolvedValue(ResolutionStatus.UNRESOLVED,None,None,tuple(chain),R_LINE_WITHOUT_VALUE)
     return ResolvedValue(ResolutionStatus.ABSENT,None,None,tuple(chain),None)
 
 
@@ -510,8 +533,13 @@ def resolve_paragraph_formatting(paragraph: dict[str,Any], catalog: StyleCatalog
     style_levels=_resolve_start_style(catalog,pstyle_id,"paragraph","paragraph_style","ppr_bag",warnings,True,anchor)
     doc_defaults=_doc_defaults_level(catalog,"ppr_bag"); all_levels=(direct_level,*style_levels,doc_defaults)
     alignment=_resolve_alignment(all_levels,warnings)
-    spacing=SpacingSpec(before=_resolve_spacing_slot(("w:before",),"w:beforeAutospacing",_conv_twips("w:before"),lambda p:_attr(p,"w:before"),all_levels,warnings),after=_resolve_spacing_slot(("w:after",),"w:afterAutospacing",_conv_twips("w:after"),lambda p:_attr(p,"w:after"),all_levels,warnings),before_lines=_resolve_spacing_slot(("w:beforeLines",),None,_conv_hundredths_of_line("w:beforeLines"),lambda p:_attr(p,"w:beforeLines"),all_levels,warnings),after_lines=_resolve_spacing_slot(("w:afterLines",),None,_conv_hundredths_of_line("w:afterLines"),lambda p:_attr(p,"w:afterLines"),all_levels,warnings),line=_resolve_spacing_slot(("w:line","w:lineRule"),None,_conv_line_spacing,lambda p:_attr(p,"w:line") or _attr(p,"w:lineRule"),all_levels,warnings))
     numbering_relevant=_has_property(direct_bag,"w:numPr") or any(_has_property(level.bag,"w:numPr") for level in style_levels)
+    def _bidi_active(level: _Level) -> bool:
+        if level.bag is None: return False
+        props = [e for e in level.bag.entries if e.property_name == "w:bidi"]
+        return any((_attr(p,"w:val") is None) or _truthy(_attr(p,"w:val")) for p in props)
+    bidi_relevant=any(_bidi_active(level) for level in all_levels)
+    spacing=SpacingSpec(before=_resolve_spacing_slot(("w:before",),"w:beforeAutospacing",_conv_twips("w:before"),lambda p:_attr(p,"w:before"),all_levels,warnings),after=_resolve_spacing_slot(("w:after",),"w:afterAutospacing",_conv_twips("w:after"),lambda p:_attr(p,"w:after"),all_levels,warnings),before_lines=_resolve_spacing_slot(("w:beforeLines",),None,_conv_hundredths_of_line("w:beforeLines"),lambda p:_attr(p,"w:beforeLines"),all_levels,warnings),after_lines=_resolve_spacing_slot(("w:afterLines",),None,_conv_hundredths_of_line("w:afterLines"),lambda p:_attr(p,"w:afterLines"),all_levels,warnings),line=_resolve_spacing_slot(("w:line","w:lineRule"),None,_conv_line_spacing,lambda p:_attr(p,"w:line") or _attr(p,"w:lineRule"),all_levels,warnings,numbering_relevant=numbering_relevant,bidi_relevant=bidi_relevant,line_slot=True))
     indents=IndentSpec(**{slot:_resolve_indent_slot(slot,attr,chars,all_levels,numbering_relevant,part,warnings) for slot,attr,chars in _INDENT_SLOTS})
     return ResolvedParagraphFormatting(paragraph["structural_path"],paragraph["physical_hash"],paragraph_style_id,alignment,spacing,indents,_dedupe_warnings(warnings))
 

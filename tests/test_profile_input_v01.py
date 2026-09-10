@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 import unittest
 from dataclasses import FrozenInstanceError
 from decimal import Decimal, getcontext, localcontext
@@ -56,6 +57,25 @@ class ProfileInputParsingTests(unittest.TestCase):
         self.assertEqual(model.schema_version, "0.2")
         self.assertEqual(model.rules[0].property_name, "alignment")
         self.assertEqual(model.rules[0].value, "justify")
+
+    def test_schema_03_accepts_line_spacing_as_multiple(self):
+        model = parse_profile_input_json(
+            _json(
+                {"body": {"line_spacing": {"mode": "exact", "value": 1.5}}},
+                schema="0.3",
+            )
+        )
+        self.assertEqual(model.schema_version, "0.3")
+        self.assertEqual(model.rules[0].property_name, "line_spacing")
+        self.assertEqual(model.rules[0].value, Decimal("1.5"))
+
+    def test_schema_03_canonicalizes_equivalent_decimal_lexemes(self):
+        values = []
+        for value in (b"1.5", b"1.50", b"1.5e0"):
+            raw = b'{"schema_version":"0.3","profile":{"id":"p","version":"1"},"rules":{"body":{"line_spacing":{"mode":"exact","value":' + value + b'}}}}'
+            values.append(parse_profile_input_json(raw))
+        self.assertEqual(values[0], values[1])
+        self.assertEqual(values[1], values[2])
 
     def test_schema_01_rejects_alignment(self):
         with self.assertRaises(ProfileInputUnsupportedError) as cm:
@@ -133,7 +153,7 @@ class ProfileInputParsingTests(unittest.TestCase):
                 self.assertEqual(cm.exception.code, "duplicate_key")
 
     def test_schema_version_precedes_unknown_field(self):
-        raw = b'{"schema_version":"0.3","new_future_field":1}'
+        raw = b'{"schema_version":"0.4","new_future_field":1}'
         with self.assertRaises(ProfileInputUnsupportedError) as cm:
             parse_profile_input_json(raw)
         self.assertEqual(cm.exception.code, "schema_version_unsupported")
@@ -338,6 +358,19 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(by_id["body:font_size"].rule.preferred, Decimal("12"))
         self.assertIsNone(by_id["body:bold"].rule.path)
 
+    def test_schema_03_line_spacing_adapts_to_p3_paragraph_binding(self):
+        model = parse_profile_input_json(
+            _json(
+                {"body": {"line_spacing": {"mode": "exact", "value": 1.5}}},
+                schema="0.3",
+            )
+        )
+        profile = build_processing_profile(model)
+        binding = profile.bindings[0]
+        self.assertEqual(binding.target_type, "paragraph")
+        self.assertEqual(binding.rule.aspect_id, "P3")
+        self.assertEqual(binding.rule.property_slot, "spacing.line")
+
     def test_schema_02_alignment_adapts_to_paragraph_binding(self):
         model = parse_profile_input_json(
             _json(
@@ -369,6 +402,21 @@ class AdapterTests(unittest.TestCase):
             build_processing_profile(object())  # type: ignore[arg-type]
         self.assertEqual(cm.exception.code, "profile_input_type")
 
+
+class DecisionDocumentExampleTests(unittest.TestCase):
+    def test_profile_json_examples_in_decisions_parse_with_real_boundary(self):
+        decisions_dir = Path("docs/decisions")
+        for path in sorted(decisions_dir.glob("*.md")):
+            text = path.read_text(encoding="utf-8")
+            for match in re.finditer(r"```json\s*(.*?)\s*```", text, re.DOTALL):
+                raw = match.group(1).encode("utf-8")
+                try:
+                    document = json.loads(raw.decode("utf-8"))
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(document, dict) and "schema_version" in document:
+                    with self.subTest(path=str(path)):
+                        parse_profile_input_json(raw)
 
 class DeterminismAndStaticAuditTests(unittest.TestCase):
     def test_error_code_is_stable_with_multiple_errors(self):
