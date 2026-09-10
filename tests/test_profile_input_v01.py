@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 import unittest
 from dataclasses import FrozenInstanceError
 from decimal import Decimal, getcontext, localcontext
@@ -401,6 +402,21 @@ class AdapterTests(unittest.TestCase):
             build_processing_profile(object())  # type: ignore[arg-type]
         self.assertEqual(cm.exception.code, "profile_input_type")
 
+
+class DecisionDocumentExampleTests(unittest.TestCase):
+    def test_profile_json_examples_in_decisions_parse_with_real_boundary(self):
+        decisions_dir = Path("docs/decisions")
+        for path in sorted(decisions_dir.glob("*.md")):
+            text = path.read_text(encoding="utf-8")
+            for match in re.finditer(r"```json\\s*(.*?)\\s*```", text, re.DOTALL):
+                raw = match.group(1).encode("utf-8")
+                try:
+                    document = json.loads(raw.decode("utf-8"))
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(document, dict) and "schema_version" in document:
+                    with self.subTest(path=str(path)):
+                        parse_profile_input_json(raw)
 
 class DeterminismAndStaticAuditTests(unittest.TestCase):
     def test_error_code_is_stable_with_multiple_errors(self):
