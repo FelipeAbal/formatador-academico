@@ -1,4 +1,4 @@
-"""Profile Input / Form Schema v0.2 immutable public models (decisions 0040 and 0049)."""
+"""Profile Input / Form Schema v0.3 immutable public models (decisions 0040, 0049 and 0051)."""
 from __future__ import annotations
 
 import unicodedata
@@ -8,18 +8,20 @@ from enum import Enum
 
 from ..patcher import MAX_HALF_POINTS
 
-PROFILE_INPUT_SCHEMA_VERSION = "0.2"
-SUPPORTED_PROFILE_SCHEMA_VERSIONS = frozenset({"0.1", "0.2"})
+PROFILE_INPUT_SCHEMA_VERSION = "0.3"
+SUPPORTED_PROFILE_SCHEMA_VERSIONS = frozenset({"0.1", "0.2", "0.3"})
 MAX_PROFILE_JSON_BYTES = 256 * 1024
 MAX_PROFILE_ID_CODEPOINTS = 128
 MAX_DECIMAL_SIGNIFICANT_DIGITS = 32
 MIN_DECIMAL_EXPONENT = -16
 MAX_DECIMAL_EXPONENT = 16
+MAX_LINE_TWIPS = 2_147_483_647
 
 _SUPPORTED_CLASSES = frozenset({"body", "heading"})
 SUPPORTED_PROPERTIES_BY_SCHEMA_VERSION = {
     "0.1": frozenset({"bold", "font_size"}),
     "0.2": frozenset({"bold", "font_size", "alignment"}),
+    "0.3": frozenset({"bold", "font_size", "alignment", "line_spacing"}),
 }
 _SUPPORTED_PROPERTIES = frozenset().union(*SUPPORTED_PROPERTIES_BY_SCHEMA_VERSION.values())
 _ALIGNMENT_VALUES = frozenset({"left", "center", "right", "justify"})
@@ -153,7 +155,39 @@ def canonical_rule_value(property_name: str, value: object) -> object:
         if value not in _ALIGNMENT_VALUES:
             _unsupported("alignment_value_unsupported", f"unsupported alignment value: {value}")
         return value
+    if property_name == "line_spacing":
+        canonical = canonical_decimal(value)
+        _line_spacing_twips(canonical)
+        return canonical
     _unsupported("property_unsupported", f"unsupported property: {property_name}")
+
+
+def _line_spacing_twips(value: Decimal) -> int:
+    """Return exact OOXML auto-line twips without Decimal context rounding."""
+
+    value = canonical_decimal(value)
+    if value <= 0:
+        _contract("line_spacing_non_positive", "line_spacing must be strictly positive")
+    sign, digits, exponent = value.as_tuple()
+    if len(digits) > MAX_DECIMAL_SIGNIFICANT_DIGITS:
+        _unsupported("line_spacing_precision_unsupported", "line_spacing exceeds the significant-digit capability")
+    if exponent < MIN_DECIMAL_EXPONENT or exponent > MAX_DECIMAL_EXPONENT:
+        _unsupported("line_spacing_exponent_unsupported", "line_spacing exponent is outside the capability")
+    coefficient = 0
+    for digit in digits:
+        coefficient = coefficient * 10 + digit
+    if exponent >= 0:
+        numerator = coefficient * (10 ** exponent) * 240
+        denominator = 1
+    else:
+        numerator = coefficient * 240
+        denominator = 10 ** (-exponent)
+    if numerator % denominator:
+        _unsupported("line_spacing_unrepresentable", "line_spacing is not exactly representable in auto-line units")
+    twips = numerator // denominator
+    if twips > MAX_LINE_TWIPS:
+        _unsupported("line_spacing_range_unsupported", "line_spacing exceeds the current OOXML range")
+    return twips
 
 
 def _canonical_value_sort_key(value: object) -> tuple[int, str]:
