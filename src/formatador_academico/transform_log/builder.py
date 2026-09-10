@@ -17,7 +17,11 @@ from .model import (
     TransformRecord,
 )
 
-_SUPPORTED_SLICE = frozenset({("run", "P1", "bold"), ("run", "P2", "font_size")})
+_SUPPORTED_SLICE = frozenset({
+    ("run", "P1", "bold"),
+    ("run", "P2", "font_size"),
+    ("paragraph", "P4", "alignment"),
+})
 
 
 def _decision_ref(decision: Decision) -> str:
@@ -42,6 +46,14 @@ def _operation_semantic_value(property_slot: str, decision_value):
         if type(decision_value) is not bool:
             raise TransformLogIntegrityError(
                 "bold source Decision value must be bool under frozen planner contract"
+            )
+        return decision_value
+    if property_slot == "alignment":
+        if type(decision_value) is not str or decision_value not in {
+            "left", "center", "right", "both"
+        }:
+            raise TransformLogIntegrityError(
+                "alignment source Decision value must be canonical"
             )
         return decision_value
     raise TransformLogContractError("property slot is outside TransformLog v0.1")
