@@ -24,6 +24,7 @@ _SUPPORTED_BINDINGS = frozenset({
     ("run", "P1", "bold"),
     ("run", "P2", "font_size"),
     ("paragraph", "P4", "alignment"),
+    ("paragraph", "P3", "spacing.line"),
 })
 _ALLOWED_PATCH_FINDING_REASONS = frozenset(
     {
@@ -77,6 +78,14 @@ def _validate_rule_value(property_slot: str, value: object) -> None:
             raise ProcessingSessionContractError(
                 "alignment rule values must be canonical left/center/right/both tokens"
             )
+        return
+    if property_slot == "spacing.line":
+        if type(value).__name__ != "LineSpacingValue":
+            raise ProcessingSessionContractError("spacing.line rule values must be LineSpacingValue")
+        if value.rule != "auto" or value.unit != "multiple" or value.value is None:
+            raise ProcessingSessionContractError("spacing.line rule values must be auto multiples")
+        if not isinstance(value.value, Decimal) or value.value <= 0:
+            raise ProcessingSessionContractError("spacing.line multiple must be a positive Decimal")
         return
     raise ProcessingSessionContractError("unsupported Processing Session property slot")
 
