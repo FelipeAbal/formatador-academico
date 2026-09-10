@@ -10,7 +10,7 @@ import unittest
 from decimal import Decimal
 from unittest.mock import patch as mock_patch
 
-from formatador_academico.analysis.formatting import resolve_run_formatting
+from formatador_academico.analysis.formatting import resolve_paragraph_formatting, resolve_run_formatting
 from formatador_academico.analysis.style_catalog import build_style_catalog
 from formatador_academico.classification import ClassificationStatus, classify_document
 from formatador_academico.decision import (
@@ -198,6 +198,32 @@ class ProcessingSessionRealFlowTests(unittest.TestCase):
         self.assertEqual(result.transforms[0].target.property_slot, "bold")
         state = _body_run_states(result.output_package_bytes)[0]
         self.assertIs(state[1].value, False)
+
+    def test_one_paragraph_alignment_change(self):
+        pkg = _pkg(
+            '<w:p><w:pPr><w:jc w:val="left"/></w:pPr>'
+            '<w:r><w:rPr><w:sz w:val="24"/></w:rPr><w:t>align</w:t></w:r></w:p>'
+        )
+        profile = _profile(
+            RuleBinding(
+                "body",
+                "paragraph",
+                FormattingRule(
+                    "body-alignment", "P4", "alignment", RuleMode.EXACT, expected="both"
+                ),
+            )
+        )
+        result = process_document(pkg, profile)
+        self.assertEqual(result.status, ProcessingSessionStatus.QUIESCENT)
+        self.assertEqual(len(result.transforms), 1)
+        self.assertEqual(result.transforms[0].target.target_type, "paragraph")
+        self.assertEqual(result.transforms[0].target.property_slot, "alignment")
+        ir = DocxParser().parse_bytes(result.output_package_bytes)
+        catalog = build_style_catalog(result.output_package_bytes, ir)
+        resolved = resolve_paragraph_formatting(
+            ir["stories"][0]["blocks"][0], catalog, "word/document.xml"
+        )
+        self.assertEqual(resolved.alignment.value, "both")
 
     def test_one_font_change(self):
         pkg = _pkg(_paragraph(_run("font", bold=False, half_points=22)))
