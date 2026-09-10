@@ -88,6 +88,22 @@ def _strip_target_for_comparison(run: etree._Element, target_tag: str) -> None:
             run.remove(rpr)
 
 
+def _exact_double_decimal(value) -> int:
+    sign, digits, exponent = value.as_tuple()
+    if sign:
+        raise PatcherIntegrityError("font_size must be positive")
+    coefficient = 0
+    for digit in digits:
+        coefficient = coefficient * 10 + digit
+    numerator = coefficient * 2
+    if exponent >= 0:
+        return numerator * (10 ** exponent)
+    denominator = 10 ** (-exponent)
+    if numerator % denominator:
+        raise PatcherIntegrityError("font_size is not exactly representable in half-points")
+    return numerator // denominator
+
+
 def _check_output_property(run: etree._Element, property_slot: str, desired) -> None:
     """The final target property: canonical form AND canonical position."""
 
@@ -117,7 +133,7 @@ def _check_output_property(run: etree._Element, property_slot: str, desired) -> 
         if set(element.attrib) != {W_VAL}:
             raise PatcherIntegrityError("output w:sz must carry exactly w:val")
         lexical = element.get(W_VAL)
-        if lexical != str(int(desired.value * 2)) or lexical.startswith("0"):
+        if lexical != str(_exact_double_decimal(desired.value)) or lexical.startswith("0"):
             raise PatcherIntegrityError(
                 f"output w:sz lexical is not the canonical half-point integer: {lexical!r}"
             )
