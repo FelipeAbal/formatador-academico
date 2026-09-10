@@ -54,7 +54,8 @@ def canonicalize_delivery_base_name(base_name: str) -> str:
 
     value = base_name.strip()
     value = "".join("_" if ch in _FORBIDDEN_FILENAME_CHARS else ch for ch in value)
-    value = _CONTROL_RE.sub("_", value)\n    value = _WHITESPACE_RE.sub(" ", value)
+    value = _CONTROL_RE.sub("_", value)
+    value = _WHITESPACE_RE.sub(" ", value)
     value = _UNDERSCORE_RE.sub("_", value)
     value = value.rstrip(" .")
     _validate_canonical_base(value)
