@@ -40,7 +40,7 @@ PPR_CANONICAL_ORDER: tuple[str, ...] = (
     "widowControl", "numPr", "suppressLineNumbers", "pBdr", "shd", "tabs",
     "suppressAutoHyphens", "kinsoku", "wordWrap", "overflowPunct",
     "topLinePunct", "autoSpaceDE", "autoSpaceDN", "bidi", "adjustRightInd",
-    "snapToGrid", "spacing", "ind", "contextualSpacing", "mirrorInd",
+    "snapToGrid", "spacing", "ind", "contextualSpacing", "mirrorIndents",
     "suppressOverlap", "jc", "textDirection", "textAlignment",
     "textboxTightWrap", "outlineLvl", "divId", "cnfStyle", "rPr",
     "sectPr", "pPrChange",
