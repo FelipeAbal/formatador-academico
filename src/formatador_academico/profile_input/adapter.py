@@ -1,7 +1,7 @@
 """Deterministic adapter from ProfileInput v0.3 to frozen ProcessingProfile."""
 from __future__ import annotations
 
-from ..decision import FormattingRule, ProfileRef, RuleMode
+from ..decision import FormattingRule, LineSpacingValue, ProfileRef, RuleMode
 from ..processing_session import ProcessingProfile, RuleBinding
 from .model import ProfileInput, ProfileInputContractError, ProfileInputRule, ProfileRuleMode
 
@@ -22,6 +22,8 @@ def _adapt_alignment(value: object) -> object:
 def _adapt_value(property_name: str, value: object) -> object:
     if property_name == "alignment":
         return _adapt_alignment(value)
+    if property_name == "line_spacing":
+        return LineSpacingValue("auto", value, "multiple")
     return value
 
 
