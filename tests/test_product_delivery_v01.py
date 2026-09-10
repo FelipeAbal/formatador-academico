@@ -138,7 +138,7 @@ class DeliveryRealFlowTests(unittest.TestCase):
         self.assertNotEqual(bundle.clean_package_bytes, bundle.review_package_bytes)
         self.assertEqual(delivery.files[0].content_bytes, bundle.clean_package_bytes)
         self.assertEqual(delivery.files[1].content_bytes, bundle.review_package_bytes)
-        self.assertIn(b"Alteracoes", delivery.files[3].content_bytes.replace("ç".encode(), b"c"))
+        self.assertIn("Alterações aplicadas", delivery.files[3].content_bytes.decode("utf-8"))
 
     def test_review_and_unapplied_real_flow(self):
         review_pkg = _pkg(_paragraph('<w:r><w:rPr><w:sz w:val="24"/></w:rPr><w:t>review</w:t></w:r>'))
