@@ -408,7 +408,7 @@ class DecisionDocumentExampleTests(unittest.TestCase):
         decisions_dir = Path("docs/decisions")
         for path in sorted(decisions_dir.glob("*.md")):
             text = path.read_text(encoding="utf-8")
-            for match in re.finditer(r"```json\\s*(.*?)\\s*```", text, re.DOTALL):
+            for match in re.finditer(r"```json\s*(.*?)\s*```", text, re.DOTALL):
                 raw = match.group(1).encode("utf-8")
                 try:
                     document = json.loads(raw.decode("utf-8"))
