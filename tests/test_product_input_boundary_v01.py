@@ -79,6 +79,21 @@ class ProductInputBoundaryRealFlowTests(unittest.TestCase):
         self.assertNotEqual(bundle.clean_package_bytes, pkg)
         self.assertNotEqual(bundle.review_package_bytes, bundle.clean_package_bytes)
 
+    def test_line_spacing_schema_03_e2e(self):
+        pkg = _pkg(
+            '<w:p><w:pPr><w:pStyle w:val="Normal"/>'
+            '<w:spacing w:line="480" w:lineRule="auto"/></w:pPr>'
+            '<w:r><w:rPr><w:sz w:val="24"/></w:rPr>'
+            '<w:t>spacing</w:t></w:r></w:p>'
+        )
+        profile_json = _json(
+            {"body": {"line_spacing": {"mode": "exact", "value": 1.5}}},
+            schema="0.3",
+        )
+        bundle = build_product_from_inputs(pkg, profile_json)
+        self.assertEqual(bundle.processing_report.summary.applied_change_count, 1)
+        self.assertNotEqual(bundle.clean_package_bytes, pkg)
+
     def test_alignment_schema_02_e2e(self):
         pkg = _pkg(
             '<w:p><w:pPr><w:jc w:val="left"/></w:pPr>'
