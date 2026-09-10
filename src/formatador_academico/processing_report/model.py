@@ -135,6 +135,7 @@ class UnappliedChangeItem:
     desired_value: Any
     decision_reason: DecisionReason
     kind: str = "unapplied_change"
+    analysis_reason: str | None = None
 
     def __post_init__(self) -> None:
         if self.kind != "unapplied_change":
@@ -161,6 +162,8 @@ class UnappliedChangeItem:
             raise ValueError("analysis_status must be non-empty")
         if not isinstance(self.decision_reason, DecisionReason):
             raise TypeError("decision_reason must be DecisionReason")
+        if self.analysis_reason is not None and (not isinstance(self.analysis_reason, str) or not self.analysis_reason):
+            raise ValueError("analysis_reason must be a non-empty str or None")
 
 
 @dataclass(frozen=True)
@@ -177,6 +180,7 @@ class ReviewItem:
     evidence_ref: EvidenceRef | None
     decision_warnings: tuple[DecisionWarning, ...]
     kind: str = "review_item"
+    analysis_reason: str | None = None
 
     def __post_init__(self) -> None:
         if self.kind != "review_item":
@@ -202,6 +206,8 @@ class ReviewItem:
             isinstance(x, DecisionWarning) for x in self.decision_warnings
         ):
             raise TypeError("decision_warnings must be tuple[DecisionWarning, ...]")
+        if self.analysis_reason is not None and (not isinstance(self.analysis_reason, str) or not self.analysis_reason):
+            raise ValueError("analysis_reason must be a non-empty str or None")
 
 
 @dataclass(frozen=True)

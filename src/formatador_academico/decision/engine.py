@@ -89,7 +89,7 @@ def _decision(context: DecisionContext, resolved: ResolvedValue, *, compliance: 
     return Decision(
         DECISION_VERSION, DECISION_VOCABULARY_VERSION, _target(context), compliance,
         actionability, reason, resolved.status.value, observed, desired,
-        context.profile_ref, rule_ref, evidence_ref, (),
+        context.profile_ref, rule_ref, evidence_ref, (), analysis_reason=resolved.reason,
     )
 
 def decide_property(rule_or_none: FormattingRule | None, resolved: ResolvedValue,

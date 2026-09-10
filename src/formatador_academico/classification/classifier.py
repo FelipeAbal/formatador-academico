@@ -31,7 +31,6 @@ from typing import Any, Iterator
 from ..analysis.formatting import resolve_paragraph_formatting
 from ..analysis.formatting_model import (
     W_MISSING_STYLE,
-    W_NUMBERING_PRESENT,
     ResolutionStatus,
     StyleCatalog,
 )
@@ -193,22 +192,6 @@ def _classify_paragraph(
                 ),
             ),
         )
-    if any(w.code == W_NUMBERING_PRESENT for w in paragraph_formatting.analysis_warnings):
-        return make(
-            status=ClassificationStatus.ABSTAINED,
-            reasons=(ClassificationReason.UNSUPPORTED_CONTEXT,),
-            evidence=(
-                ClassificationEvidence(
-                    source_kind=EvidenceSourceKind.FORMATTING_ANALYSIS,
-                    source_ref=path,
-                    feature="numbering_presence",
-                    observed_value=W_NUMBERING_PRESENT,
-                    polarity=EvidencePolarity.SUPPORTS,
-                    strength=EvidenceStrength.STRUCTURAL,
-                ),
-            ),
-        )
-
     # Positive identity: direct w:pStyle, else the applicable default
     # paragraph style (decision 0016: the LAST default entry applies).
     style_ref = paragraph_formatting.paragraph_style_id

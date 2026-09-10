@@ -133,6 +133,7 @@ def build_processing_report(session_result: ProcessingSessionResult) -> Processi
                 observed=decision.observed,
                 desired_value=decision.desired_value,
                 decision_reason=decision.reason,
+                analysis_reason=decision.analysis_reason,
             )
         )
     unapplied = tuple(unapplied_items)
@@ -150,6 +151,7 @@ def build_processing_report(session_result: ProcessingSessionResult) -> Processi
             observed=decision.observed,
             evidence_ref=decision.evidence_ref,
             decision_warnings=decision.decision_warnings,
+            analysis_reason=decision.analysis_reason,
         )
         for decision in session_result.final_decisions
         if decision.actionability in {Actionability.REVIEW, Actionability.HUMAN_CHOICE}

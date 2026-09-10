@@ -121,6 +121,15 @@ def _validate_deterministic_contract(decision: Decision) -> None:
         raise OperationPlanContractError(
             "deterministic_change requires rule_ref != None; authorization is never invented"
         )
+    if decision.target.property_slot == "spacing.line":
+        if not isinstance(decision.observed, LineSpacingValue):
+            raise OperationPlanContractError(
+                "spacing.line deterministic_change requires LineSpacingValue"
+            )
+        if decision.observed.rule != "auto" or decision.observed.unit != "multiple":
+            raise OperationPlanContractError(
+                "spacing.line deterministic_change requires an auto multiple precondition"
+            )
 
 
 def _validate_value_type(key: DecisionKey, decision: Decision) -> None:

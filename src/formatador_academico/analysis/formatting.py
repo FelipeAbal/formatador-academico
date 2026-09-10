@@ -579,7 +579,7 @@ def resolve_paragraph_formatting(paragraph: dict[str,Any], catalog: StyleCatalog
     style_levels=_resolve_start_style(catalog,pstyle_id,"paragraph","paragraph_style","ppr_bag",warnings,True,anchor)
     doc_defaults=_doc_defaults_level(catalog,"ppr_bag"); all_levels=(direct_level,*style_levels,doc_defaults)
     alignment=_resolve_alignment(all_levels,warnings)
-    numbering_relevant=_has_property(direct_bag,"w:numPr") or any(_has_property(level.bag,"w:numPr") for level in style_levels)
+    numbering_relevant=any(_has_property(level.bag,"w:numPr") for level in all_levels)
     def _bidi_active(level: _Level) -> bool:
         if level.bag is None: return False
         props = [e for e in level.bag.entries if e.property_name == "w:bidi"]

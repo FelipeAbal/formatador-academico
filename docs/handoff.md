@@ -491,6 +491,16 @@ CI atual: **758/758 testes verdes**, run `34526466711`, após a matriz adversari
 Antes do merge ainda faltam a matriz adversarial específica de P3, a comparação programática da ordem canônica contra o XSD versionado, caso o schema seja incorporado ao repositório, e uma inspeção final do diff. O repositório não contém atualmente uma cópia versionada de `wml.xsd`; por isso, a correção `mirrorIndents` está acompanhada de regressão local e a proveniência XSD permanece documental. O PR permanece aberto até essa revisão.
 
 
+## Emenda 0052C: razão específica da Analysis
+
+Foi registrada a decisão `docs/decisions/0052c-analysis-provenance-and-human-choice.md`.
+
+- `HUMAN_CHOICE` permanece para observações resolvidas porém incomensuráveis com a regra declarada;
+- `Decision.analysis_reason` transporta literalmente razões como `numbering_spacing_unsupported` e `bidi_direction_unsupported`;
+- `ReviewItem` e `UnappliedChangeItem` expõem essa razão no relatório humano;
+- o OperationPlan revalida a precondição `spacing.line` como múltiplo `auto`;
+- `numPr` em `docDefaults/pPrDefault` também bloqueia P3.
+
 ## Resultado da auditoria completa 0052B
 
 A auditoria completa do Claude Opus foi registrada em `docs/audits/0052b-claude-opus-complete-audit-result.md` e integrada pelo PR #31 no commit `743945e2aeeadeb72ee314c411015641cd2fa20e`.
