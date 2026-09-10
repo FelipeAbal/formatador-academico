@@ -9,6 +9,7 @@ from decimal import Decimal
 
 from lxml import etree
 
+from formatador_academico.decision import FormattingRule, RuleMode
 from formatador_academico.docx_parser import W_NS
 from formatador_academico.processing_report import build_processing_report
 from formatador_academico.processing_session import RuleBinding, process_document
@@ -138,6 +139,52 @@ class ReviewDocxRealFlowTests(unittest.TestCase):
         result = build_review_docx(session.output_package_bytes, report)
         self.assertEqual(result.unmarkable_classification_item_count, len(report.classification_items))
         self.assertEqual(result.mark_results, ())
+
+
+class ReviewDocxParagraphTargetTests(unittest.TestCase):
+    def _alignment_session(self, body):
+        profile = _profile(
+            RuleBinding(
+                "body",
+                "paragraph",
+                FormattingRule(
+                    "body-alignment", "P4", "alignment", RuleMode.EXACT, expected="both"
+                ),
+            )
+        )
+        return process_document(_pkg(body), profile)
+
+    def test_paragraph_finding_marks_only_first_eligible_run(self):
+        body = (
+            '<w:p><w:pPr><w:jc w:val="left"/></w:pPr>'
+            '<w:r><w:rPr><w:highlight w:val="green"/></w:rPr><w:t>first</w:t></w:r>'
+            '<w:r><w:t>second</w:t></w:r></w:p>'
+        )
+        session = self._alignment_session(body)
+        result = build_review_docx(
+            session.output_package_bytes, build_processing_report(session)
+        )
+        self.assertEqual(len(result.mark_results), 1)
+        self.assertEqual(result.mark_results[0].target_type, "paragraph")
+        self.assertEqual(result.mark_results[0].status, ReviewMarkStatus.MARKED)
+        self.assertEqual(_highlight_values(result.output_review_package_bytes), [["green"], ["yellow"]])
+
+    def test_paragraph_with_no_eligible_run_is_reported_without_mark(self):
+        body = (
+            '<w:p><w:pPr><w:jc w:val="left"/></w:pPr>'
+            '<w:r><w:rPr><w:highlight w:val="green"/></w:rPr><w:t>first</w:t></w:r>'
+            '<w:r><w:rPr><w:highlight w:val="yellow"/></w:rPr><w:t>second</w:t></w:r></w:p>'
+        )
+        session = self._alignment_session(body)
+        result = build_review_docx(
+            session.output_package_bytes, build_processing_report(session)
+        )
+        self.assertEqual(len(result.mark_results), 1)
+        self.assertEqual(result.mark_results[0].target_type, "paragraph")
+        self.assertEqual(result.mark_results[0].status, ReviewMarkStatus.UNMARKED)
+        self.assertEqual(result.mark_results[0].reason, ReviewMarkReason.NO_MARKABLE_RUN)
+        self.assertEqual(result.output_review_package_bytes, session.output_package_bytes)
+
 
 
 class ReviewDocxConservationTests(unittest.TestCase):
