@@ -166,7 +166,6 @@ class HumanReportRealFlowTests(unittest.TestCase):
     def test_analysis_reason_reaches_human_report(self):
         body = (
             '<w:p><w:pPr><w:pStyle w:val="Normal"/>'
-            '<w:numPr><w:ilvl w:val="0"/></w:numPr>'
             '<w:spacing w:line="360" w:lineRule="auto"/></w:pPr>'
             '<w:r><w:t>lista</w:t></w:r></w:p>'
         )
@@ -178,7 +177,14 @@ class HumanReportRealFlowTests(unittest.TestCase):
             },
             separators=(",", ":"),
         ).encode("utf-8")
-        report = build_product_from_inputs(_pkg(body), profile).processing_report
+        styles = NORMAL + (
+            '<w:docDefaults><w:pPrDefault><w:pPr>'
+            '<w:numPr><w:ilvl w:val="0"/></w:numPr>'
+            '</w:pPr></w:pPrDefault></w:docDefaults>'
+        )
+        report = build_product_from_inputs(
+            _pkg(body, styles=styles), profile
+        ).processing_report
         self.assertEqual(len(report.review_items), 1)
         self.assertEqual(
             report.review_items[0].analysis_reason,
