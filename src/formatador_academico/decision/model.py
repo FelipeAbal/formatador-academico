@@ -146,8 +146,11 @@ class Decision:
     rule_ref: RuleRef | None
     evidence_ref: EvidenceRef | None
     decision_warnings: tuple[DecisionWarning, ...] = ()
+    analysis_reason: str | None = None
 
     def __post_init__(self) -> None:
+        if self.analysis_reason is not None and (not isinstance(self.analysis_reason, str) or not self.analysis_reason):
+            raise ValueError("analysis_reason must be a non-empty str or None")
         has_desired = self.desired_value is not None
         should_have = self.actionability is Actionability.DETERMINISTIC_CHANGE
         if has_desired != should_have:
