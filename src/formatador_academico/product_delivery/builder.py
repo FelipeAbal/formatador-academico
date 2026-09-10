@@ -26,7 +26,7 @@ _RESERVED_WINDOWS = {
     *(f"LPT{i}" for i in range(1, 10)),
 }
 _FORBIDDEN_FILENAME_CHARS = set('/\\:*?"<>|')
-_CONTROL_RE = re.compile(r"[\x01-\x1f]")
+_CONTROL_RE = re.compile(r"[\x01-\x08\x0b\x0c\x0e-\x1f]")
 _WHITESPACE_RE = re.compile(r"\s+")
 _UNDERSCORE_RE = re.compile(r"_+")
 
@@ -53,8 +53,8 @@ def canonicalize_delivery_base_name(base_name: str) -> str:
         raise ProductDeliveryContractError("base_name must not be only whitespace/dots")
 
     value = base_name.strip()
-    value = "".join("_" if ch in _FORBIDDEN_FILENAME_CHARS or (1 <= ord(ch) <= 31) else ch for ch in value)
-    value = _WHITESPACE_RE.sub(" ", value)
+    value = "".join("_" if ch in _FORBIDDEN_FILENAME_CHARS else ch for ch in value)
+    value = _CONTROL_RE.sub("_", value)\n    value = _WHITESPACE_RE.sub(" ", value)
     value = _UNDERSCORE_RE.sub("_", value)
     value = value.rstrip(" .")
     _validate_canonical_base(value)
