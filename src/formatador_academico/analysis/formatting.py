@@ -7,8 +7,9 @@ Never raises for bad document content: failure unit is (target, property).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from typing import Any, Callable
+import re
 
 from .formatting_model import (
     R_AUTOSPACING,
@@ -242,19 +243,28 @@ def _style_ref_id(bag: Any, prop_name: str) -> str | None:
 def _conv_font_size(prop) -> Length:
     raw = _attr(prop, "w:val"); half = _int_lexical(raw)
     if half < 0: raise _InvalidLexical()
-    return Length(value=Decimal(half) / 2, unit="pt", raw_value=raw, raw_unit="half_point")
+    with localcontext() as ctx:
+        ctx.prec = max(28, len(str(abs(half))) + 8)
+        value = Decimal(half) / Decimal(2)
+    return Length(value=value, unit="pt", raw_value=raw, raw_unit="half_point")
 
 
 def _conv_twips(attr: str) -> Callable[[Any], Length]:
     def convert(prop) -> Length:
         raw = _attr(prop, attr); twips = _int_lexical(raw)
-        return Length(value=Decimal(twips) / 20, unit="pt", raw_value=raw, raw_unit="twip")
+        with localcontext() as ctx:
+            ctx.prec = max(28, len(str(abs(twips))) + 8)
+            value = Decimal(twips) / Decimal(20)
+        return Length(value=value, unit="pt", raw_value=raw, raw_unit="twip")
     return convert
 
 
 def _conv_hundredths_of_line(attr: str) -> Callable[[Any], Decimal]:
     def convert(prop) -> Decimal:
-        return Decimal(_int_lexical(_attr(prop, attr))) / 100
+        value = _int_lexical(_attr(prop, attr))
+        with localcontext() as ctx:
+            ctx.prec = max(28, len(str(abs(value))) + 8)
+            return Decimal(value) / Decimal(100)
     return convert
 
 
@@ -262,11 +272,18 @@ def _conv_line_spacing(prop) -> LineSpacing:
     raw_line = _attr(prop, "w:line"); raw_rule = _attr(prop, "w:lineRule"); rule = raw_rule or "auto"
     if raw_line is None:
         raise _UnsupportedObserved()
-    if not raw_line.lstrip("-").isdigit():
+    if not re.fullmatch(r"[+-]?[0-9]+", raw_line.strip()):
         raise _UnsupportedObserved()
     line = _int_lexical(raw_line)
-    if rule == "auto": return LineSpacing(rule=rule, value=Decimal(line) / 240, unit="multiple", raw_line=raw_line, raw_rule=raw_rule)
-    if rule in ("atLeast", "exact"): return LineSpacing(rule=rule, value=Decimal(line) / 20, unit="pt", raw_line=raw_line, raw_rule=raw_rule)
+    denominator = 240 if rule == "auto" else 20
+    if rule not in ("auto", "atLeast", "exact"):
+        raise _UnsupportedObserved()
+    with localcontext() as ctx:
+        ctx.prec = max(28, len(str(abs(line))) + 8)
+        value = Decimal(line) / Decimal(denominator)
+    if rule == "auto":
+        return LineSpacing(rule=rule, value=value, unit="multiple", raw_line=raw_line, raw_rule=raw_rule)
+    return LineSpacing(rule=rule, value=value, unit="pt", raw_line=raw_line, raw_rule=raw_rule)
     raise _UnsupportedObserved()
 
 
