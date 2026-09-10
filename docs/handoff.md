@@ -450,7 +450,7 @@ Também foram incorporados ao contrato 0051:
 
 - exemplo JSON corrigido com `profile` e classe `body`;
 - mudança automática restrita a observações `rule="auto"`;
-- observações `atLeast` e `exact` encaminhadas para revisão;
+- observações `atLeast` e `exact` encaminhadas para escolha humana;
 - `lineRule` ausente tratado pelo default `auto` do XSD quando `line` existe;
 - `lineRule` presente sem `line` tratado como não resolvido;
 - unidade universal como `18pt` tratada como não suportada;
@@ -490,6 +490,16 @@ CI atual: **758/758 testes verdes**, run `34526466711`, após a matriz adversari
 
 Antes do merge ainda faltam a matriz adversarial específica de P3, a comparação programática da ordem canônica contra o XSD versionado, caso o schema seja incorporado ao repositório, e uma inspeção final do diff. O repositório não contém atualmente uma cópia versionada de `wml.xsd`; por isso, a correção `mirrorIndents` está acompanhada de regressão local e a proveniência XSD permanece documental. O PR permanece aberto até essa revisão.
 
+
+## Resultado da auditoria completa 0052B
+
+A auditoria completa do Claude Opus foi registrada em `docs/audits/0052b-claude-opus-complete-audit-result.md` e integrada pelo PR #31 no commit `743945e2aeeadeb72ee314c411015641cd2fa20e`.
+
+- 758 testes passaram na reexecução independente;
+- veredito: P3 aprovado para produção com ajustes;
+- A1, A2 e A3 foram corrigidos e integrados pelo PR #32;
+- o CI do PR #32 passou na run `34531686900`;
+- o estado corrente da `main` está no commit `225f96b8fd1ad18604408f7255ec8903987603d1`.
 
 ## Pós-P3: auditorias independentes preparadas
 
