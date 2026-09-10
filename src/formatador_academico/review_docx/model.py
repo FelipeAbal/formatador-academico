@@ -36,6 +36,7 @@ class ReviewMarkReason(str, Enum):
     NONCANONICAL_RUN_PROPERTIES = "noncanonical_run_properties"
     NO_VISUAL_SURFACE = "no_visual_surface"
     PROTECTED_REVISION_RUN = "protected_revision_run"
+    NO_MARKABLE_RUN = "no_markable_run"
 
 
 def _require_sha(name: str, value: str) -> None:
@@ -53,8 +54,8 @@ class ReviewMarkResult:
     source_kinds: tuple[str, ...]
 
     def __post_init__(self) -> None:
-        if self.target_type != "run":
-            raise ValueError("ReviewMarkResult.target_type must be run")
+        if self.target_type not in {"run", "paragraph"}:
+            raise ValueError("ReviewMarkResult.target_type must be run or paragraph")
         if not isinstance(self.structural_path, str) or not self.structural_path:
             raise ValueError("structural_path must be non-empty")
         _require_sha("physical_hash", self.physical_hash)
