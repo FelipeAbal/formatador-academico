@@ -54,7 +54,7 @@ class ProfileInputParsingTests(unittest.TestCase):
             )
         )
         self.assertEqual(model.schema_version, "0.2")
-        self.assertEqual(model.rules[0].property_slot, "alignment")
+        self.assertEqual(model.rules[0].property_name, "alignment")
         self.assertEqual(model.rules[0].value, "justify")
 
     def test_schema_01_rejects_alignment(self):
