@@ -158,8 +158,8 @@ def _validate_item_binding(item, final_hash: str) -> None:
             if item.target.property_slot not in {"bold", "font_size"}:
                 raise ReviewDocxIntegrityError("AppliedChangeItem is outside frozen P1/P2 premises")
         elif item.target.target_type == "paragraph":
-            if item.target.property_slot != "alignment":
-                raise ReviewDocxIntegrityError("AppliedChangeItem is outside frozen P4 premises")
+            if item.target.property_slot not in {"alignment", "spacing.line"}:
+                raise ReviewDocxIntegrityError("AppliedChangeItem is outside frozen P3/P4 premises")
         else:
             raise ReviewDocxIntegrityError("AppliedChangeItem target type is unsupported")
         return
