@@ -180,6 +180,24 @@ class PatcherV01E2E(unittest.TestCase):
         size = _analysis(result.output_package_bytes, "font_size")
         self.assertEqual(size.value.value, Decimal("11"))
 
+    def test_e2e_alignment(self):
+        body = (
+            '<w:p><w:pPr><w:jc w:val="left"/></w:pPr>'
+            '<w:r><w:rPr><w:sz w:val="24"/></w:rPr>'
+            '<w:t>alinhamento</w:t></w:r></w:p>'
+        )
+        pkg = build_docx(document(body), styles_part(NORMAL))
+        _, _, tokens, _ = _full_pipeline(pkg, _rules())
+        self.assertIn("alignment", tokens)
+        result = apply_cleared_operation(pkg, tokens["alignment"])
+        self.assertEqual(result.status, PatchStatus.APPLIED)
+        ir = DocxParser().parse_bytes(result.output_package_bytes)
+        catalog = build_style_catalog(result.output_package_bytes, ir)
+        paragraph = ir["stories"][0]["blocks"][0]
+        resolved = resolve_paragraph_formatting(paragraph, catalog, "word/document.xml")
+        self.assertEqual(resolved.alignment.status, ResolutionStatus.RESOLVED)
+        self.assertEqual(resolved.alignment.value, "both")
+
     # scenario 49
     def test_e2e_font_size(self):
         _, _, tokens, _ = _full_pipeline(self.pkg, _rules())

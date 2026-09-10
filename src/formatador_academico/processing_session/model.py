@@ -20,7 +20,11 @@ DEFAULT_MAX_APPLIED_OPERATIONS = 10000
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _SUPPORTED_CLASSES = frozenset({"body", "heading"})
-_SUPPORTED_BINDINGS = frozenset({("run", "P1", "bold"), ("run", "P2", "font_size")})
+_SUPPORTED_BINDINGS = frozenset({
+    ("run", "P1", "bold"),
+    ("run", "P2", "font_size"),
+    ("paragraph", "P4", "alignment"),
+})
 _ALLOWED_PATCH_FINDING_REASONS = frozenset(
     {
         PatchReason.NONCANONICAL_RUN_PROPERTIES.value,
@@ -68,6 +72,12 @@ def _validate_rule_value(property_slot: str, value: object) -> None:
                 "font_size rule values must be Decimal points"
             )
         return
+    if property_slot == "alignment":
+        if type(value) is not str or value not in {"left", "center", "right", "both"}:
+            raise ProcessingSessionContractError(
+                "alignment rule values must be canonical left/center/right/both tokens"
+            )
+        return
     raise ProcessingSessionContractError("unsupported Processing Session property slot")
 
 
@@ -101,8 +111,10 @@ class RuleBinding:
             raise ProcessingSessionContractError(
                 "RuleBinding.target_class must be one of body/heading in v0.1"
             )
-        if self.target_type != "run":
-            raise ProcessingSessionContractError("RuleBinding v0.1 only supports target_type='run'")
+        if self.target_type not in {"run", "paragraph"}:
+            raise ProcessingSessionContractError(
+                "RuleBinding target_type must be run or paragraph"
+            )
         if not isinstance(self.rule, FormattingRule):
             raise ProcessingSessionContractError("RuleBinding.rule must be FormattingRule")
         key = (self.target_type, self.rule.aspect_id, self.rule.property_slot)

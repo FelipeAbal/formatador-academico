@@ -7,12 +7,13 @@ from collections import OrderedDict
 from lxml import etree
 
 from .. import parser_api
-from ..docx_parser import PARSER_VERSION, W_NS
+from ..docx_parser import DocxParser, PARSER_VERSION, W_NS
 from ..patcher.document import parse_document_xml, serialize_document_xml
 from ..patcher.model import PatcherContractError, PatcherIntegrityError
 from ..patcher.package import read_package_parts, repackage, verify_package_scope
 from ..patcher.validation import relread_document_xml
-from ..patcher.xml_patch import MC_ALTERNATE_CONTENT, RPR_CANONICAL_RANK, W_R, W_RPR
+from ..patcher.xml_patch import MC_ALTERNATE_CONTENT, RPR_CANONICAL_RANK, W_P, W_R, W_RPR
+from ..safety_gate.targets import find_story, resolve_target
 from ..processing_report import (
     PROCESSING_REPORT_VERSION,
     AppliedChangeItem,
@@ -135,7 +136,7 @@ def _collect_candidates(report: ProcessingReport):
     for source_kind, group in _candidate_groups(report):
         for item in group:
             target = item.target
-            if target.target_type != "run":
+            if target.target_type not in {"run", "paragraph"}:
                 raise ReviewDocxIntegrityError(
                     f"v0.1 report item {source_kind} unexpectedly targets {target.target_type!r}"
                 )
@@ -151,14 +152,16 @@ def _collect_candidates(report: ProcessingReport):
 
 def _validate_item_binding(item, final_hash: str) -> None:
     if isinstance(item, AppliedChangeItem):
-        if (
-            item.target.target_type != "run"
-            or item.target.property_slot not in {"bold", "font_size"}
-            or item.changed_part != DOCUMENT_PART
-        ):
-            raise ReviewDocxIntegrityError(
-                "AppliedChangeItem is outside frozen P1/P2 body-part premises"
-            )
+        if item.changed_part != DOCUMENT_PART:
+            raise ReviewDocxIntegrityError("AppliedChangeItem changed_part is outside the document part")
+        if item.target.target_type == "run":
+            if item.target.property_slot not in {"bold", "font_size"}:
+                raise ReviewDocxIntegrityError("AppliedChangeItem is outside frozen P1/P2 premises")
+        elif item.target.target_type == "paragraph":
+            if item.target.property_slot != "alignment":
+                raise ReviewDocxIntegrityError("AppliedChangeItem is outside frozen P4 premises")
+        else:
+            raise ReviewDocxIntegrityError("AppliedChangeItem target type is unsupported")
         return
     if isinstance(item, (UnappliedChangeItem, ReviewItem)):
         if item.target.physical_hash != final_hash:
@@ -226,6 +229,10 @@ def build_review_docx(
         infos, payloads, archive_comment = read_package_parts(clean_package_snapshot)
         before_xml = payloads[DOCUMENT_PART]
         tree = parse_document_xml(before_xml, DOCUMENT_PART)
+        physical_ir = DocxParser().parse_bytes(clean_package_snapshot)
+        if physical_ir.get("status") != "ok":
+            raise ReviewDocxIntegrityError("clean package did not produce usable PhysicalIR")
+        physical_story = find_story(physical_ir, DOCUMENT_PART)
     except (KeyError, PatcherContractError, PatcherIntegrityError) as exc:
         raise ReviewDocxIntegrityError(
             f"unable to open clean package safely: {exc}"
@@ -241,18 +248,89 @@ def build_review_docx(
             x for x in _SOURCE_ORDER if x in candidate["source_kinds"]
         )
         try:
-            run = parser_api.resolve_structural_path(root, path)
+            target = parser_api.resolve_structural_path(root, path)
         except parser_api.StructuralPathError as exc:
             raise ReviewDocxIntegrityError(
                 f"report target path does not resolve: {path}: {exc}"
             ) from exc
-        if run.tag != W_R:
-            raise ReviewDocxIntegrityError(f"report target is not w:r: {path}")
-        final_hash = _physical_hash(run)
+        final_hash = _physical_hash(target)
         for item in candidate["items"]:
             _validate_item_binding(item, final_hash)
 
-        reason, rpr = _ordinary_reason(run)
+        if target.tag == W_P:
+            paragraph_matches = resolve_target(physical_story, path)
+            if len(paragraph_matches) != 1:
+                raise ReviewDocxIntegrityError(
+                    f"report paragraph target does not resolve uniquely: {path}"
+                )
+            paragraph_record, _ = paragraph_matches[0]
+            run_records = []
+
+            def collect_runs(records):
+                for record in records or ():
+                    if not isinstance(record, dict):
+                        continue
+                    if record.get("source_type") == "run_raw":
+                        run_records.append(record)
+                        continue
+                    children = record.get("children")
+                    if isinstance(children, list):
+                        collect_runs(children)
+
+            collect_runs(paragraph_record.get("children"))
+            selected_run = None
+            selected_rpr = None
+            selected_reason = None
+            for run_record in run_records:
+                run_path = run_record.get("structural_path")
+                if not isinstance(run_path, str):
+                    continue
+                try:
+                    run = parser_api.resolve_structural_path(root, run_path)
+                except parser_api.StructuralPathError as exc:
+                    raise ReviewDocxIntegrityError(
+                        f"paragraph run target path does not resolve: {run_path}: {exc}"
+                    ) from exc
+                reason, rpr = _ordinary_reason(run)
+                if reason is None:
+                    selected_run = run
+                    selected_rpr = rpr
+                    selected_reason = None
+                    selected_run_path = run_path
+                    break
+                selected_reason = reason
+
+            if selected_run is None:
+                results.append(
+                    ReviewMarkResult(
+                        "paragraph",
+                        path,
+                        final_hash,
+                        ReviewMarkStatus.UNMARKED,
+                        ReviewMarkReason.NO_MARKABLE_RUN,
+                        source_kinds,
+                    )
+                )
+                continue
+
+            selected_rpr = _ensure_rpr(selected_run, selected_rpr)
+            _insert_highlight(selected_rpr)
+            marked_paths.append(selected_run_path)
+            results.append(
+                ReviewMarkResult(
+                    "paragraph",
+                    path,
+                    final_hash,
+                    ReviewMarkStatus.MARKED,
+                    None,
+                    source_kinds,
+                )
+            )
+            continue
+
+        if target.tag != W_R:
+            raise ReviewDocxIntegrityError(f"report target is not w:r or w:p: {path}")
+        reason, rpr = _ordinary_reason(target)
         if reason is not None:
             results.append(
                 ReviewMarkResult(
@@ -266,7 +344,7 @@ def build_review_docx(
             )
             continue
 
-        rpr = _ensure_rpr(run, rpr)
+        rpr = _ensure_rpr(target, rpr)
         _insert_highlight(rpr)
         marked_paths.append(path)
         results.append(

@@ -8,7 +8,20 @@ from .model import ProfileInput, ProfileInputContractError, ProfileInputRule, Pr
 _PROPERTY_MAP = {
     "bold": ("run", "P1", "bold"),
     "font_size": ("run", "P2", "font_size"),
+    "alignment": ("paragraph", "P4", "alignment"),
 }
+
+
+def _adapt_alignment(value: object) -> object:
+    if value == "justify":
+        return "both"
+    return value
+
+
+def _adapt_value(property_name: str, value: object) -> object:
+    if property_name == "alignment":
+        return _adapt_alignment(value)
+    return value
 
 
 def _formatting_rule(rule: ProfileInputRule) -> FormattingRule:
@@ -21,7 +34,7 @@ def _formatting_rule(rule: ProfileInputRule) -> FormattingRule:
             aspect_id=aspect_id,
             property_slot=property_slot,
             mode=RuleMode.EXACT,
-            expected=rule.value,
+            expected=_adapt_value(rule.property_name, rule.value),
             path=None,
         )
     if rule.mode is ProfileRuleMode.SET:
@@ -30,8 +43,8 @@ def _formatting_rule(rule: ProfileInputRule) -> FormattingRule:
             aspect_id=aspect_id,
             property_slot=property_slot,
             mode=RuleMode.SET,
-            allowed=rule.allowed,
-            preferred=rule.preferred,
+            allowed=tuple(_adapt_value(rule.property_name, value) for value in rule.allowed),
+            preferred=_adapt_value(rule.property_name, rule.preferred) if rule.preferred is not None else None,
             path=None,
         )
     return FormattingRule(

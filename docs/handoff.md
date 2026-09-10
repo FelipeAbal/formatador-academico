@@ -26,9 +26,9 @@ Este é o HANDOFF corrente. O histórico detalhado fica no Git; não criar `hand
 - Human-readable Processing Report v0.1 — freeze 0046;
 - Product Delivery / File Naming v0.1 — freeze 0048.
 
-Suíte completa atual: **740/740 OK** no PR #25, após a implementação do schema 0.2 e as correções de testes da etapa. O CI verde foi a run `34508799107`.
+Suíte completa atual: **745/745 OK** no PR #27, após a implementação integrada de P4/alignment. O CI verde foi a run `34511314480`.
 
-GitHub Actions: `success` na run `34508799107`, sobre o commit da branch `37dc7e38abdbf79f17b334ce513d686f2a46ac07`, antes do merge. A main recebeu o squash `d3770c055c43ceaea0df32c44095bc3422199627`.
+GitHub Actions: `success` na run `34511314480`, sobre o commit da branch `19de3feb3af69532283a170d5b7c392c1835b759`, antes do merge. A main recebeu anteriormente o squash do PR #25 `d3770c055c43ceaea0df32c44095bc3422199627`.
 
 Failures: 0. Errors: 0.
 
@@ -59,6 +59,7 @@ GitHub Actions é a execução padrão da suíte; não gastar Kimi apenas para t
 - PR #23 — auditoria final do XSD e correções documentais da decisão 0049; merge `1eed32ec...`;
 - PR #24 — Analysis: salvaguardas para alinhamento de parágrafo; merge `843045d...`, CI `34507770885`;
 - PR #25 — Profile Input schema 0.2 para alinhamento; merge squash `d3770c055c43ceaea0df32c44095bc3422199627`, CI `34508799107`.
+- PR #27 — implementação integrada de P4/alignment; CI `34511314480`; merge pendente após a atualização final do handoff.
 
 ## Regra operacional
 
@@ -158,6 +159,7 @@ Somente:
 ```text
 P1 / run / bold
 P2 / run / font_size
+P4 / paragraph / alignment
 ```
 
 Classes executáveis:
@@ -169,7 +171,6 @@ heading
 
 Ainda fora do slice automático:
 - P3 spacing patching;
-- P4 alignment patching;
 - italic patching;
 - long_quote/reference execution;
 - tables/containers/numbering execution;
@@ -394,11 +395,30 @@ Modelos previstos:
 - Kimi: somente se surgir uma tarefa especializada com ganho claro.
 
 
+## P4 / alignment implementado
+
+A implementação integrada foi concluída na branch `implement-0049-p4-end-to-end`.
+
+- Profile Input 0.2 aceita `alignment` com vocabulário `left`, `center`, `right`, `justify`;
+- o adapter converte `justify` para o token interno `both`;
+- Analysis normaliza `start` para `left` e `end` para `right`, preservando o token bruto na evidência;
+- listas com `w:numPr` e parágrafos bidi ficam fora do patching automático, com razão explícita;
+- Patcher cria ou reutiliza `w:pPr` como primeiro filho de `w:p` e escreve `w:jc` na posição canônica;
+- `w:jc` sem `w:val`, duplicado ou fora da forma canônica é rejeitado com segurança;
+- TransformLog registra a operação `paragraph/P4/alignment` com a mesma cadeia de proveniência;
+- Review DOCX marca somente o primeiro run marcável do parágrafo;
+- o teste da fronteira DOCX + Profile Input 0.2 passou;
+- 745/745 testes passaram no CI.
+
+O P4 ainda não cobre listas, documentos bidirecionais ou alteração de estilos globais, conforme o contrato 0049.
+
 ## Auditoria final da decisão 0049
 
 Arquivo: `docs/audits/auditoria_xsd_0049_aprovacao.md`.
 
 A conferência direta do `wml.xsd` confirmou a ordem prevista de `CT_PPrBase` e `CT_PPr`, usando duas cópias independentes do schema e validação do método contra a ordem já registrada de `CT_RPr`.
+
+A implementação decorrente dessa decisão foi validada no PR #27 com 745 testes verdes.
 
 A auditoria classificou a 0049 como **aprovada para implementação**, condicionada a cinco correções de contrato. Todas foram incorporadas nesta branch:
 
@@ -408,7 +428,7 @@ A auditoria classificou a 0049 como **aprovada para implementação**, condicion
 4. separação das regras de posicionamento de `w:pPr` e `w:jc`, incluindo `w:jc` sem `w:val` como forma inválida;
 5. definição de um único conjunto canônico para comparação e escrita de alinhamento.
 
-Após o merge desta correção documental e CI verde, a implementação de P4 poderá ser iniciada em branch própria. A implementação deverá manter atenção especial à separação entre bindings de parágrafo e de run, à leitura de `pPr/w:bidi` e ao bloqueio de razões falsas para exclusões de slice.
+Após o merge desta correção documental e CI verde, a implementação de P4 foi iniciada e concluída na branch própria. A implementação deverá manter atenção especial à separação entre bindings de parágrafo e de run, à leitura de `pPr/w:bidi` e ao bloqueio de razões falsas para exclusões de slice.
 
 ## Etapa atual após o merge do PR #25
 
