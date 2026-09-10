@@ -26,9 +26,9 @@ Este é o HANDOFF corrente. O histórico detalhado fica no Git; não criar `hand
 - Human-readable Processing Report v0.1 — freeze 0046;
 - Product Delivery / File Naming v0.1 — freeze 0048.
 
-Suíte completa atual: **735/735 OK** na PR #18, após os commits de correção `453b28e868473ddc5fca2e3036351f12c712eb8d`, `e409ece9768073f5e192ede05a1983f440741454` e `8d66c3ee9c9d034f403a5ab1cc4466f4668d5470`.
+Suíte completa atual: **740/740 OK** no PR #25, após a implementação do schema 0.2 e as correções de testes da etapa. O CI verde foi a run `34508799107`.
 
-GitHub Actions: `success` na run `34500432604`, sobre o commit da main `565ab01d4afab0dc240f136c70995ebd1227ac79`.
+GitHub Actions: `success` na run `34508799107`, sobre o commit da branch `37dc7e38abdbf79f17b334ce513d686f2a46ac07`, antes do merge. A main recebeu o squash `d3770c055c43ceaea0df32c44095bc3422199627`.
 
 Failures: 0. Errors: 0.
 
@@ -52,6 +52,13 @@ GitHub Actions é a execução padrão da suíte; não gastar Kimi apenas para t
 - PR #16 — Product Input Boundary v0.1 — squash `5cbf53a798ef7d9e78e56f2993e466af43b21d7f`;
 - PR #17 — Human-readable Processing Report v0.1 — head final `92cb328d8cf86ac3fcf1167d93433b380771f689`; squash `804ce6f3fa1eac05f09e623f5587a9cb29446446`;
 - PR #18 — Product Delivery / File Naming v0.1 — merge squash `565ab01d4afab0dc240f136c70995ebd1227ac79`; CI pós-merge `34500432604`.
+- PR #19 — registro da auditoria Claude Opus inicial; merge `af7451f...`;
+- PR #20 — decisão 0048 Product Delivery congelada; merge `d56f71...`;
+- PR #21 — contrato inicial da decisão 0049; merge `86e420e...`;
+- PR #22 — primeira auditoria Claude Opus e revisão do contrato 0049; merge `1880a955...`;
+- PR #23 — auditoria final do XSD e correções documentais da decisão 0049; merge `1eed32ec...`;
+- PR #24 — Analysis: salvaguardas para alinhamento de parágrafo; merge `843045d...`, CI `34507770885`;
+- PR #25 — Profile Input schema 0.2 para alinhamento; merge squash `d3770c055c43ceaea0df32c44095bc3422199627`, CI `34508799107`.
 
 ## Regra operacional
 
@@ -216,6 +223,18 @@ Regras:
 - `preserve -> RuleMode.CONTAINMENT`;
 - `set.allowed` canonicalizado; duplicatas semânticas rejeitadas;
 - modelos frozen e auto-validantes.
+
+## Profile Input v0.2 e compatibilidade com v0.1
+
+Implementado no PR #25 e integrado na main.
+
+- schema 0.1 continua aceito;
+- schema 0.2 é superconjunto estrito de 0.1;
+- propriedades aceitas são despachadas pela versão declarada, a partir de uma única tabela;
+- `alignment` aceita somente o vocabulário user-facing `left`, `center`, `right`, `justify`;
+- `alignment` continua rejeitado em perfil declarado como 0.1;
+- `line_spacing` permanece fora do schema 0.2;
+- 740/740 testes passaram no CI.
 
 ## Human-readable Processing Report v0.1 — 0045 + freeze 0046
 
@@ -390,3 +409,11 @@ A auditoria classificou a 0049 como **aprovada para implementação**, condicion
 5. definição de um único conjunto canônico para comparação e escrita de alinhamento.
 
 Após o merge desta correção documental e CI verde, a implementação de P4 poderá ser iniciada em branch própria. A implementação deverá manter atenção especial à separação entre bindings de parágrafo e de run, à leitura de `pPr/w:bidi` e ao bloqueio de razões falsas para exclusões de slice.
+
+## Etapa atual após o merge do PR #25
+
+A etapa de Profile Input 0.2 está concluída e integrada. A próxima branch é `implement-0049-processing-session-paragraphs`.
+
+Próximo passo: adaptar Processing Session para separar bindings de parágrafo e de run, mantendo o ciclo atual de rerun, os tokens stale e os limites de operação. Patcher, TransformLog e Review DOCX só serão alterados depois que esse contrato intermediário estiver coberto por testes.
+
+
