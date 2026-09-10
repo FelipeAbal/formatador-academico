@@ -462,9 +462,22 @@ class ParagraphCascadeTests(unittest.TestCase):
         self.assertIn("formatting_multiple_default_styles",
                       [w.code for w in catalog.catalog_warnings])
 
-    def test_alignment_start_not_mapped(self):
+    def test_alignment_start_normalized_and_raw_preserved(self):
         rp = resolve_par('<w:p><w:pPr><w:jc w:val="start"/></w:pPr><w:r><w:t>a</w:t></w:r></w:p>')
-        self.assertEqual(rp.alignment.value, "start")
+        self.assertEqual(rp.alignment.value, "left")
+        self.assertEqual(rp.alignment.winning_evidence.raw_value, "start")
+
+    def test_alignment_unsupported_observed_token_is_unresolved(self):
+        rp = resolve_par('<w:p><w:pPr><w:jc w:val="distribute"/></w:pPr><w:r><w:t>a</w:t></w:r></w:p>')
+        self.assertEqual(rp.alignment.status, RES.UNRESOLVED)
+        self.assertEqual(rp.alignment.reason, "alignment_token_unsupported")
+
+    def test_paragraph_bidi_is_unresolved(self):
+        rp = resolve_par('<w:p><w:pPr><w:bidi w:val="1"/><w:jc w:val="left"/></w:pPr>'
+                         '<w:r><w:t>a</w:t></w:r></w:p>')
+        self.assertEqual(rp.alignment.status, RES.UNRESOLVED)
+        self.assertEqual(rp.alignment.reason, "bidi_direction_unsupported")
+
 
     def test_spacing_auto_multiple(self):
         rp = resolve_par('<w:p><w:pPr><w:spacing w:line="360" w:lineRule="auto"/></w:pPr>'
@@ -527,8 +540,9 @@ class ParagraphCascadeTests(unittest.TestCase):
         rp = resolve_par('<w:p><w:pPr><w:pStyle w:val="L"/></w:pPr><w:r><w:t>a</w:t></w:r></w:p>', s)
         self.assertEqual(rp.indents.left.status, RES.RESOLVED)
         self.assertEqual(rp.indents.left.value.value, Decimal("72"))
-        # every indent slot determined by the style => numbering never materializes
-        self.assertNotIn("formatting_numbering_present", [w.code for w in rp.analysis_warnings])
+        # Alignment is also blocked because the paragraph inherits numPr.
+        self.assertEqual(rp.alignment.status, RES.UNRESOLVED)
+        self.assertEqual(rp.alignment.reason, "numbering_alignment_unsupported")
 
     def test_numbering_case_a_partial_other_slots_unresolved(self):
         s = styles_part('<w:style w:type="paragraph" w:styleId="L">'
@@ -547,8 +561,9 @@ class ParagraphCascadeTests(unittest.TestCase):
         self.assertEqual(rp.indents.left.status, RES.UNRESOLVED)
         self.assertEqual(rp.indents.left.reason, "numbering_indent_unsupported")
         self.assertIn("formatting_numbering_present", [w.code for w in rp.analysis_warnings])
-        # alignment is not an indent slot: unaffected
-        self.assertEqual(rp.alignment.status, RES.ABSENT)
+        # Alignment is blocked because numbering.xml is outside this slice.
+        self.assertEqual(rp.alignment.status, RES.UNRESOLVED)
+        self.assertEqual(rp.alignment.reason, "numbering_alignment_unsupported")
 
     def test_numbering_case_c_direct_wins(self):
         rp = resolve_par('<w:p><w:pPr><w:numPr><w:numId w:val="1"/></w:numPr>'
@@ -562,7 +577,7 @@ class ParagraphCascadeTests(unittest.TestCase):
                          '<w:ind w:left="100" w:right="100" w:firstLine="0" '
                          'w:hanging="0" w:start="100" w:end="100"/></w:pPr>'
                          '<w:r><w:t>a</w:t></w:r></w:p>')
-        self.assertNotIn("formatting_numbering_present", [w.code for w in rp.analysis_warnings])
+        self.assertIn("formatting_numbering_present", [w.code for w in rp.analysis_warnings])
 
 
 # ---------------------------------------------------------------------------
