@@ -339,3 +339,25 @@ Modelos previstos:
 - Claude Sonnet: redação e implementação do contrato 0049;
 - Claude Opus: auditoria do contrato 0049, sobretudo a ordem canônica de `CT_PPr` e a equivalência lexical de `w:jc`;
 - Kimi: somente se surgir uma tarefa especializada com ganho claro.
+
+
+## Decisão 0049 em proposta: Paragraph Target Enablement v0.1
+
+Arquivo: `docs/decisions/0049-paragraph-target-enable-p4-contract.md`.
+
+A proposta foi redigida para auditoria do Claude Opus e ainda não autoriza implementação.
+
+Escopo proposto:
+
+- primeira operação executável em nível de parágrafo;
+- P4/alignment como carga;
+- schema 0.2 como superconjunto estrito de 0.1;
+- uma fonte única para propriedades aceitas por versão;
+- equivalência `start` = `left` e `end` = `right` em texto LTR;
+- documentos bidirecionais fora do slice;
+- parágrafos com `w:numPr` fora do slice, sempre relatados;
+- Review DOCX marcando somente o primeiro run marcável do parágrafo;
+- `styles.xml`, `numbering.xml` e stories secundárias sem alteração;
+- P3, `before`, `after` e patching automático de itálico fora desta decisão.
+
+A proposta deverá ser auditada pelo Claude Opus antes de qualquer implementação. Após a auditoria, o contrato poderá ser ajustado e então implementado em branch própria por ChatGPT, com Sonnet como opção para implementação estreita.
