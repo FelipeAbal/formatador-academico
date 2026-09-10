@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 from decimal import Decimal
 
-from ..decision.model import Actionability, Decision
+from ..decision.model import Actionability, Decision, LineSpacingValue
 from ..decision.serialization import serialize_decision
 from ..operation_plan.model import LengthValue, OperationKind
 from ..operation_plan.serialization import operation_ref as canonical_operation_ref
@@ -21,6 +21,7 @@ _SUPPORTED_SLICE = frozenset({
     ("run", "P1", "bold"),
     ("run", "P2", "font_size"),
     ("paragraph", "P4", "alignment"),
+    ("paragraph", "P3", "spacing.line"),
 })
 
 
@@ -55,6 +56,10 @@ def _operation_semantic_value(property_slot: str, decision_value):
             raise TransformLogIntegrityError(
                 "alignment source Decision value must be canonical"
             )
+        return decision_value
+    if property_slot == "spacing.line":
+        if not isinstance(decision_value, LineSpacingValue):
+            raise TransformLogIntegrityError("spacing.line source Decision value must be LineSpacingValue")
         return decision_value
     raise TransformLogContractError("property slot is outside TransformLog v0.1")
 
