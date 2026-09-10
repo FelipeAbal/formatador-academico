@@ -1,4 +1,4 @@
-"""Strict JSON parser for Profile Input / Form Schema v0.1 (decision 0040)."""
+"""Strict JSON parser for Profile Input / Form Schema v0.2 (decisions 0040 and 0049)."""
 from __future__ import annotations
 
 import json
@@ -7,6 +7,7 @@ from decimal import Decimal
 from .model import (
     MAX_PROFILE_JSON_BYTES,
     PROFILE_INPUT_SCHEMA_VERSION,
+    SUPPORTED_PROPERTIES_BY_SCHEMA_VERSION,
     ProfileInput,
     ProfileInputContractError,
     ProfileInputRule,
@@ -18,7 +19,6 @@ _TOP_FIELDS = frozenset({"schema_version", "profile", "rules"})
 _PROFILE_FIELDS = frozenset({"id", "version"})
 _RULE_FIELDS = frozenset({"mode", "value", "allowed", "preferred"})
 _SUPPORTED_CLASSES = frozenset({"body", "heading"})
-_SUPPORTED_PROPERTIES = frozenset({"bold", "font_size"})
 _SUPPORTED_MODES = {mode.value: mode for mode in ProfileRuleMode}
 _MISSING = object()
 
@@ -144,9 +144,10 @@ def parse_profile_input_json(profile_json_bytes: bytes) -> ProfileInput:
         _contract("schema_version_missing", "schema_version is required")
     if type(schema_version) is not str:
         _contract("schema_version_type", "schema_version must be a string")
-    if schema_version != PROFILE_INPUT_SCHEMA_VERSION:
+    if schema_version not in SUPPORTED_PROPERTIES_BY_SCHEMA_VERSION:
         _unsupported("schema_version_unsupported", f"unsupported schema_version: {schema_version}")
 
+    supported_properties = SUPPORTED_PROPERTIES_BY_SCHEMA_VERSION[schema_version]
     _unknown_fields(raw, _TOP_FIELDS, "top_unknown_field")
     if "profile" not in raw:
         _contract("profile_missing", "profile is required")
@@ -174,8 +175,8 @@ def parse_profile_input_json(profile_json_bytes: bytes) -> ProfileInput:
         if not class_obj:
             _contract("class_empty", f"rule class must not be empty: {target_class}")
         for property_name in sorted(class_obj):
-            if property_name not in _SUPPORTED_PROPERTIES:
-                _unsupported("property_unsupported", f"unsupported property: {property_name}")
+            if property_name not in supported_properties:
+                _unsupported("property_unsupported", f"property {property_name} is not supported in schema_version {schema_version}")
             parsed_rules.append(
                 _parse_rule(target_class, property_name, class_obj[property_name])
             )

@@ -1,4 +1,4 @@
-"""Profile Input / Form Schema v0.1 immutable public models (decision 0040)."""
+"""Profile Input / Form Schema v0.2 immutable public models (decisions 0040 and 0049)."""
 from __future__ import annotations
 
 import unicodedata
@@ -8,7 +8,8 @@ from enum import Enum
 
 from ..patcher import MAX_HALF_POINTS
 
-PROFILE_INPUT_SCHEMA_VERSION = "0.1"
+PROFILE_INPUT_SCHEMA_VERSION = "0.2"
+SUPPORTED_PROFILE_SCHEMA_VERSIONS = frozenset({"0.1", "0.2"})
 MAX_PROFILE_JSON_BYTES = 256 * 1024
 MAX_PROFILE_ID_CODEPOINTS = 128
 MAX_DECIMAL_SIGNIFICANT_DIGITS = 32
@@ -16,7 +17,12 @@ MIN_DECIMAL_EXPONENT = -16
 MAX_DECIMAL_EXPONENT = 16
 
 _SUPPORTED_CLASSES = frozenset({"body", "heading"})
-_SUPPORTED_PROPERTIES = frozenset({"bold", "font_size"})
+SUPPORTED_PROPERTIES_BY_SCHEMA_VERSION = {
+    "0.1": frozenset({"bold", "font_size"}),
+    "0.2": frozenset({"bold", "font_size", "alignment"}),
+}
+_SUPPORTED_PROPERTIES = frozenset().union(*SUPPORTED_PROPERTIES_BY_SCHEMA_VERSION.values())
+_ALIGNMENT_VALUES = frozenset({"left", "center", "right", "justify"})
 
 
 class ProfileInputError(ValueError):
@@ -141,6 +147,12 @@ def canonical_rule_value(property_name: str, value: object) -> object:
         canonical = canonical_decimal(value)
         _decimal_capacity(canonical)
         return canonical
+    if property_name == "alignment":
+        if type(value) is not str:
+            _contract("alignment_type", "alignment values must be JSON strings")
+        if value not in _ALIGNMENT_VALUES:
+            _unsupported("alignment_value_unsupported", f"unsupported alignment value: {value}")
+        return value
     _unsupported("property_unsupported", f"unsupported property: {property_name}")
 
 
@@ -228,7 +240,7 @@ class ProfileInput:
     def __post_init__(self) -> None:
         if type(self.schema_version) is not str:
             _contract("schema_version_type", "schema_version must be a string")
-        if self.schema_version != PROFILE_INPUT_SCHEMA_VERSION:
+        if self.schema_version not in SUPPORTED_PROFILE_SCHEMA_VERSIONS:
             _unsupported(
                 "schema_version_unsupported",
                 f"unsupported schema_version: {self.schema_version}",
@@ -241,6 +253,13 @@ class ProfileInput:
             _contract("rules_empty", "rules must contain at least one rule")
         if not all(isinstance(rule, ProfileInputRule) for rule in self.rules):
             _contract("rules_item_type", "rules must contain ProfileInputRule only")
+        supported_properties = SUPPORTED_PROPERTIES_BY_SCHEMA_VERSION[self.schema_version]
+        for rule in self.rules:
+            if rule.property_name not in supported_properties:
+                _unsupported(
+                    "property_unsupported",
+                    f"property {rule.property_name} is not supported in schema_version {self.schema_version}",
+                )
         identities = tuple(rule.identity for rule in self.rules)
         if len(set(identities)) != len(identities):
             _contract("rules_duplicate_identity", "duplicate rule identity")

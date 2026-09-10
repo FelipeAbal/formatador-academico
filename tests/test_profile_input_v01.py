@@ -43,8 +43,39 @@ def _bold_exact(value=False):
 class ProfileInputParsingTests(unittest.TestCase):
     def test_minimal_bold_exact(self):
         model = parse_profile_input_json(_json(_bold_exact()))
-        self.assertEqual(model.schema_version, PROFILE_INPUT_SCHEMA_VERSION)
+        self.assertEqual(model.schema_version, "0.1")
         self.assertEqual(model.rules[0].value, False)
+
+    def test_schema_02_accepts_user_alignment_vocabulary(self):
+        model = parse_profile_input_json(
+            _json(
+                {"body": {"alignment": {"mode": "exact", "value": "justify"}}},
+                schema="0.2",
+            )
+        )
+        self.assertEqual(model.schema_version, "0.2")
+        self.assertEqual(model.rules[0].property_name, "alignment")
+        self.assertEqual(model.rules[0].value, "justify")
+
+    def test_schema_01_rejects_alignment(self):
+        with self.assertRaises(ProfileInputUnsupportedError) as cm:
+            parse_profile_input_json(
+                _json(
+                    {"body": {"alignment": {"mode": "exact", "value": "justify"}}},
+                    schema="0.1",
+                )
+            )
+        self.assertEqual(cm.exception.code, "property_unsupported")
+
+    def test_schema_02_rejects_line_spacing_until_its_own_cycle(self):
+        with self.assertRaises(ProfileInputUnsupportedError) as cm:
+            parse_profile_input_json(
+                _json(
+                    {"body": {"line_spacing": {"mode": "exact", "value": 1.5}}},
+                    schema="0.2",
+                )
+            )
+        self.assertEqual(cm.exception.code, "property_unsupported")
 
     def test_body_heading_and_canonical_order(self):
         raw = _json(
@@ -102,7 +133,7 @@ class ProfileInputParsingTests(unittest.TestCase):
                 self.assertEqual(cm.exception.code, "duplicate_key")
 
     def test_schema_version_precedes_unknown_field(self):
-        raw = b'{"schema_version":"0.2","new_future_field":1}'
+        raw = b'{"schema_version":"0.3","new_future_field":1}'
         with self.assertRaises(ProfileInputUnsupportedError) as cm:
             parse_profile_input_json(raw)
         self.assertEqual(cm.exception.code, "schema_version_unsupported")
