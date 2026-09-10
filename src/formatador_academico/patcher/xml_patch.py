@@ -180,7 +180,7 @@ def validate_ppr_shape(paragraph: etree._Element, target_tag: str) -> etree._Ele
         raise Reject(PatchReason.NONCANONICAL_RUN_PROPERTIES, "direct mc:AlternateContent inside target w:pPr")
     targets = _direct_children(ppr, target_tag)
     if len(targets) > 1:
-        raise Reject(PatchReason.DUPLICATE_TARGET_PROPERTY, "more than one direct w:jc")
+        raise Reject(PatchReason.DUPLICATE_TARGET_PROPERTY, f"more than one direct {_qn(target_tag.split(\"}\")[-1])}")
     ranks = []
     for child in _element_children(ppr):
         rank = PPR_CANONICAL_RANK.get(child.tag)
