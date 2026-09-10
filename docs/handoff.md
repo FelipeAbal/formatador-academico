@@ -487,6 +487,6 @@ Já integrado na branch:
 - correção independente de `mirrorInd` para `mirrorIndents`, com regressão;
 - auditoria integral registrada em `docs/audits/auditoria_claude_opus_0051.md`.
 
-CI atual: **757/757 testes verdes**, run `34525989518`, após a matriz adversarial inicial de P3.
+CI atual: **758/758 testes verdes**, run `34526466711`, após a matriz adversarial de P3 e a validação dos exemplos JSON dos contratos.
 
-Antes do merge ainda faltam a matriz adversarial específica de P3, a comparação programática da ordem canônica contra o XSD versionado, a validação automatizada dos exemplos JSON dos contratos e uma inspeção final do diff. O PR permanece aberto até essa revisão.
+Antes do merge ainda faltam a matriz adversarial específica de P3, a comparação programática da ordem canônica contra o XSD versionado, caso o schema seja incorporado ao repositório, e uma inspeção final do diff. O repositório não contém atualmente uma cópia versionada de `wml.xsd`; por isso, a correção `mirrorIndents` está acompanhada de regressão local e a proveniência XSD permanece documental. O PR permanece aberto até essa revisão.
