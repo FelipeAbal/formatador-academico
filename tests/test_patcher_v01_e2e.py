@@ -57,6 +57,7 @@ from formatador_academico.operation_plan import (
     source_document_ref_from_physical_ir,
 )
 from formatador_academico.patcher import PatchStatus, apply_cleared_operation
+from formatador_academico.patcher.xml_patch import PPR_CANONICAL_ORDER
 from formatador_academico.safety_gate import ContextStatus, evaluate_operation_plan
 from formatador_academico.transform_log import build_transform_record
 
@@ -239,6 +240,16 @@ class PatcherV01E2E(unittest.TestCase):
         self.assertEqual(second.status, PatchStatus.APPLIED)
         self.assertIs(_analysis(second.output_package_bytes, "bold").value, False)
         self.assertEqual(_analysis(second.output_package_bytes, "font_size").value.value, Decimal("12"))
+
+
+class PatcherCanonicalParagraphOrderTests(unittest.TestCase):
+    def test_ppr_order_uses_the_xsd_mirror_indents_local_name(self):
+        self.assertIn("mirrorIndents", PPR_CANONICAL_ORDER)
+        self.assertNotIn("mirrorInd", PPR_CANONICAL_ORDER)
+        self.assertLess(
+            PPR_CANONICAL_ORDER.index("mirrorIndents"),
+            PPR_CANONICAL_ORDER.index("suppressOverlap"),
+        )
 
 
 if __name__ == "__main__":
