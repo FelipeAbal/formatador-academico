@@ -434,11 +434,15 @@ def apply_font_size(run: etree._Element, rpr: etree._Element, desired: LengthVal
 
 
 def mutate_paragraph(paragraph: etree._Element, property_slot: str, desired) -> None:
-    if property_slot != "alignment":
+    target_tag = {"alignment": W_JC, "spacing.line": W_SPACING}.get(property_slot)
+    if target_tag is None:
         raise Reject(PatchReason.UNSUPPORTED_OPERATION, f"unsupported paragraph property: {property_slot}")
-    ppr = validate_ppr_shape(paragraph, W_JC)
+    ppr = validate_ppr_shape(paragraph, target_tag)
     ppr = ensure_ppr(paragraph, ppr)
-    apply_alignment(paragraph, ppr, desired)
+    if property_slot == "alignment":
+        apply_alignment(paragraph, ppr, desired)
+    else:
+        apply_spacing_line(paragraph, ppr, desired)
 
 
 def mutate_run(run: etree._Element, property_slot: str, desired) -> None:
