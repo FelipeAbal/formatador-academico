@@ -341,7 +341,7 @@ class AdapterTests(unittest.TestCase):
     def test_schema_02_alignment_adapts_to_paragraph_binding(self):
         model = parse_profile_input_json(
             _json(
-                {"body": {"alignment": {"mode": "exact", "value": "justify"}},
+                {"body": {"alignment": {"mode": "exact", "value": "justify"}}},
                 schema="0.2",
             )
         )
