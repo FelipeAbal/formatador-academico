@@ -200,6 +200,53 @@ def ensure_ppr(paragraph: etree._Element, ppr: etree._Element | None) -> etree._
     return ppr
 
 
+
+def line_twips_lexical(desired: LineSpacingValue) -> str:
+    if not isinstance(desired, LineSpacingValue):
+        raise Reject(PatchReason.UNSUPPORTED_OPERATION, "spacing.line desired value must be LineSpacingValue")
+    if desired.rule != "auto" or desired.unit != "multiple" or desired.value is None:
+        raise Reject(PatchReason.UNREPRESENTABLE_VALUE, "spacing.line must be an auto multiple")
+    value = desired.value
+    if not isinstance(value, Decimal) or not value.is_finite() or value <= 0:
+        raise Reject(PatchReason.UNREPRESENTABLE_VALUE, "spacing.line multiple must be finite and positive")
+    sign, digits, exponent = value.as_tuple()
+    coefficient = 0
+    for digit in digits:
+        coefficient = coefficient * 10 + digit
+    if exponent >= 0:
+        numerator, denominator = coefficient * (10 ** exponent) * 240, 1
+    else:
+        numerator, denominator = coefficient * 240, 10 ** (-exponent)
+    if numerator % denominator:
+        raise Reject(PatchReason.UNREPRESENTABLE_VALUE, "spacing.line is not exactly representable in auto-line units")
+    twips = numerator // denominator
+    if twips > MAX_LINE_TWIPS:
+        raise Reject(PatchReason.UNREPRESENTABLE_VALUE, "spacing.line exceeds the OOXML range")
+    return str(twips)
+
+
+_SPACING_ATTRS = {
+    f"{{{W_NS}}}before", f"{{{W_NS}}}beforeLines", f"{{{W_NS}}}beforeAutospacing",
+    f"{{{W_NS}}}after", f"{{{W_NS}}}afterLines", f"{{{W_NS}}}afterAutospacing",
+    W_LINE, W_LINE_RULE,
+}
+
+
+def apply_spacing_line(paragraph: etree._Element, ppr: etree._Element, desired: LineSpacingValue) -> None:
+    lexical = line_twips_lexical(desired)
+    targets = _direct_children(ppr, W_SPACING)
+    if targets:
+        element = targets[0]
+        if _element_children(element) or set(element.attrib) - _SPACING_ATTRS:
+            raise Reject(PatchReason.NONCANONICAL_RUN_PROPERTIES, "direct w:spacing is outside the canonical shape")
+        element.set(W_LINE, lexical)
+        element.set(W_LINE_RULE, "auto")
+    else:
+        element = etree.Element(W_SPACING)
+        element.set(W_LINE, lexical)
+        element.set(W_LINE_RULE, "auto")
+        _insert_ppr_canonical(ppr, element)
+
 def apply_alignment(paragraph: etree._Element, ppr: etree._Element, desired: str) -> None:
     if desired not in {"left", "center", "right", "both"}:
         raise Reject(PatchReason.UNSUPPORTED_OPERATION, f"alignment desired value is not canonical: {desired!r}")
