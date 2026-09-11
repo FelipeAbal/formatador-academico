@@ -13,6 +13,7 @@ never copied. Compression level is fixed explicitly for determinism.
 from __future__ import annotations
 
 import io
+import struct
 import zipfile
 
 from .model import DOCUMENT_PART, PatcherContractError, PatcherIntegrityError
@@ -82,7 +83,23 @@ def repackage(
                 zf.writestr(fresh, data, compresslevel=FIXED_COMPRESS_LEVEL)
             else:
                 zf.writestr(fresh, data)
-    return buffer.getvalue()
+    output = buffer.getvalue()
+    # Python's zipfile writer replaces a zero external_attr with default
+    # permissions. Zero is valid metadata in real DOCX packages and belongs
+    # to the preserved allowlist, so restore central-directory values after
+    # writing. Local file headers do not carry external_attr.
+    output_bytes = bytearray(output)
+    with zipfile.ZipFile(io.BytesIO(output), "r") as zf:
+        cursor = zf.start_dir
+        for original in infos:
+            if output_bytes[cursor:cursor + 4] != b"PK\x01\x02":
+                raise PatcherIntegrityError("output central directory is malformed")
+            struct.pack_into("<I", output_bytes, cursor + 38, original.external_attr)
+            name_length, extra_length, comment_length = struct.unpack_from(
+                "<HHH", output_bytes, cursor + 28
+            )
+            cursor += 46 + name_length + extra_length + comment_length
+    return bytes(output_bytes)
 
 
 def _metadata_of(info: zipfile.ZipInfo) -> tuple:

@@ -40,6 +40,7 @@ from formatador_academico.patcher import (
     apply_cleared_operation,
 )
 from formatador_academico.patcher.validation import validate_allowed_delta
+from formatador_academico.patcher.package import repackage
 from formatador_academico.patcher.xml_patch import RPR_CANONICAL_ORDER
 from formatador_academico.safety_gate.model import _EMISSION_PROOF, GateClearedOperation
 from formatador_academico.safety_gate.targets import walk_records
@@ -610,6 +611,18 @@ class TestPackagePreservation(unittest.TestCase):
         for name in self.zout.namelist():
             self.assertEqual(self.zout.getinfo(name).date_time,
                              FIXED_ZIP_DATE_TIME)
+
+
+class TestZeroExternalAttrPreservation(unittest.TestCase):
+    def test_zero_external_attr_survives_repackage(self):
+        info = zipfile.ZipInfo("word/document.xml", FIXED_ZIP_DATE_TIME)
+        info.compress_type = zipfile.ZIP_DEFLATED
+        info.external_attr = 0
+        output = repackage(
+            [info], {"word/document.xml": b"<document/>"}, b"", b"<document/>"
+        )
+        with zipfile.ZipFile(io.BytesIO(output), "r") as zf:
+            self.assertEqual(zf.getinfo("word/document.xml").external_attr, 0)
 
 
 class TestContentConservation(unittest.TestCase):
