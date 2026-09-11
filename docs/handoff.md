@@ -576,3 +576,39 @@ O corpus encontrou dois defeitos de produção que não apareciam nas fixtures s
 O processamento atual reavalia o pacote completo após cada alteração. Nos documentos grandes, isso levou a mais de quinze minutos de CPU para uma única medição completa. Performance de múltiplos patches sequenciais passa a ser dívida observada em documento real, antes de qualquer nova propriedade ou interface.
 
 Conclusão operacional: a próxima etapa não deve ser escolhida apenas pela contagem de propriedades. O motor já entrega alterações e revisão em documentos reais, mas precisa de uma medição reproduzível do custo por tamanho e de uma decisão sobre cobertura para documentos com poucos sinais de estilo. A interface continua candidata, condicionada a essa medição de desempenho e à definição de como exibir abstenções relevantes.
+
+## Fechamento da auditoria 0056 e otimização de alvos
+
+Atualização registrada em 2026-09-11, após o merge do PR #43 no commit `c23975d695b53d77d59e6abfabd0728899bd9e66`.
+
+A otimização constrói um índice local por `structural_path` para reutilizar a travessia de alvos no SafetyGate e no Review DOCX. O índice preserva registros, ordem, duplicidades e cadeias de ancestrais. Não altera decisões, vetos, evidências, hashes, candidatos ou o pacote DOCX limpo.
+
+Auditorias independentes:
+
+- DeepSeek Flash 4.1: aprovado com ajustes, sem defeito de correção;
+- Claude Opus: aprovado, sem defeito bloqueante;
+- ambos confirmaram equivalência semântica com `resolve_target`;
+- os seis DOCX reais foram usados somente para medição e não entraram no repositório.
+
+Ajustes aplicados antes do merge:
+
+- o índice passou a ser construído somente quando o plano possui operações;
+- o teste passou a comparar todos os caminhos da fixture, incluindo identidade dos registros e ancestrais;
+- foram adicionados testes para duplicidade, caminho ausente, índice vazio, história inválida e plano vazio;
+- a construção do índice do Review DOCX foi mantida fora do bloco de erros de pacote e patcher.
+
+Validação final:
+
+- 774 testes aprovados localmente;
+- CI do head da PR aprovado na run `34632569990`;
+- PR #43 integrada por squash na `main`;
+- commit resultante: `c23975d695b53d77d59e6abfabd0728899bd9e66`.
+
+Medições independentes em documentos reais indicaram redução de aproximadamente 41% a 50% nessa etapa, com medianas de três execuções e sem `cProfile`. O custo dominante permanece sendo a reavaliação completa e a serialização repetida após cada patch. A performance de múltiplas alterações sequenciais continua registrada como dívida técnica, sem abrir novo ciclo de contrato nesta etapa.
+
+Arquivos integrais dos pareceres:
+
+- `docs/audits/0056-deepseek-flash-4-1-audit-result.md`;
+- `docs/audits/0056-claude-opus-audit-result.md`.
+
+Próxima etapa: escolher entre uma medição mais ampla de custo e cobertura em documentos reais, uma melhoria de severidade/ranking no relatório ou o desenho da interface user-facing. Qualquer nova propriedade exige ciclo próprio de escopo e contrato.
