@@ -62,6 +62,11 @@ from formatador_academico.safety_gate import (
     gate_operation,
     serialize_safety_gate_report,
 )
+from formatador_academico.safety_gate.targets import (
+    index_story_targets,
+    resolve_target,
+    walk_records,
+)
 
 from test_analysis_formatting_v01b_m1 import build_docx, document, styles_part
 from test_classification_v01_e2e import NORMAL
@@ -322,6 +327,51 @@ class TestLocalVetoes(unittest.TestCase):
         result = self._gate_single(decision)
         self.assertEqual(result.status, GateStatus.BLOCKED)
         self.assertEqual(result.reasons, (GateReason.TARGET_NOT_FOUND,))
+
+    def test_story_target_index_preserves_path_resolution(self):
+        story = self.ir["stories"][0]
+        indexed = index_story_targets(story)
+        paths = {record["structural_path"] for record, _ in walk_records(story["blocks"])}
+        self.assertEqual(set(indexed), paths)
+        for path in paths:
+            expected = resolve_target(story, path)
+            actual = indexed[path]
+            self.assertEqual(len(actual), len(expected))
+            for (actual_record, actual_ancestors), (expected_record, expected_ancestors) in zip(
+                actual, expected
+            ):
+                self.assertIs(actual_record, expected_record)
+                self.assertEqual(actual_ancestors, expected_ancestors)
+
+        missing = "/w:document/w:body[1]/w:p[999]"
+        self.assertEqual(indexed.get(missing, []), resolve_target(story, missing))
+
+    def test_story_target_index_preserves_duplicates_and_empty_story(self):
+        story = copy.deepcopy(self.ir["stories"][0])
+        story["blocks"].append(copy.deepcopy(story["blocks"][0]))
+        path = self.run_rec["structural_path"]
+        indexed = index_story_targets(story)
+        resolved = resolve_target(story, path)
+        self.assertEqual(len(indexed[path]), 2)
+        self.assertEqual(len(resolved), 2)
+        for (actual_record, actual_ancestors), (expected_record, expected_ancestors) in zip(
+            indexed[path], resolved
+        ):
+            self.assertIs(actual_record, expected_record)
+            self.assertEqual(actual_ancestors, expected_ancestors)
+
+        empty_story = {"blocks": []}
+        self.assertEqual(index_story_targets(empty_story), {})
+        with self.assertRaises(SafetyGateContractError):
+            index_story_targets({"blocks": None})
+
+    def test_empty_plan_does_not_index_invalid_story(self):
+        plan = _plan_for(self.ir, ())
+        invalid_ir = copy.deepcopy(self.ir)
+        invalid_ir["stories"][0]["blocks"] = None
+        report = _evaluate(plan, (), invalid_ir, self.catalog)
+        self.assertEqual(report.context_status, ContextStatus.COMPATIBLE)
+        self.assertEqual(report.results, ())
 
     def test_target_not_unique(self):
         decision = _decision(self.run_rec, "bold", True, False, aspect="P1")
