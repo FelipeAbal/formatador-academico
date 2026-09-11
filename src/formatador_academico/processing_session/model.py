@@ -44,6 +44,10 @@ class ProcessingSessionContractError(ProcessingSessionError, ValueError):
     """Malformed input/profile/API misuse."""
 
 
+class ProcessingSessionUnsupportedError(ProcessingSessionError, ValueError):
+    """A well-formed direct profile value outside the executable capability."""
+
+
 class ProcessingSessionIntegrityError(ProcessingSessionError):
     """Impossible cross-artifact/cycle/lineage contradiction."""
 
@@ -72,6 +76,18 @@ def _validate_rule_value(property_slot: str, value: object) -> None:
             raise ProcessingSessionContractError(
                 "font_size rule values must be Decimal points"
             )
+        if not value.is_finite() or value <= 0:
+            raise ProcessingSessionContractError("font_size must be finite and positive")
+        sign, digits, exponent = value.as_tuple()
+        if len(digits) > 32 or not (-16 <= exponent <= 16):
+            raise ProcessingSessionUnsupportedError("font_size exceeds direct profile capability")
+        coefficient = 0
+        for digit in digits:
+            coefficient = coefficient * 10 + digit
+        numerator = coefficient * 2 * (10 ** exponent) if exponent >= 0 else coefficient * 2
+        denominator = 1 if exponent >= 0 else 10 ** (-exponent)
+        if numerator % denominator:
+            raise ProcessingSessionUnsupportedError("font_size is not exactly representable in half-points")
         return
     if property_slot == "alignment":
         if type(value) is not str or value not in {"left", "center", "right", "both"}:
@@ -86,6 +102,20 @@ def _validate_rule_value(property_slot: str, value: object) -> None:
             raise ProcessingSessionContractError("spacing.line rule values must be auto multiples")
         if not isinstance(value.value, Decimal) or value.value <= 0:
             raise ProcessingSessionContractError("spacing.line multiple must be a positive Decimal")
+        if not value.value.is_finite():
+            raise ProcessingSessionContractError("spacing.line multiple must be finite")
+        sign, digits, exponent = value.value.as_tuple()
+        if len(digits) > 32 or not (-16 <= exponent <= 16):
+            raise ProcessingSessionUnsupportedError("line spacing exceeds direct profile capability")
+        coefficient = 0
+        for digit in digits:
+            coefficient = coefficient * 10 + digit
+        numerator = coefficient * 240 if exponent < 0 else coefficient * (10 ** exponent) * 240
+        denominator = 10 ** (-exponent) if exponent < 0 else 1
+        if numerator % denominator:
+            raise ProcessingSessionUnsupportedError("line spacing is not exactly representable in auto-line units")
+        if numerator // denominator > 2_147_483_647:
+            raise ProcessingSessionUnsupportedError("line spacing exceeds the current OOXML range")
         return
     raise ProcessingSessionContractError("unsupported Processing Session property slot")
 
