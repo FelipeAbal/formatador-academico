@@ -32,6 +32,7 @@ from formatador_academico.processing_session import (
     PROCESSING_SESSION_VERSION,
     ProcessingProfile,
     ProcessingSessionContractError,
+    ProcessingSessionUnsupportedError,
     ProcessingSessionIntegrityError,
     ProcessingSessionStatus,
     RuleBinding,
@@ -170,6 +171,16 @@ class ProcessingProfileTests(unittest.TestCase):
         rule = FormattingRule("bad", "P2", "font_size", RuleMode.EXACT, expected=12)
         with self.assertRaises(ProcessingSessionContractError):
             RuleBinding("body", "run", rule)
+
+    def test_direct_profile_rejects_unrepresentable_values_early(self):
+        with self.assertRaises(ProcessingSessionUnsupportedError):
+            RuleBinding("body", "run", _font_rule(Decimal("11.1")))
+        rule = FormattingRule(
+            "line", "P3", "spacing.line", RuleMode.EXACT,
+            expected=LineSpacingValue("auto", Decimal("1.001"), "multiple"),
+        )
+        with self.assertRaises(ProcessingSessionUnsupportedError):
+            RuleBinding("body", "paragraph", rule)
 
     def test_empty_profile_rejected(self):
         with self.assertRaises(ProcessingSessionContractError):
