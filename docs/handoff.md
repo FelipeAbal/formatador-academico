@@ -521,3 +521,35 @@ O PR #30 foi integrado no commit `0091332f989f5657c1ab92a513020f4651dc75f7`, reg
 - Claude Opus: `docs/audits/0052b-claude-opus-complete-audit.md`, auditoria completa de código, contratos, segurança e integração.
 
 As duas auditorias devem analisar o commit `08fed75e81541d439bf31bd532ecf4096896a6b2`. Durante as auditorias, não alterar o repositório. O próximo ciclo será decidido a partir dos achados independentes.
+
+
+## Estado consolidado após as auditorias 0052 e o ciclo 0053
+
+Atualização registrada em 2026-09-11. Esta seção substitui, para fins operacionais, referências históricas anteriores que indiquem P3 em implementação, PRs ainda abertos ou R3/R4 pendentes.
+
+- `main` atual: `27a0c3d66ec5f3fdb34af25853f523208695cc9a`;
+- PR #36, emenda 0052C: integrado com CI verde;
+- PR #37, R3: validação antecipada de valores não representáveis em perfis tipados, integrado com CI verde;
+- PR #38, R4: fixture WML compacta e versionada, integrado com CI verde;
+- suíte completa: 765 testes aprovados no CI;
+- não há alteração pendente decorrente das auditorias DeepSeek Flash 4.1 e Claude Opus.
+
+### R3 encerrado
+
+A API tipada do Processing Session rejeita na construção direta valores de fonte ou entrelinha sem representação exata na capacidade atual do Patcher. O erro de capacidade é separado do erro de contrato estrutural. O caminho normal pelo Profile Input continua validado na entrada JSON, e a construção direta também está protegida.
+
+### R4 encerrado
+
+A fixture `tests/fixtures/wml-formatting-slice-v01.json` registra os fatos mínimos do WML para:
+
+- `run/font_size`;
+- `run/bold`;
+- `paragraph/alignment`;
+- `paragraph/spacing.line`.
+
+Cada caso declara explicitamente `target_type`, `target_class` e `property_slot`. O teste associado compara a tupla completa de ordem canônica de `CT_PPr` com `PPR_CANONICAL_ORDER`, sem depender de rede ou de uma cópia integral do `wml.xsd`.
+
+### Próxima decisão
+
+O MVP vertical está encerrado até a fronteira user-facing, com P1, P2, P3 e P4 no slice automático. A próxima ampliação deve ser escolhida como novo ciclo de contrato, precedida por análise de escopo e, quando houver ganho real, auditoria adversarial do Claude Opus. Não iniciar nova propriedade apenas por haver espaço técnico: primeiro definir a propriedade, o contrato, os limites e a cobertura.
+
