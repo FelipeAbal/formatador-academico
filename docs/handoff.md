@@ -553,3 +553,26 @@ Cada caso declara explicitamente `target_type`, `target_class` e `property_slot`
 
 O MVP vertical está encerrado até a fronteira user-facing, com P1, P2, P3 e P4 no slice automático. A próxima ampliação deve ser escolhida como novo ciclo de contrato, precedida por análise de escopo e, quando houver ganho real, auditoria adversarial do Claude Opus. Não iniciar nova propriedade apenas por haver espaço técnico: primeiro definir a propriedade, o contrato, os limites e a cobertura.
 
+
+## Medição inicial com corpus DOCX real
+
+Atualização registrada em 2026-09-11, após a integração do PR #40 (`b055a39`). Foram usados seis DOCX acadêmicos fornecidos para medição, sem incorporá-los ao repositório.
+
+Perfil de entrada: schema `0.3`, classe `body`, fonte 12 pt, entrelinha 1,5 e alinhamento justificado.
+
+| Documento | Parágrafos body | Abstenções | Não aplicáveis | Alterações aplicadas | Revisão | Resultado |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| A Boca da Lei Feita Máquina | 144 | 30 | 0 | 51 | 84 | completo após PR #40 |
+| Artigo Claudir | 89 | 37 | 2 | 53 | 9 | completo após PR #40 |
+| Diovana | 202 | 39 | 0 | 99 | 23 | completo após PR #40 |
+| Soberania verificável sem metadados | 145 | 348 | 0 | 26 | 6 | completo após PR #40 |
+| artigo Hellen-2 | 188 | 160 | 3 | 288 previstos | 99 previstos | custo alto, não concluído end-to-end |
+| Dissertação final | 403 | 111 | 1 | 63 previstos | 130 previstos | custo alto, não concluído end-to-end |
+
+Nos seis arquivos, o classificador produziu 1.171 classificações `body`, 725 abstenções e 6 itens `not_applicable`, em 1.902 parágrafos. A abstenção não domina o corpus inteiro, mas é muito alta no arquivo sem metadados, com 348 de 493 parágrafos.
+
+O corpus encontrou dois defeitos de produção que não apareciam nas fixtures sintéticas: preservação de `external_attr=0` na central directory ZIP e validação tardia de hashes quando candidatos de run e parágrafo coexistiam. Ambos foram corrigidos e integrados no PR #40, com 771 testes locais e CI verde.
+
+O processamento atual reavalia o pacote completo após cada alteração. Nos documentos grandes, isso levou a mais de quinze minutos de CPU para uma única medição completa. Performance de múltiplos patches sequenciais passa a ser dívida observada em documento real, antes de qualquer nova propriedade ou interface.
+
+Conclusão operacional: a próxima etapa não deve ser escolhida apenas pela contagem de propriedades. O motor já entrega alterações e revisão em documentos reais, mas precisa de uma medição reproduzível do custo por tamanho e de uma decisão sobre cobertura para documentos com poucos sinais de estilo. A interface continua candidata, condicionada a essa medição de desempenho e à definição de como exibir abstenções relevantes.
