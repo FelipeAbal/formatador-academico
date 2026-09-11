@@ -39,12 +39,12 @@ A interface não calcula conformidade por conta própria. Ela apenas coleta a en
 - um arquivo DOCX selecionado pelo usuário;
 - leitura integral em memória;
 - nenhuma alteração no arquivo original;
-- limite inicial de tamanho definido no servidor antes do processamento;
+- limite inicial de corpo HTTP de 64 MiB, verificado antes de materializar o corpo completo;
 - rejeição de arquivo vazio, tipo incompatível ou falha de leitura.
 
 ### 3.2 Perfil
 
-A interface produzirá JSON compatível com o Profile Input v0.3 já existente.
+A interface produzirá JSON compatível com o Profile Input v0.3 já existente. Esse JSON será transportado como uma parte opaca `application/json` da requisição multipart e será repassado em bytes, sem ser convertido em objeto, reserializado ou incorporado a outro JSON. Assim permanecem ativas as rejeições de chaves duplicadas, BOM, encoding inválido e campos desconhecidos.
 
 O formulário inicial permitirá configurar, separadamente para `body` e `heading`:
 
@@ -59,31 +59,34 @@ O JSON final deverá continuar sendo validado pelo parser congelado do Profile I
 
 ## 4. Saídas
 
-Após processamento bem-sucedido, a interface apresentará:
+Após processamento bem-sucedido, a interface apresentará os cinco arquivos tipados produzidos pela camada de entrega:
 
 1. DOCX limpo;
 2. DOCX destacado para revisão;
 3. Processing Report JSON;
 4. relatório humano Markdown;
-5. resumo com alterações aplicadas, itens para revisão, itens não aplicados e abstenções.
+5. `manifest.json`, com nomes, papéis, media types, tamanhos e hashes.
+
+O resumo será exibido na página e não será contado como arquivo adicional. A categoria de abstenções corresponderá literalmente a `classification_items` do `ProcessingReport`.
 
 Os arquivos serão derivados das APIs já existentes:
 
 ```text
 build_product_from_inputs(...)
 → ProductOutputBundle
-
-render_processing_report(...)
-→ RenderedProcessingReport
+→ build_product_delivery(...)
+→ ProductDelivery, com cinco DeliveryFile
 ```
 
-A interface não editará nem reconstruirá esses arquivos por conta própria.
+A interface fornecerá apenas o `base_name`, derivado do nome enviado e entregue à camada congelada para canonicalização. Não chamará `render_processing_report` diretamente, não inventará nomes, não reconstruirá o manifest e não editará os arquivos por conta própria.
 
 ## 5. Transporte local
 
-A primeira implementação usará um servidor HTTP local e uma página HTML estática, sem biblioteca JavaScript externa.
+A primeira implementação usará `ThreadingHTTPServer`, da biblioteca padrão, e uma página HTML estática, sem biblioteca JavaScript externa.
 
-O navegador enviará o documento e o perfil ao servidor local. O servidor retornará os artefatos para download na mesma sessão.
+O navegador enviará o documento e o perfil ao servidor local por multipart. O servidor retornará, em uma única resposta, os cinco `DeliveryFile` codificados para que o navegador crie os downloads localmente. Não haverá endpoint posterior de download nem retenção de bytes entre requisições.
+
+O perfil será uma parte multipart opaca `application/json`. O parser multipart mínimo será implementado sobre componentes disponíveis na biblioteca padrão, sem usar o módulo `cgi`, removido no Python 3.13. O corpo será limitado antes da leitura integral.
 
 O servidor não deverá:
 
@@ -93,6 +96,16 @@ O servidor não deverá:
 - executar comandos recebidos pelo navegador;
 - carregar recursos externos;
 - aceitar caminhos de arquivo enviados pelo cliente.
+
+Cada processo do servidor gerará um token aleatório de sessão no arranque. O token será impresso junto com a URL e exigido em toda requisição de saúde e processamento. A aplicação verificará:
+
+- `Origin`, aceitando somente a origem local esperada;
+- `Sec-Fetch-Site`, recusando requisições cross-site quando presente;
+- `Host`, aceitando somente o host local esperado;
+- método HTTP, aceitando apenas os métodos previstos;
+- token de sessão, usando comparação segura.
+
+Como os downloads serão montados no navegador a partir da resposta única, não haverá identificador de download reutilizável nem armazenamento de artefatos no servidor.
 
 O uso pelo Mac dependerá de um túnel SSH autenticado pelo usuário. A configuração de SSH e a eventual regra de firewall pertencem à instalação operacional, não ao contrato do produto.
 
@@ -108,9 +121,12 @@ A aplicação deverá respeitar todas as invariantes do núcleo:
 - manter a distinção entre alteração aplicada, revisão, item não aplicado e abstenção;
 - exibir erros de contrato e integridade sem convertê-los em sucesso;
 - não afirmar conformidade integral apenas porque o processamento terminou;
-- limpar referências aos bytes do documento ao final da requisição, quando tecnicamente possível.
+- não reter bytes do documento ou artefatos depois de concluída a resposta;
+- manter os bytes somente durante a requisição e a criação dos downloads no navegador.
 
-O servidor deverá limitar o tamanho do corpo HTTP e rejeitar requisições que não estejam no formato definido pela aplicação.
+O servidor deverá rejeitar o corpo antes de materializá-lo quando o `Content-Length` exceder 64 MiB e, quando o cabeçalho estiver ausente ou não for confiável, ler no máximo 64 MiB mais um byte antes de rejeitar. Requisições fora do formato definido deverão ser recusadas.
+
+O formulário deverá expor `max_applied_operations`, com valor inicial igual ao limite padrão vigente do núcleo e possibilidade de redução pelo usuário. O resultado `operation_limit_reached` será mostrado como limite atingido, nunca como processamento concluído sem ressalvas.
 
 ## 7. Tecnologia inicial
 
@@ -138,18 +154,29 @@ Ficam fora da v0.1:
 
 ## 9. Critérios de aceitação
 
-A v0.1 será considerada pronta para teste quando:
+A v0.1 será considerada pronta para teste quando os critérios automatizáveis forem atendidos:
+
+1. aceitar multipart com DOCX e perfil JSON opaco;
+2. produzir os cinco arquivos da camada `ProductDelivery`, sem reconstrução na interface;
+3. exibir contagens coerentes com o `ProcessingReport`;
+4. mapear abstenções para `classification_items`;
+5. recusar perfil inválido sem executar o DOCX;
+6. recusar arquivo vazio ou corpo acima do limite sem leitura integral acima do limite;
+7. não afirmar conformidade quando o resultado for quiescente ou tiver zero itens;
+8. exibir sempre status da sessão, contagens e cobertura, inclusive as exclusões do slice;
+9. exibir `operation_limit_reached` como limite atingido;
+10. recusar origem, host, token ou método não previstos;
+11. manter a suíte existente verde;
+12. preservar os bytes dos `DeliveryFile` exatamente;
+13. duas requisições concorrentes não podem compartilhar artefatos ou token.
+
+O checklist manual de instalação e uso será separado:
 
 1. iniciar no Ubuntu com um comando documentado;
 2. abrir no navegador do Mac por túnel SSH;
-3. aceitar um DOCX e um perfil válido;
-4. produzir os quatro artefatos previstos;
-5. exibir contagens coerentes com o Processing Report;
-6. recusar perfil inválido sem executar o DOCX;
-7. recusar arquivo vazio ou requisição acima do limite;
-8. não gravar o documento enviado em diretório permanente;
-9. manter a suíte existente verde;
-10. ser testada com os seis DOCX reais fornecidos, sem incorporá-los ao Git.
+3. confirmar que o servidor permanece em `127.0.0.1`;
+4. confirmar que não há arquivos temporários persistentes;
+5. testar os seis DOCX reais fornecidos, sem incorporá-los ao Git.
 
 ## 10. Sequência de implementação
 
@@ -161,13 +188,17 @@ A v0.1 será considerada pronta para teste quando:
 6. instalação orientada no Ubuntu;
 7. teste end-to-end a partir do Mac.
 
-## 11. Decisões ainda abertas
+## 11. Decisões fechadas após auditoria
 
-Antes da implementação, a auditoria deverá verificar:
+- transporte: multipart;
+- perfil: parte `application/json` opaca, repassada em bytes;
+- limite inicial de corpo HTTP: 64 MiB;
+- limite de trabalho: `max_applied_operations` exposto no formulário;
+- resposta: única resposta contendo os cinco arquivos da `ProductDelivery`, sem endpoint posterior de download;
+- servidor: `ThreadingHTTPServer`;
+- segurança: token de arranque, verificação de `Origin`, `Sec-Fetch-Site`, `Host` e métodos;
+- abstenções: correspondem a `classification_items`;
+- zero itens não significa conformidade;
+- critérios ambientais e uso com DOCX reais ficam em checklist manual.
 
-- se o transporte de bytes em JSON é adequado para o limite inicial ou se deve ser usado multipart;
-- qual limite inicial de tamanho do DOCX é seguro para o processamento disponível;
-- se o relatório humano deve ser baixado junto com os demais arquivos ou apenas exibido e baixado separadamente;
-- se o servidor padrão deve encerrar após uma requisição ou permanecer ativo até interrupção manual.
-
-Nenhuma dessas questões altera a autoridade do núcleo de processamento. Elas pertencem somente à camada de interface local.
+Essas decisões pertencem somente à camada de interface local e não alteram a autoridade do núcleo de processamento.
