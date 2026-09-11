@@ -1,0 +1,43 @@
+{
+  "fixture_version": "0.1",
+  "purpose": "Minimal WML facts used to audit the executable formatting slice.",
+  "provenance": {
+    "standard": "ECMA-376 / ISO/IEC 29500, transitional WML vocabulary",
+    "scope": [
+      "CT_PPr child order",
+      "CT_Spacing line and lineRule attributes",
+      "ST_LineSpacingRule",
+      "ST_Jc"
+    ]
+  },
+  "cases": [
+    {
+      "id": "run-font-size",
+      "target_type": "run",
+      "target_class": "body",
+      "property_slot": "font_size",
+      "xml": "<w:r xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:rPr><w:sz w:val=\"22\"/></w:rPr><w:t>x</w:t></w:r>"
+    },
+    {
+      "id": "run-bold",
+      "target_type": "run",
+      "target_class": "body",
+      "property_slot": "bold",
+      "xml": "<w:r xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:rPr><w:b/></w:rPr><w:t>x</w:t></w:r>"
+    },
+    {
+      "id": "paragraph-alignment",
+      "target_type": "paragraph",
+      "target_class": "body",
+      "property_slot": "alignment",
+      "xml": "<w:p xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:pPr><w:jc w:val=\"both\"/></w:pPr><w:r><w:t>x</w:t></w:r></w:p>"
+    },
+    {
+      "id": "paragraph-spacing-line",
+      "target_type": "paragraph",
+      "target_class": "body",
+      "property_slot": "spacing.line",
+      "xml": "<w:p xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:pPr><w:spacing w:line=\"360\" w:lineRule=\"auto\"/></w:pPr><w:r><w:t>x</w:t></w:r></w:p>"
+    }
+  ]
+}
