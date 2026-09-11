@@ -242,11 +242,9 @@ def build_review_docx(
     results: list[ReviewMarkResult] = []
     marked_paths: list[str] = []
 
+    resolved_candidates = []
     for candidate in candidates:
         path = candidate["path"]
-        source_kinds = tuple(
-            x for x in _SOURCE_ORDER if x in candidate["source_kinds"]
-        )
         try:
             target = parser_api.resolve_structural_path(root, path)
         except parser_api.StructuralPathError as exc:
@@ -256,6 +254,13 @@ def build_review_docx(
         final_hash = _physical_hash(target)
         for item in candidate["items"]:
             _validate_item_binding(item, final_hash)
+        resolved_candidates.append((candidate, target))
+
+    for candidate, target in resolved_candidates:
+        path = candidate["path"]
+        source_kinds = tuple(
+            x for x in _SOURCE_ORDER if x in candidate["source_kinds"]
+        )
 
         if target.tag == W_P:
             paragraph_matches = resolve_target(physical_story, path)

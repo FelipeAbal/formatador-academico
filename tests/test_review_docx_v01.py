@@ -92,6 +92,27 @@ class ReviewDocxRealFlowTests(unittest.TestCase):
         self.assertEqual(result.mark_results[0].source_kinds, ("applied_change",))
         self.assertEqual(_highlight_values(result.output_review_package_bytes)[0], ["yellow"])
 
+    def test_run_and_paragraph_candidates_validate_before_marking(self):
+        body = '<w:p><w:pPr><w:pStyle w:val="Normal"/></w:pPr>' + _run("mixed", bold=True) + "</w:p>"
+        session = process_document(
+            _pkg(body),
+            _profile(
+                RuleBinding("body", "run", _bold_rule(False)),
+                RuleBinding(
+                    "body",
+                    "paragraph",
+                    FormattingRule(
+                        "body-alignment", "P4", "alignment", RuleMode.EXACT, expected="both"
+                    ),
+                ),
+            ),
+        )
+        report = build_processing_report(session)
+        self.assertTrue(report.applied_changes)
+        self.assertTrue(report.review_items)
+        result = build_review_docx(session.output_package_bytes, report)
+        self.assertEqual(len(result.mark_results), 2)
+
     def test_review_item_is_marked(self):
         body = '<w:p><w:r><w:t>missing-size</w:t></w:r></w:p>'
         session = process_document(
