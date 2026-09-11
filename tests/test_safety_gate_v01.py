@@ -62,6 +62,7 @@ from formatador_academico.safety_gate import (
     gate_operation,
     serialize_safety_gate_report,
 )
+from formatador_academico.safety_gate.targets import index_story_targets, resolve_target
 
 from test_analysis_formatting_v01b_m1 import build_docx, document, styles_part
 from test_classification_v01_e2e import NORMAL
@@ -322,6 +323,14 @@ class TestLocalVetoes(unittest.TestCase):
         result = self._gate_single(decision)
         self.assertEqual(result.status, GateStatus.BLOCKED)
         self.assertEqual(result.reasons, (GateReason.TARGET_NOT_FOUND,))
+
+    def test_story_target_index_preserves_path_resolution(self):
+        story = self.ir["stories"][0]
+        indexed = index_story_targets(story)
+        self.assertEqual(
+            indexed[self.run_rec["structural_path"]],
+            resolve_target(story, self.run_rec["structural_path"]),
+        )
 
     def test_target_not_unique(self):
         decision = _decision(self.run_rec, "bold", True, False, aspect="P1")

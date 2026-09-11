@@ -13,7 +13,7 @@ from ..patcher.model import PatcherContractError, PatcherIntegrityError
 from ..patcher.package import read_package_parts, repackage, verify_package_scope
 from ..patcher.validation import relread_document_xml
 from ..patcher.xml_patch import MC_ALTERNATE_CONTENT, RPR_CANONICAL_RANK, W_P, W_R, W_RPR
-from ..safety_gate.targets import find_story, resolve_target
+from ..safety_gate.targets import find_story, index_story_targets
 from ..processing_report import (
     PROCESSING_REPORT_VERSION,
     AppliedChangeItem,
@@ -233,6 +233,7 @@ def build_review_docx(
         if physical_ir.get("status") != "ok":
             raise ReviewDocxIntegrityError("clean package did not produce usable PhysicalIR")
         physical_story = find_story(physical_ir, DOCUMENT_PART)
+        target_index = index_story_targets(physical_story)
     except (KeyError, PatcherContractError, PatcherIntegrityError) as exc:
         raise ReviewDocxIntegrityError(
             f"unable to open clean package safely: {exc}"
@@ -263,7 +264,7 @@ def build_review_docx(
         )
 
         if target.tag == W_P:
-            paragraph_matches = resolve_target(physical_story, path)
+            paragraph_matches = target_index.get(path, [])
             if len(paragraph_matches) != 1:
                 raise ReviewDocxIntegrityError(
                     f"report paragraph target does not resolve uniquely: {path}"

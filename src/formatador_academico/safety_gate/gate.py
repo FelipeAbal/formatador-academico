@@ -69,7 +69,13 @@ from .model import (
     SafetyGateReport,
     _EMISSION_PROOF,
 )
-from .targets import TARGET_RECORD_TYPES, find_story, paragraph_ancestor, resolve_target
+from .targets import (
+    TARGET_RECORD_TYPES,
+    find_story,
+    index_story_targets,
+    paragraph_ancestor,
+    resolve_target,
+)
 
 _FONT_SIZE_KEY = DecisionKey("run", "P2", "font_size")
 
@@ -428,6 +434,7 @@ def _gate_operation_local(
     story: Mapping[str, Any],
     catalog: StyleCatalog,
     part: str,
+    target_index: dict[str, list[tuple[Mapping[str, Any], tuple[Mapping[str, Any], ...]]]] | None = None,
 ) -> tuple[GateResult, PlannedOperation | None]:
     """Gate one operation against the current story. Never raises for stale
     content; raises only on contract/integrity failures of the inputs."""
@@ -435,7 +442,11 @@ def _gate_operation_local(
     op_ref = operation_ref(operation)
     target = operation.target
 
-    matches = resolve_target(story, target.structural_path)
+    matches = (
+        target_index.get(target.structural_path, [])
+        if target_index is not None
+        else resolve_target(story, target.structural_path)
+    )
     if not matches:
         return GateResult(
             operation_ref=op_ref,
@@ -598,12 +609,17 @@ def evaluate_operation_plan(
         )
 
     story = find_story(current_physical_ir, plan.planned_story_part)
+    target_index = index_story_targets(story)
 
     results: list[GateResult] = []
     cleared: list[GateClearedOperation] = []
     for operation in plan.operations:
         result, cleared_operation = _gate_operation_local(
-            operation, story, current_style_catalog, plan.planned_story_part
+            operation,
+            story,
+            current_style_catalog,
+            plan.planned_story_part,
+            target_index,
         )
         results.append(result)
         if cleared_operation is not None:

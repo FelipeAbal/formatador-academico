@@ -83,6 +83,26 @@ def resolve_target(
     ]
 
 
+def index_story_targets(
+    story: Mapping[str, Any],
+) -> dict[str, list[tuple[Mapping[str, Any], tuple[Mapping[str, Any], ...]]]]:
+    """Index story records by path for one pure Gate evaluation.
+
+    The index is only an evaluation-local acceleration. It preserves the
+    ordered list and duplicate paths returned by ``resolve_target``.
+    """
+
+    blocks = story.get("blocks")
+    if not isinstance(blocks, (list, tuple)):
+        raise SafetyGateContractError("current story lacks a blocks sequence")
+    indexed: dict[str, list[tuple[Mapping[str, Any], tuple[Mapping[str, Any], ...]]]] = {}
+    for record, ancestors in walk_records(blocks):
+        path = record.get("structural_path")
+        if isinstance(path, str):
+            indexed.setdefault(path, []).append((record, ancestors))
+    return indexed
+
+
 def paragraph_ancestor(
     ancestors: tuple[Mapping[str, Any], ...]
 ) -> Mapping[str, Any] | None:
