@@ -609,7 +609,9 @@ def evaluate_operation_plan(
         )
 
     story = find_story(current_physical_ir, plan.planned_story_part)
-    target_index = index_story_targets(story)
+    target_index = None
+    if plan.operations:
+        target_index = index_story_targets(story)
 
     results: list[GateResult] = []
     cleared: list[GateClearedOperation] = []

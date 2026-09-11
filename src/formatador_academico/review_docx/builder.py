@@ -233,11 +233,14 @@ def build_review_docx(
         if physical_ir.get("status") != "ok":
             raise ReviewDocxIntegrityError("clean package did not produce usable PhysicalIR")
         physical_story = find_story(physical_ir, DOCUMENT_PART)
-        target_index = index_story_targets(physical_story)
     except (KeyError, PatcherContractError, PatcherIntegrityError) as exc:
         raise ReviewDocxIntegrityError(
             f"unable to open clean package safely: {exc}"
         ) from exc
+
+    # Keep target-index contract errors at the same boundary as the former
+    # resolve_target call. They are not package-parser or patcher errors.
+    target_index = index_story_targets(physical_story)
 
     root = tree.getroot()
     results: list[ReviewMarkResult] = []
