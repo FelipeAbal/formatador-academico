@@ -612,3 +612,24 @@ Arquivos integrais dos pareceres:
 - `docs/audits/0056-claude-opus-audit-result.md`.
 
 Próxima etapa: escolher entre uma medição mais ampla de custo e cobertura em documentos reais, uma melhoria de severidade/ranking no relatório ou o desenho da interface user-facing. Qualquer nova propriedade exige ciclo próprio de escopo e contrato.
+
+## Fechamento do ciclo 0057: processamento web local
+
+Atualização registrada em 2026-09-12, após a integração do PR #47 no commit `40d377e673865234b9384c32cf34c6f341ad4a8d`.
+
+O endpoint autenticado `POST /api/process` foi implementado em `web_app/server.py`. Ele recebe o DOCX e o perfil JSON por multipart, mantém o perfil como bytes opacos, usa `build_product_from_inputs` e `build_product_delivery` como fronteiras públicas e retorna os cinco artefatos em uma resposta JSON codificada em Base64.
+
+Foram incorporados os ajustes da auditoria do DeepSeek Flash 4.1:
+
+- exceções internas retornam erro genérico 500, sem traceback ou detalhes internos;
+- falhas de integridade são separadas de rejeições de entrada;
+- `session_status` e o resumo chegam no envelope da resposta;
+- `max_applied_operations` aceita somente dígitos ASCII;
+- `Transfer-Encoding`, headers duplicados e boundary excessivo são rejeitados;
+- testes adversariais foram ampliados para a fronteira HTTP.
+
+Auditoria registrada em `docs/audits/0057-deepseek-flash-41-processing-audit.md`. A suíte local final ficou em 797 testes aprovados e o CI do PR passou antes da integração.
+
+Permanecem como acompanhamento, sem bloqueio para o uso local de usuário único, a amplificação de memória causada pela resposta Base64 única e a ausência de um prazo total para requisições muito lentas. Esses pontos devem ser tratados antes de exposição para múltiplos usuários ou documentos de grande porte.
+
+Próxima etapa: auditoria completa do código integrado pelo Claude Opus. Depois dela, decidir entre ajustes de capacidade, interface user-facing e nova cobertura de classificação em documentos reais.
