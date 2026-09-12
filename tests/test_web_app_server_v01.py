@@ -229,6 +229,23 @@ class TestLocalWebServer(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("Formatador Acadêmico".encode("utf-8"), body)
 
+    def test_public_page_contains_profile_values_accepted_by_the_core(self):
+        status, _, body = self._request_with_headers(
+            {"Host": f"localhost:{self.port}"}, path="/"
+        )
+        self.assertEqual(status, 200)
+        self.assertIn(b'value="justify">justificado', body)
+        self.assertNotIn(b'value="both">justificado', body)
+        self.assertIn(b'value="10000"', body)
+        self.assertIn(b'value="true">exigido', body)
+        self.assertNotIn(b"Number(control.value)", self.server.public_routes["/static/app.js"][0])
+
+    def test_page_explains_quiescent_and_uses_session_storage(self):
+        script = self.server.public_routes["/static/app.js"][0]
+        self.assertIn(b"Isso n\xc3\xa3o significa conformidade integral", script)
+        self.assertIn(b"sessionStorage", script)
+        self.assertNotIn(b"localStorage", script)
+
     def test_server_is_local_only(self):
         self.assertEqual(self.server.server_address[0], "127.0.0.1")
 

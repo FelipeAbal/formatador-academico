@@ -113,7 +113,7 @@ Os recursos públicos enviarão `Cache-Control: no-store`, `X-Content-Type-Optio
 
 O token é a fronteira de autorização. `Host`, `Origin` e `Sec-Fetch-Site` são camadas adicionais contra roteamento incorreto e requisições iniciadas por outra origem; a ausência dos cabeçalhos opcionais não substitui o token. `OPTIONS` permanecerá recusado enquanto não houver contrato explícito de CORS.
 
-O servidor usará timeout de leitura por requisição e limite de conexões simultâneas. O log operacional será limitado e não reterá linhas de requisição, caminhos, cabeçalhos ou bytes de documentos.
+O servidor usará prazo absoluto de 30 segundos para receber o corpo do upload, além do timeout de operação de socket, e limite de conexões simultâneas. O prazo de upload não será aplicado durante o processamento do pipeline, para que a conexão do usuário permaneça disponível enquanto os cinco artefatos são produzidos. O log operacional será limitado e não reterá linhas de requisição, caminhos, cabeçalhos ou bytes de documentos.
 
 Como os downloads serão montados no navegador a partir da resposta única, não haverá identificador de download reutilizável nem armazenamento de artefatos no servidor.
 
@@ -136,7 +136,7 @@ A aplicação deverá respeitar todas as invariantes do núcleo:
 
 O servidor deverá rejeitar o corpo antes de materializá-lo quando o `Content-Length` exceder 64 MiB e, quando o cabeçalho estiver ausente ou não for confiável, ler no máximo 64 MiB mais um byte antes de rejeitar. Requisições fora do formato definido deverão ser recusadas.
 
-O formulário deverá expor `max_applied_operations`, com valor inicial igual ao limite padrão vigente do núcleo e possibilidade de redução pelo usuário. O resultado `operation_limit_reached` será mostrado como limite atingido, nunca como processamento concluído sem ressalvas.
+O formulário deverá expor `max_applied_operations`, com valor inicial igual ao limite padrão vigente do núcleo e possibilidade de redução pelo usuário. O resultado `operation_limit_reached` será mostrado como limite atingido, nunca como processamento concluído sem ressalvas. A interface deverá preservar a representação decimal digitada pelo usuário até o parser do perfil, sem converter números por `Number()` antes do envio. O controle de negrito deverá permitir ausência, exigência ou ausência de regra. O resultado deverá explicar que `quiescent` não equivale a conformidade integral.
 
 ## 7. Tecnologia inicial
 

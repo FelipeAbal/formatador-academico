@@ -11,25 +11,25 @@ const summary = document.querySelector("#summary");
 const downloads = document.querySelector("#downloads");
 
 function profileBytes() {
-  const rules = {};
+  const ruleGroups = [];
   for (const group of document.querySelectorAll(".rule-grid")) {
-    const groupRules = {};
+    const ruleEntries = [];
     for (const control of group.querySelectorAll("[data-property]")) {
       const property = control.dataset.property;
-      if (control.type === "checkbox") {
-        if (control.checked) groupRules[property] = { mode: "exact", value: false };
-      } else if (control.value !== "") {
-        const value = property === "alignment" ? control.value : Number(control.value);
-        groupRules[property] = { mode: "exact", value };
+      if (control.value !== "") {
+        const value = property === "alignment"
+          ? JSON.stringify(control.value)
+          : property === "bold" ? control.value : control.value.trim();
+        ruleEntries.push(`${JSON.stringify(property)}:{"mode":"exact","value":${value}}`);
       }
     }
-    if (Object.keys(groupRules).length) rules[group.dataset.target] = groupRules;
+    if (ruleEntries.length) {
+      ruleGroups.push(`${JSON.stringify(group.dataset.target)}:{${ruleEntries.join(",")}}`);
+    }
   }
-  return new TextEncoder().encode(JSON.stringify({
-    schema_version: "0.3",
-    profile: { id: "web-interface", version: "1" },
-    rules
-  }));
+  return new TextEncoder().encode(
+    `{"schema_version":"0.3","profile":{"id":"web-interface","version":"1"},"rules":{${ruleGroups.join(",")}}}`
+  );
 }
 
 function appendSummary(value) {
@@ -58,6 +58,13 @@ function downloadFile(file) {
 form.addEventListener("submit", async event => {
   event.preventDefault();
   const file = document.querySelector("#document").files[0];
+  const hasRule = [...document.querySelectorAll("[data-property]")].some(control => control.value !== "");
+  if (!hasRule) {
+    result.hidden = false;
+    result.classList.add("error");
+    status.textContent = "Declare pelo menos uma regra antes de processar.";
+    return;
+  }
   if (!sessionToken) {
     result.hidden = false;
     result.classList.add("error");
@@ -83,7 +90,9 @@ form.addEventListener("submit", async event => {
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "processamento rejeitado");
-    status.textContent = `Sessão: ${payload.session_status}`;
+    status.textContent = payload.session_status === "quiescent"
+      ? "Processamento concluído. Nenhuma alteração automática segura foi necessária. Isso não significa conformidade integral."
+      : `Processamento concluído. Status técnico da sessão: ${payload.session_status}.`;
     appendSummary(payload.summary);
     for (const output of payload.files) downloadFile(output);
   } catch (error) {

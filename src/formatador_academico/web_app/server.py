@@ -8,13 +8,14 @@ import json
 import re
 import secrets
 import socket
+import time
 from collections import deque
 from email import policy
 from email.parser import BytesParser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files as resource_files
-from threading import BoundedSemaphore, Timer
+from threading import BoundedSemaphore
 from typing import Any
 
 from ..processing_session import DEFAULT_MAX_APPLIED_OPERATIONS
@@ -35,6 +36,7 @@ DEFAULT_MAX_BODY_BYTES = 64 * 1024 * 1024
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 30
+DEFAULT_UPLOAD_TIMEOUT_SECONDS = 30
 DEFAULT_MAX_CONNECTIONS = 32
 DEFAULT_LOG_ENTRIES = 100
 _SESSION_HEADER = "X-Formatador-Session"
@@ -292,17 +294,40 @@ class _Handler(BaseHTTPRequestHandler):
                 raise MultipartInputError("content length is invalid") from exc
             if length < 0 or length > self.server.max_body_bytes:
                 raise MultipartInputError("request body exceeds the configured limit")
-            body = self.rfile.read(length)
+            body = self._read_body_bytes(length)
             if len(body) != length:
                 raise MultipartInputError("request body is incomplete")
         else:
-            body = self.rfile.read(self.server.max_body_bytes + 1)
+            body = self._read_body_bytes(self.server.max_body_bytes + 1)
             if len(body) > self.server.max_body_bytes:
                 raise MultipartInputError("request body exceeds the configured limit")
         content_types = self.headers.get_all("Content-Type", [])
         if len(content_types) != 1:
             raise MultipartInputError("content type is missing or duplicated")
         return _parse_multipart(content_types[0], body)
+
+    def _read_body_bytes(self, limit: int) -> bytes:
+        deadline = time.monotonic() + DEFAULT_UPLOAD_TIMEOUT_SECONDS
+        chunks: list[bytes] = []
+        total = 0
+        previous_timeout = self.connection.gettimeout()
+        try:
+            while total < limit:
+                remaining_time = deadline - time.monotonic()
+                if remaining_time <= 0:
+                    raise MultipartInputError("request upload timed out")
+                self.connection.settimeout(min(1.0, remaining_time))
+                try:
+                    chunk = self.rfile.read(min(64 * 1024, limit - total))
+                except socket.timeout:
+                    continue
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                total += len(chunk)
+            return b"".join(chunks)
+        finally:
+            self.connection.settimeout(previous_timeout)
 
     def _send_delivery(self, delivery) -> None:
         files = [
@@ -404,25 +429,10 @@ class LocalWebServer(ThreadingHTTPServer):
             raise
 
     def process_request_thread(self, request, client_address) -> None:
-        deadline = Timer(DEFAULT_REQUEST_TIMEOUT_SECONDS, self._expire_request, (request,))
-        deadline.daemon = True
-        deadline.start()
         try:
             super().process_request_thread(request, client_address)
         finally:
-            deadline.cancel()
             self._connection_slots.release()
-
-    @staticmethod
-    def _expire_request(request) -> None:
-        try:
-            request.shutdown(socket.SHUT_RDWR)
-        except OSError:
-            pass
-        try:
-            request.close()
-        except OSError:
-            pass
 
     def handle_error(self, request, client_address) -> None:
         # Do not print tracebacks or client metadata for request failures.
@@ -459,7 +469,7 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     args = parser.parse_args()
     server = create_server(port=args.port)
-    print(f"Formatador Acadêmico: http://localhost:{args.port}/")
+    print(f"Formatador Acadêmico: http://localhost:{args.port}/#{server.token}")
     print(f"Token de sessão: {server.token}")
     try:
         server.serve_forever()
