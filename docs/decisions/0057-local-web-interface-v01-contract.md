@@ -101,9 +101,13 @@ Cada processo do servidor gerará um token aleatório de sessão no arranque. O 
 
 - `Origin`, aceitando somente a origem local esperada;
 - `Sec-Fetch-Site`, recusando requisições cross-site quando presente;
-- `Host`, aceitando somente o host local esperado;
+- `Host`, aceitando somente o conjunto fechado derivado da porta ligada: `127.0.0.1:<porta>`, `localhost:<porta>` e `[::1]:<porta>`;
 - método HTTP, aceitando apenas os métodos previstos;
 - token de sessão, usando comparação segura.
+
+O token é a fronteira de autorização. `Host`, `Origin` e `Sec-Fetch-Site` são camadas adicionais contra roteamento incorreto e requisições iniciadas por outra origem; a ausência dos cabeçalhos opcionais não substitui o token. `OPTIONS` permanecerá recusado enquanto não houver contrato explícito de CORS.
+
+O servidor usará timeout de leitura por requisição e limite de conexões simultâneas. O log operacional será limitado e não reterá linhas de requisição, caminhos, cabeçalhos ou bytes de documentos.
 
 Como os downloads serão montados no navegador a partir da resposta única, não haverá identificador de download reutilizável nem armazenamento de artefatos no servidor.
 
@@ -196,6 +200,7 @@ O checklist manual de instalação e uso será separado:
 - limite de trabalho: `max_applied_operations` exposto no formulário;
 - resposta: única resposta contendo os cinco arquivos da `ProductDelivery`, sem endpoint posterior de download;
 - servidor: `ThreadingHTTPServer`;
+- transporte: hosts locais em conjunto fechado, timeout por requisição e teto de conexões simultâneas;
 - segurança: token de arranque, verificação de `Origin`, `Sec-Fetch-Site`, `Host` e métodos;
 - abstenções: correspondem a `classification_items`;
 - zero itens não significa conformidade;
