@@ -13,6 +13,7 @@ from email import policy
 from email.parser import BytesParser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib.resources import files as resource_files
 from threading import BoundedSemaphore, Timer
 from typing import Any
 
@@ -41,6 +42,10 @@ _ALLOWED_FETCH_SITES = frozenset({"same-origin", "none"})
 _PROCESS_PATH = "/api/process"
 _MAX_FILENAME_CODEPOINTS = 255
 _MAX_MULTIPART_BOUNDARY_BYTES = 200
+_PUBLIC_CSP = (
+    "default-src 'none'; script-src 'self'; style-src 'self'; "
+    "connect-src 'self'; frame-ancestors 'none'"
+)
 
 
 def generate_session_token() -> str:
@@ -147,10 +152,24 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
-    def _authorized(self) -> bool:
+    def _host_allowed(self) -> bool:
         hosts = self.headers.get_all("Host", [])
         if len(hosts) != 1 or hosts[0] not in self.server.expected_hosts:
             self._reject(HTTPStatus.BAD_REQUEST, "host not allowed")
+            return False
+        return True
+
+    def _request_target(self) -> str:
+        parts = self.raw_requestline.split(b" ", 2)
+        if len(parts) != 3:
+            return ""
+        try:
+            return parts[1].decode("ascii")
+        except UnicodeDecodeError:
+            return ""
+
+    def _authorized(self) -> bool:
+        if not self._host_allowed():
             return False
         tokens = self.headers.get_all(_SESSION_HEADER, [])
         if len(tokens) != 1 or not secrets.compare_digest(tokens[0], self.server.token):
@@ -171,9 +190,16 @@ class _Handler(BaseHTTPRequestHandler):
         return True
 
     def do_GET(self) -> None:
+        if not self._host_allowed():
+            return
+        request_target = self._request_target()
+        public = self.server.public_routes.get(request_target)
+        if public is not None:
+            self._send_public(*public)
+            return
         if not self._authorized():
             return
-        if self.path != "/api/health":
+        if request_target != "/api/health":
             self._reject(HTTPStatus.NOT_FOUND, "route not found")
             return
         payload = _json_bytes({"service": "formatador-academico", "status": "ok"})
@@ -184,10 +210,22 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
+    def _send_public(self, content: bytes, media_type: str) -> None:
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", media_type)
+        self.send_header("Content-Length", str(len(content)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Security-Policy", _PUBLIC_CSP)
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.end_headers()
+        self.wfile.write(content)
+
     def do_POST(self) -> None:
         if not self._authorized():
             return
-        if self.path != _PROCESS_PATH:
+        if self._request_target() != _PROCESS_PATH:
             self._reject(HTTPStatus.NOT_FOUND, "route not found")
             return
         try:
@@ -340,6 +378,18 @@ class LocalWebServer(ThreadingHTTPServer):
             }
         )
         self.expected_origins = frozenset(f"http://{host}" for host in self.expected_hosts)
+        package = resource_files("formatador_academico.web_app").joinpath("static")
+        self.public_routes = {
+            "/": (package.joinpath("index.html").read_bytes(), "text/html; charset=utf-8"),
+            "/static/app.js": (
+                package.joinpath("app.js").read_bytes(),
+                "text/javascript; charset=utf-8",
+            ),
+            "/static/style.css": (
+                package.joinpath("style.css").read_bytes(),
+                "text/css; charset=utf-8",
+            ),
+        }
         self.request_log = deque(maxlen=DEFAULT_LOG_ENTRIES)
         self._connection_slots = BoundedSemaphore(max_connections)
 

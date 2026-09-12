@@ -94,6 +94,54 @@ class TestLocalWebServer(unittest.TestCase):
         )
         self.assertEqual(status, 403)
 
+    def test_public_static_surface_is_exact_and_requires_host_only(self):
+        expected = {
+            "/",
+            "/static/app.js",
+            "/static/style.css",
+        }
+        self.assertEqual(set(self.server.public_routes), expected)
+        for path in expected:
+            with self.subTest(path=path):
+                status, headers, body = self._request_with_headers(
+                    {"Host": f"localhost:{self.port}"}, path=path
+                )
+                self.assertEqual(status, 200)
+                self.assertTrue(body)
+                self.assertEqual(headers["Cache-Control"], "no-store")
+                self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
+                self.assertEqual(headers["X-Frame-Options"], "DENY")
+                self.assertEqual(headers["Referrer-Policy"], "no-referrer")
+                self.assertIn("frame-ancestors 'none'", headers["Content-Security-Policy"])
+                self.assertNotIn(b"test-token", body)
+
+    def test_public_static_paths_are_not_a_file_server(self):
+        for path in (
+            "/static/../web_app/server.py",
+            "/static/%2e%2e/x",
+            "/static/app.js?v=1",
+            "//static/app.js",
+            "/static/",
+            "/static/other.js",
+        ):
+            with self.subTest(path=path):
+                status, _ = self._request({"Host": f"localhost:{self.port}"}, path=path)
+                self.assertIn(status, (401, 404))
+
+    def test_public_surface_rejects_unexpected_host(self):
+        for path in ("/", "/static/app.js", "/static/style.css"):
+            with self.subTest(path=path):
+                status, _ = self._request({"Host": "evil.example:8000"}, path=path)
+                self.assertEqual(status, 400)
+
+    def test_public_surface_accepts_only_get(self):
+        for method in ("POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"):
+            with self.subTest(method=method):
+                status, _ = self._request(
+                    {"Host": f"localhost:{self.port}"}, path="/", method=method
+                )
+                self.assertIn(status, (401, 405))
+
     def test_unexpected_host_is_rejected(self):
         status, _ = self._request(
             {"Host": "evil.example:8000", "X-Formatador-Session": "test-token"}
@@ -173,12 +221,13 @@ class TestLocalWebServer(unittest.TestCase):
         response.read()
         connection.close()
 
-    def test_unknown_route_is_not_exposed(self):
-        status, _ = self._request(
+    def test_root_serves_the_public_application_page(self):
+        status, body = self._request(
             {"Host": f"{self.host}:{self.port}", "X-Formatador-Session": "test-token"},
             path="/",
         )
-        self.assertEqual(status, 404)
+        self.assertEqual(status, 200)
+        self.assertIn("Formatador Acadêmico".encode("utf-8"), body)
 
     def test_server_is_local_only(self):
         self.assertEqual(self.server.server_address[0], "127.0.0.1")

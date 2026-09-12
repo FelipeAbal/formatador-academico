@@ -82,7 +82,7 @@ A interface fornecerá apenas o `base_name`, derivado do nome enviado e entregue
 
 ## 5. Transporte local
 
-A primeira implementação usará `ThreadingHTTPServer`, da biblioteca padrão, e uma página HTML estática, sem biblioteca JavaScript externa.
+A primeira implementação usará `ThreadingHTTPServer`, da biblioteca padrão, e uma página HTML estática, sem biblioteca JavaScript externa. A superfície pública será uma lista fechada de três recursos, comparados por igualdade exata: `/`, `/static/app.js` e `/static/style.css`. Eles conterão somente recursos estáticos, sem dados do usuário, token ou nomes de arquivos. Não haverá servidor de arquivos por prefixo, acesso ao sistema de arquivos derivado do caminho recebido ou rotas públicas adicionais. Somente `GET` será público; `HEAD` e os demais métodos continuarão sujeitos à autorização.
 
 O navegador enviará o documento e o perfil ao servidor local por multipart. O servidor retornará, em uma única resposta, os cinco `DeliveryFile` codificados para que o navegador crie os downloads localmente. Não haverá endpoint posterior de download nem retenção de bytes entre requisições.
 
@@ -104,6 +104,12 @@ Cada processo do servidor gerará um token aleatório de sessão no arranque. O 
 - `Host`, aceitando somente o conjunto fechado derivado da porta ligada: `127.0.0.1:<porta>`, `localhost:<porta>` e `[::1]:<porta>`;
 - método HTTP, aceitando apenas os métodos previstos;
 - token de sessão, usando comparação segura.
+
+Como o fragmento de uma URL não é enviado ao servidor, a URL inicial terá o formato `http://localhost:8000/#TOKEN`. O `GET /` e os dois recursos estáticos acima não exigirão o token, mas continuarão exigindo um `Host` permitido. Essa é uma superfície pública fechada, estática e sem dados. As rotas de saúde, processamento e qualquer outro caminho exigirão autenticação antes do roteamento.
+
+O JavaScript lerá o token de `location.hash`, gravará esse valor em `sessionStorage` e depois usará `history.replaceState` para removê-lo da barra de endereços e da entrada atual da sessão. Isso não apaga necessariamente histórico, preenchimento automático, sincronização, restauração de sessão ou recuperação de falha do navegador. A URL com o token não deverá ser salva em favoritos nem compartilhada. O token não será guardado em `localStorage`.
+
+Os recursos públicos enviarão `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` e `X-Frame-Options: DENY`. A página enviará também a política `Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'`, que torna verificável a ausência de recursos externos. A escolha do fragmento é especialmente importante porque o túnel SSH faz `localhost` existir também no Mac: servir o token em HTML ou em resposta HTTP o exporia a processos locais daquela máquina.
 
 O token é a fronteira de autorização. `Host`, `Origin` e `Sec-Fetch-Site` são camadas adicionais contra roteamento incorreto e requisições iniciadas por outra origem; a ausência dos cabeçalhos opcionais não substitui o token. `OPTIONS` permanecerá recusado enquanto não houver contrato explícito de CORS.
 
