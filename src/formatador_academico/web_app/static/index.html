@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Formatador Acadêmico</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="page">
+    <h1>Formatador Acadêmico</h1>
+    <p class="intro">Envie um documento DOCX e declare somente as regras que deseja verificar.</p>
+
+    <form id="processing-form">
+      <fieldset>
+        <legend>Documento</legend>
+        <label for="document">Arquivo DOCX</label>
+        <input id="document" name="document" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required>
+      </fieldset>
+
+      <fieldset>
+        <legend>Regras para o corpo do texto</legend>
+        <div class="rule-grid" data-target="body">
+          <label>Negrito
+            <select data-property="bold">
+              <option value="">sem regra</option>
+              <option value="false">ausente</option>
+              <option value="true">exigido</option>
+            </select>
+          </label>
+          <label>Tamanho da fonte <input type="number" min="1" step="0.5" data-property="font_size" placeholder="sem regra"></label>
+          <label>Entrelinha <input type="number" min="0.01" step="0.01" data-property="line_spacing" placeholder="ex.: 1.5"></label>
+          <label>Alinhamento
+            <select data-property="alignment">
+              <option value="">sem regra</option>
+              <option value="left">esquerda</option>
+              <option value="center">centralizado</option>
+              <option value="right">direita</option>
+              <option value="justify">justificado</option>
+            </select>
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Regras para títulos</legend>
+        <div class="rule-grid" data-target="heading">
+          <label>Negrito
+            <select data-property="bold">
+              <option value="">sem regra</option>
+              <option value="false">ausente</option>
+              <option value="true">exigido</option>
+            </select>
+          </label>
+          <label>Tamanho da fonte <input type="number" min="1" step="0.5" data-property="font_size" placeholder="sem regra"></label>
+          <label>Entrelinha <input type="number" min="0.01" step="0.01" data-property="line_spacing" placeholder="ex.: 1.5"></label>
+          <label>Alinhamento
+            <select data-property="alignment">
+              <option value="">sem regra</option>
+              <option value="left">esquerda</option>
+              <option value="center">centralizado</option>
+              <option value="right">direita</option>
+              <option value="justify">justificado</option>
+            </select>
+          </label>
+        </div>
+      </fieldset>
+
+      <label for="max-operations">Máximo de alterações aplicadas</label>
+      <input id="max-operations" type="number" min="1" value="10000" required>
+      <button type="submit">Processar documento</button>
+    </form>
+
+    <section id="result" class="result" hidden aria-live="polite">
+      <h2>Resultado</h2>
+      <p id="status"></p>
+      <dl id="summary"></dl>
+      <div id="downloads" class="downloads"></div>
+    </section>
+  </main>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

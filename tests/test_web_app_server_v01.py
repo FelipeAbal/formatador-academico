@@ -94,6 +94,54 @@ class TestLocalWebServer(unittest.TestCase):
         )
         self.assertEqual(status, 403)
 
+    def test_public_static_surface_is_exact_and_requires_host_only(self):
+        expected = {
+            "/",
+            "/static/app.js",
+            "/static/style.css",
+        }
+        self.assertEqual(set(self.server.public_routes), expected)
+        for path in expected:
+            with self.subTest(path=path):
+                status, headers, body = self._request_with_headers(
+                    {"Host": f"localhost:{self.port}"}, path=path
+                )
+                self.assertEqual(status, 200)
+                self.assertTrue(body)
+                self.assertEqual(headers["Cache-Control"], "no-store")
+                self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
+                self.assertEqual(headers["X-Frame-Options"], "DENY")
+                self.assertEqual(headers["Referrer-Policy"], "no-referrer")
+                self.assertIn("frame-ancestors 'none'", headers["Content-Security-Policy"])
+                self.assertNotIn(b"test-token", body)
+
+    def test_public_static_paths_are_not_a_file_server(self):
+        for path in (
+            "/static/../web_app/server.py",
+            "/static/%2e%2e/x",
+            "/static/app.js?v=1",
+            "//static/app.js",
+            "/static/",
+            "/static/other.js",
+        ):
+            with self.subTest(path=path):
+                status, _ = self._request({"Host": f"localhost:{self.port}"}, path=path)
+                self.assertIn(status, (401, 404))
+
+    def test_public_surface_rejects_unexpected_host(self):
+        for path in ("/", "/static/app.js", "/static/style.css"):
+            with self.subTest(path=path):
+                status, _ = self._request({"Host": "evil.example:8000"}, path=path)
+                self.assertEqual(status, 400)
+
+    def test_public_surface_accepts_only_get(self):
+        for method in ("POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"):
+            with self.subTest(method=method):
+                status, _ = self._request(
+                    {"Host": f"localhost:{self.port}"}, path="/", method=method
+                )
+                self.assertIn(status, (401, 405))
+
     def test_unexpected_host_is_rejected(self):
         status, _ = self._request(
             {"Host": "evil.example:8000", "X-Formatador-Session": "test-token"}
@@ -134,6 +182,16 @@ class TestLocalWebServer(unittest.TestCase):
                 if method != "HEAD":
                     self.assertIn(b"method not allowed", body)
 
+    def test_rejected_head_responses_have_no_body(self):
+        for headers in (
+            {"Host": f"localhost:{self.port}"},
+            {"Host": "evil.example:8000"},
+        ):
+            with self.subTest(headers=headers):
+                status, body = self._request(headers, path="/", method="HEAD")
+                self.assertIn(status, (400, 401))
+                self.assertEqual(body, b"")
+
     def test_response_does_not_expose_python_version(self):
         connection = http.client.HTTPConnection(self.host, self.port, timeout=2)
         connection.request(
@@ -173,12 +231,32 @@ class TestLocalWebServer(unittest.TestCase):
         response.read()
         connection.close()
 
-    def test_unknown_route_is_not_exposed(self):
-        status, _ = self._request(
+    def test_root_serves_the_public_application_page(self):
+        status, body = self._request(
             {"Host": f"{self.host}:{self.port}", "X-Formatador-Session": "test-token"},
             path="/",
         )
-        self.assertEqual(status, 404)
+        self.assertEqual(status, 200)
+        self.assertIn("Formatador Acadêmico".encode("utf-8"), body)
+
+    def test_public_page_contains_profile_values_accepted_by_the_core(self):
+        status, _, body = self._request_with_headers(
+            {"Host": f"localhost:{self.port}"}, path="/"
+        )
+        self.assertEqual(status, 200)
+        self.assertIn(b'value="justify">justificado', body)
+        self.assertNotIn(b'value="both">justificado', body)
+        self.assertIn(b'value="10000"', body)
+        self.assertIn(b'value="true">exigido', body)
+        self.assertNotIn(b"Number(control.value)", self.server.public_routes["/static/app.js"][0])
+
+    def test_page_explains_quiescent_and_uses_session_storage(self):
+        script = self.server.public_routes["/static/app.js"][0]
+        self.assertIn(b"Isso n\xc3\xa3o significa conformidade integral", script)
+        self.assertIn(b"Limite de altera\xc3\xa7\xc3\xb5es atingido", script)
+        self.assertIn(b"Processamento conclu\xc3\xaddo com ressalvas", script)
+        self.assertIn(b"sessionStorage", script)
+        self.assertNotIn(b"localStorage", script)
 
     def test_server_is_local_only(self):
         self.assertEqual(self.server.server_address[0], "127.0.0.1")
