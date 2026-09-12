@@ -253,6 +253,8 @@ class TestLocalWebServer(unittest.TestCase):
     def test_page_explains_quiescent_and_uses_session_storage(self):
         script = self.server.public_routes["/static/app.js"][0]
         self.assertIn(b"Isso n\xc3\xa3o significa conformidade integral", script)
+        self.assertIn(b"Limite de altera\xc3\xa7\xc3\xb5es atingido", script)
+        self.assertIn(b"Processamento conclu\xc3\xaddo com ressalvas", script)
         self.assertIn(b"sessionStorage", script)
         self.assertNotIn(b"localStorage", script)
 

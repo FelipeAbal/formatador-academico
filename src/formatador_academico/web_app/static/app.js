@@ -90,9 +90,15 @@ form.addEventListener("submit", async event => {
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "processamento rejeitado");
-    status.textContent = payload.session_status === "quiescent"
-      ? "Processamento concluído. Nenhuma alteração automática segura foi necessária. Isso não significa conformidade integral."
-      : `Processamento concluído. Status técnico da sessão: ${payload.session_status}.`;
+    if (payload.session_status === "quiescent") {
+      status.textContent = "Processamento concluído. Nenhuma alteração automática segura foi necessária. Isso não significa conformidade integral.";
+    } else if (payload.session_status === "operation_limit_reached") {
+      status.textContent = "Limite de alterações atingido. O processamento parou antes de concluir todas as alterações seguras.";
+    } else if (payload.session_status === "quiescent_with_unapplied") {
+      status.textContent = "Processamento concluído com ressalvas. Permaneceram itens que não foram aplicados automaticamente.";
+    } else {
+      status.textContent = `Processamento concluído. Status técnico da sessão: ${payload.session_status}.`;
+    }
     appendSummary(payload.summary);
     for (const output of payload.files) downloadFile(output);
   } catch (error) {

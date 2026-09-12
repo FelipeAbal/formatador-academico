@@ -146,13 +146,16 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _reject(self, status: HTTPStatus, message: str) -> None:
         payload = _json_bytes({"error": message})
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(payload)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        if self.command != "HEAD":
-            self.wfile.write(payload)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(payload)
+        except OSError:
+            return
 
     def handle_one_request(self) -> None:
         self._read_deadline = Timer(
@@ -160,16 +163,15 @@ class _Handler(BaseHTTPRequestHandler):
         )
         self._read_deadline.daemon = True
         self._read_deadline.start()
-        super().handle_one_request()
+        try:
+            super().handle_one_request()
+        finally:
+            self._cancel_read_deadline()
 
     @staticmethod
     def _expire_read_phase(connection: socket.socket) -> None:
         try:
-            connection.shutdown(socket.SHUT_RDWR)
-        except OSError:
-            pass
-        try:
-            connection.close()
+            connection.shutdown(socket.SHUT_RD)
         except OSError:
             pass
 
@@ -251,10 +253,8 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         if not self._authorized():
-            self._cancel_read_deadline()
             return
         if self._request_target() != _PROCESS_PATH:
-            self._cancel_read_deadline()
             self._reject(HTTPStatus.NOT_FOUND, "route not found")
             return
         try:
@@ -342,7 +342,10 @@ class _Handler(BaseHTTPRequestHandler):
             self.connection.settimeout(None)
             return self.rfile.read(limit)
         finally:
-            self.connection.settimeout(previous_timeout)
+            try:
+                self.connection.settimeout(previous_timeout)
+            except OSError:
+                pass
 
     def _send_delivery(self, delivery) -> None:
         files = [
@@ -376,13 +379,11 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def _method_not_allowed(self) -> None:
-        self._cancel_read_deadline()
         if self._authorized():
             self._reject(HTTPStatus.METHOD_NOT_ALLOWED, "method not allowed")
 
     do_OPTIONS = _method_not_allowed
     def do_HEAD(self) -> None:
-        self._cancel_read_deadline()
         if not self._authorized():
             return
         self.send_response(HTTPStatus.METHOD_NOT_ALLOWED)
