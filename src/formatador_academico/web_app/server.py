@@ -1,19 +1,32 @@
-"""Small authenticated HTTP server for the local web interface.
-
-This first slice exposes only a health endpoint. Document processing is added
-in a later step after the transport and session boundary are tested.
-"""
+"""Authenticated local HTTP server for the web interface."""
 
 from __future__ import annotations
 
 import argparse
+import base64
 import json
+import re
 import secrets
 from collections import deque
+from email import policy
+from email.parser import BytesParser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import BoundedSemaphore
 from typing import Any
+
+from ..processing_session import DEFAULT_MAX_APPLIED_OPERATIONS
+from ..product_delivery import (
+    ProductDeliveryContractError,
+    ProductDeliveryIntegrityError,
+    build_product_delivery,
+)
+from ..product_input_boundary import (
+    ProductInputBoundaryContractError,
+    ProductInputBoundaryIntegrityError,
+    ProductInputBoundaryUnsupportedError,
+    build_product_from_inputs,
+)
 
 DEFAULT_MAX_BODY_BYTES = 64 * 1024 * 1024
 DEFAULT_HOST = "127.0.0.1"
@@ -23,6 +36,9 @@ DEFAULT_MAX_CONNECTIONS = 32
 DEFAULT_LOG_ENTRIES = 100
 _SESSION_HEADER = "X-Formatador-Session"
 _ALLOWED_FETCH_SITES = frozenset({"same-origin", "none"})
+_PROCESS_PATH = "/api/process"
+_MAX_FILENAME_CODEPOINTS = 255
+_MAX_MULTIPART_BOUNDARY_BYTES = 200
 
 
 def generate_session_token() -> str:
@@ -35,6 +51,72 @@ def _json_bytes(payload: dict[str, Any]) -> bytes:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
         "utf-8"
     )
+
+
+class MultipartInputError(ValueError):
+    """Malformed or incomplete multipart request."""
+
+
+def _parse_multipart(content_type: str, body: bytes) -> dict[str, tuple[str, bytes]]:
+    if not content_type.lower().startswith("multipart/form-data"):
+        raise MultipartInputError("content type must be multipart/form-data")
+    boundary_match = re.search(r"(?:^|;)\s*boundary=(?:\"([^\"]+)\"|([^;\s]+))", content_type, re.I)
+    if boundary_match is None:
+        raise MultipartInputError("multipart boundary is missing")
+    boundary = boundary_match.group(1) or boundary_match.group(2)
+    try:
+        if len(boundary.encode("latin-1")) > _MAX_MULTIPART_BOUNDARY_BYTES:
+            raise MultipartInputError("multipart boundary is too long")
+        header = (
+            f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("latin-1")
+        )
+    except UnicodeEncodeError as exc:
+        raise MultipartInputError("multipart content type is invalid") from exc
+    try:
+        message = BytesParser(policy=policy.default).parsebytes(header + body)
+    except (UnicodeError, ValueError) as exc:
+        raise MultipartInputError("multipart body is invalid") from exc
+    if not message.is_multipart():
+        raise MultipartInputError("multipart body is invalid")
+
+    fields: dict[str, tuple[str, bytes]] = {}
+    for part in message.iter_parts():
+        if part.get_content_disposition() != "form-data":
+            raise MultipartInputError("multipart part must be form-data")
+        name = part.get_param("name", header="content-disposition")
+        if not isinstance(name, str) or name not in {
+            "document",
+            "profile",
+            "max_applied_operations",
+        }:
+            raise MultipartInputError("multipart field is not supported")
+        if name in fields:
+            raise MultipartInputError("multipart field is duplicated")
+        filename = part.get_filename() or ""
+        if len(filename) > _MAX_FILENAME_CODEPOINTS:
+            raise MultipartInputError("multipart filename is too long")
+        if any(ord(char) < 32 or ord(char) == 127 for char in filename):
+            raise MultipartInputError("multipart filename is invalid")
+        if name == "document":
+            if not filename or "/" in filename or "\\" in filename:
+                raise MultipartInputError("document filename is invalid")
+            if (
+                part.get_content_type()
+                != "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            ):
+                raise MultipartInputError("document media type is invalid")
+        elif name == "profile" and part.get_content_type() != "application/json":
+            raise MultipartInputError("profile media type is invalid")
+        content = part.get_payload(decode=True)
+        if not isinstance(content, bytes) or not content:
+            raise MultipartInputError("multipart field is empty")
+        fields[name] = (filename, content)
+    if set(fields) not in (
+        {"document", "profile"},
+        {"document", "profile", "max_applied_operations"},
+    ):
+        raise MultipartInputError("document and profile fields are required")
+    return fields
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -64,14 +146,19 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def _authorized(self) -> bool:
-        if self.headers.get("Host") not in self.server.expected_hosts:
+        hosts = self.headers.get_all("Host", [])
+        if len(hosts) != 1 or hosts[0] not in self.server.expected_hosts:
             self._reject(HTTPStatus.BAD_REQUEST, "host not allowed")
             return False
         tokens = self.headers.get_all(_SESSION_HEADER, [])
         if len(tokens) != 1 or not secrets.compare_digest(tokens[0], self.server.token):
             self._reject(HTTPStatus.UNAUTHORIZED, "session token required")
             return False
-        origin = self.headers.get("Origin")
+        origins = self.headers.get_all("Origin", [])
+        if len(origins) > 1:
+            self._reject(HTTPStatus.BAD_REQUEST, "origin is duplicated")
+            return False
+        origin = origins[0] if origins else None
         if origin is not None and origin not in self.server.expected_origins:
             self._reject(HTTPStatus.FORBIDDEN, "origin not allowed")
             return False
@@ -98,7 +185,105 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         if not self._authorized():
             return
-        self._reject(HTTPStatus.METHOD_NOT_ALLOWED, "method not allowed")
+        if self.path != _PROCESS_PATH:
+            self._reject(HTTPStatus.NOT_FOUND, "route not found")
+            return
+        try:
+            fields = self._read_multipart_body()
+            filename, document = fields["document"]
+            _, profile = fields["profile"]
+            if not filename.lower().endswith(".docx"):
+                raise MultipartInputError("document filename must end with .docx")
+            max_operations = self._read_max_applied_operations(fields)
+            bundle = build_product_from_inputs(
+                document, profile, max_applied_operations=max_operations
+            )
+            delivery = build_product_delivery(
+                bundle, base_name=filename.rsplit(".", 1)[0]
+            )
+        except MultipartInputError as exc:
+            self._reject(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        except (ProductInputBoundaryContractError, ProductInputBoundaryUnsupportedError, ProductDeliveryContractError):
+            self._reject(HTTPStatus.UNPROCESSABLE_ENTITY, "document or profile was rejected")
+            return
+        except (ProductInputBoundaryIntegrityError, ProductDeliveryIntegrityError):
+            self._reject(HTTPStatus.INTERNAL_SERVER_ERROR, "processing integrity failure")
+            return
+        except Exception:
+            self._reject(HTTPStatus.INTERNAL_SERVER_ERROR, "internal error")
+            return
+        self._send_delivery(delivery)
+
+    def _read_max_applied_operations(self, fields: dict[str, tuple[str, bytes]]) -> int:
+        if "max_applied_operations" not in fields:
+            return DEFAULT_MAX_APPLIED_OPERATIONS
+        _, raw = fields["max_applied_operations"]
+        try:
+            if re.fullmatch(rb"[0-9]+", raw) is None:
+                raise MultipartInputError("max_applied_operations is invalid")
+            value = int(raw, 10)
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise MultipartInputError("max_applied_operations is invalid") from exc
+        if value <= 0:
+            raise MultipartInputError("max_applied_operations is invalid")
+        if value > DEFAULT_MAX_APPLIED_OPERATIONS:
+            raise MultipartInputError("max_applied_operations cannot exceed the default limit")
+        return value
+
+    def _read_multipart_body(self) -> dict[str, tuple[str, bytes]]:
+        if self.headers.get_all("Transfer-Encoding", []):
+            raise MultipartInputError("transfer encoding is not supported")
+        content_lengths = self.headers.get_all("Content-Length", [])
+        if len(content_lengths) > 1:
+            raise MultipartInputError("content length is duplicated")
+        content_length = content_lengths[0] if content_lengths else None
+        if content_length is not None:
+            try:
+                length = int(content_length)
+            except ValueError as exc:
+                raise MultipartInputError("content length is invalid") from exc
+            if length < 0 or length > self.server.max_body_bytes:
+                raise MultipartInputError("request body exceeds the configured limit")
+            body = self.rfile.read(length)
+            if len(body) != length:
+                raise MultipartInputError("request body is incomplete")
+        else:
+            body = self.rfile.read(self.server.max_body_bytes + 1)
+            if len(body) > self.server.max_body_bytes:
+                raise MultipartInputError("request body exceeds the configured limit")
+        content_types = self.headers.get_all("Content-Type", [])
+        if len(content_types) != 1:
+            raise MultipartInputError("content type is missing or duplicated")
+        return _parse_multipart(content_types[0], body)
+
+    def _send_delivery(self, delivery) -> None:
+        files = [
+            {
+                "role": item.role.value,
+                "filename": item.filename,
+                "media_type": item.media_type,
+                "sha256": item.content_sha256,
+                "size_bytes": item.size_bytes,
+                "content_base64": base64.b64encode(item.content_bytes).decode("ascii"),
+            }
+            for item in delivery.files
+        ]
+        report = json.loads(delivery.files[2].content_bytes.decode("utf-8"))
+        payload = _json_bytes(
+            {
+                "status": "ok",
+                "session_status": report["summary"]["session_status"],
+                "summary": report["summary"],
+                "files": files,
+            }
+        )
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(payload)
 
     def _method_not_allowed(self) -> None:
         if self._authorized():
@@ -154,6 +339,10 @@ class LocalWebServer(ThreadingHTTPServer):
             super().process_request_thread(request, client_address)
         finally:
             self._connection_slots.release()
+
+    def handle_error(self, request, client_address) -> None:
+        # Do not print tracebacks or client metadata for request failures.
+        self.request_log.append(("ERROR", "500"))
 
 
 def create_server(
