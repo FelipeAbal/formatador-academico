@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import re
 import secrets
 from collections import deque
 from email import policy
@@ -20,7 +21,12 @@ from ..product_delivery import (
     ProductDeliveryIntegrityError,
     build_product_delivery,
 )
-from ..product_input_boundary import ProductInputBoundaryError, build_product_from_inputs
+from ..product_input_boundary import (
+    ProductInputBoundaryContractError,
+    ProductInputBoundaryIntegrityError,
+    ProductInputBoundaryUnsupportedError,
+    build_product_from_inputs,
+)
 
 DEFAULT_MAX_BODY_BYTES = 64 * 1024 * 1024
 DEFAULT_HOST = "127.0.0.1"
@@ -32,6 +38,7 @@ _SESSION_HEADER = "X-Formatador-Session"
 _ALLOWED_FETCH_SITES = frozenset({"same-origin", "none"})
 _PROCESS_PATH = "/api/process"
 _MAX_FILENAME_CODEPOINTS = 255
+_MAX_MULTIPART_BOUNDARY_BYTES = 200
 
 
 def generate_session_token() -> str:
@@ -53,9 +60,18 @@ class MultipartInputError(ValueError):
 def _parse_multipart(content_type: str, body: bytes) -> dict[str, tuple[str, bytes]]:
     if not content_type.lower().startswith("multipart/form-data"):
         raise MultipartInputError("content type must be multipart/form-data")
-    header = (
-        f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("latin-1")
-    )
+    boundary_match = re.search(r"(?:^|;)\s*boundary=(?:\"([^\"]+)\"|([^;\s]+))", content_type, re.I)
+    if boundary_match is None:
+        raise MultipartInputError("multipart boundary is missing")
+    boundary = boundary_match.group(1) or boundary_match.group(2)
+    try:
+        if len(boundary.encode("latin-1")) > _MAX_MULTIPART_BOUNDARY_BYTES:
+            raise MultipartInputError("multipart boundary is too long")
+        header = (
+            f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("latin-1")
+        )
+    except UnicodeEncodeError as exc:
+        raise MultipartInputError("multipart content type is invalid") from exc
     try:
         message = BytesParser(policy=policy.default).parsebytes(header + body)
     except (UnicodeError, ValueError) as exc:
@@ -130,14 +146,19 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def _authorized(self) -> bool:
-        if self.headers.get("Host") not in self.server.expected_hosts:
+        hosts = self.headers.get_all("Host", [])
+        if len(hosts) != 1 or hosts[0] not in self.server.expected_hosts:
             self._reject(HTTPStatus.BAD_REQUEST, "host not allowed")
             return False
         tokens = self.headers.get_all(_SESSION_HEADER, [])
         if len(tokens) != 1 or not secrets.compare_digest(tokens[0], self.server.token):
             self._reject(HTTPStatus.UNAUTHORIZED, "session token required")
             return False
-        origin = self.headers.get("Origin")
+        origins = self.headers.get_all("Origin", [])
+        if len(origins) > 1:
+            self._reject(HTTPStatus.BAD_REQUEST, "origin is duplicated")
+            return False
+        origin = origins[0] if origins else None
         if origin is not None and origin not in self.server.expected_origins:
             self._reject(HTTPStatus.FORBIDDEN, "origin not allowed")
             return False
@@ -183,11 +204,14 @@ class _Handler(BaseHTTPRequestHandler):
         except MultipartInputError as exc:
             self._reject(HTTPStatus.BAD_REQUEST, str(exc))
             return
-        except (ProductInputBoundaryError, ProductDeliveryContractError):
+        except (ProductInputBoundaryContractError, ProductInputBoundaryUnsupportedError, ProductDeliveryContractError):
             self._reject(HTTPStatus.UNPROCESSABLE_ENTITY, "document or profile was rejected")
             return
-        except ProductDeliveryIntegrityError:
-            self._reject(HTTPStatus.INTERNAL_SERVER_ERROR, "delivery integrity failure")
+        except (ProductInputBoundaryIntegrityError, ProductDeliveryIntegrityError):
+            self._reject(HTTPStatus.INTERNAL_SERVER_ERROR, "processing integrity failure")
+            return
+        except Exception:
+            self._reject(HTTPStatus.INTERNAL_SERVER_ERROR, "internal error")
             return
         self._send_delivery(delivery)
 
@@ -196,7 +220,9 @@ class _Handler(BaseHTTPRequestHandler):
             return DEFAULT_MAX_APPLIED_OPERATIONS
         _, raw = fields["max_applied_operations"]
         try:
-            value = int(raw.decode("ascii"), 10)
+            if re.fullmatch(rb"[0-9]+", raw) is None:
+                raise MultipartInputError("max_applied_operations is invalid")
+            value = int(raw, 10)
         except (UnicodeDecodeError, ValueError) as exc:
             raise MultipartInputError("max_applied_operations is invalid") from exc
         if value <= 0:
@@ -206,6 +232,8 @@ class _Handler(BaseHTTPRequestHandler):
         return value
 
     def _read_multipart_body(self) -> dict[str, tuple[str, bytes]]:
+        if self.headers.get_all("Transfer-Encoding", []):
+            raise MultipartInputError("transfer encoding is not supported")
         content_lengths = self.headers.get_all("Content-Length", [])
         if len(content_lengths) > 1:
             raise MultipartInputError("content length is duplicated")
@@ -241,7 +269,15 @@ class _Handler(BaseHTTPRequestHandler):
             }
             for item in delivery.files
         ]
-        payload = _json_bytes({"status": "ok", "files": files})
+        report = json.loads(delivery.files[2].content_bytes.decode("utf-8"))
+        payload = _json_bytes(
+            {
+                "status": "ok",
+                "session_status": report["summary"]["session_status"],
+                "summary": report["summary"],
+                "files": files,
+            }
+        )
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
@@ -303,6 +339,10 @@ class LocalWebServer(ThreadingHTTPServer):
             super().process_request_thread(request, client_address)
         finally:
             self._connection_slots.release()
+
+    def handle_error(self, request, client_address) -> None:
+        # Do not print tracebacks or client metadata for request failures.
+        self.request_log.append(("ERROR", "500"))
 
 
 def create_server(

@@ -163,7 +163,7 @@ class TestLocalWebServer(unittest.TestCase):
 
     def test_duplicate_session_headers_are_rejected(self):
         connection = http.client.HTTPConnection(self.host, self.port, timeout=2)
-        connection.putrequest("GET", "/api/health")
+        connection.putrequest("GET", "/api/health", skip_host=True)
         connection.putheader("Host", f"localhost:{self.port}")
         connection.putheader("X-Formatador-Session", "test-token")
         connection.putheader("X-Formatador-Session", "other-token")
