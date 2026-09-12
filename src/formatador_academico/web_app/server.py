@@ -7,18 +7,20 @@ import base64
 import json
 import re
 import secrets
+import socket
 from collections import deque
 from email import policy
 from email.parser import BytesParser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from threading import BoundedSemaphore
+from threading import BoundedSemaphore, Timer
 from typing import Any
 
 from ..processing_session import DEFAULT_MAX_APPLIED_OPERATIONS
 from ..product_delivery import (
     ProductDeliveryContractError,
     ProductDeliveryIntegrityError,
+    DeliveryRole,
     build_product_delivery,
 )
 from ..product_input_boundary import (
@@ -76,7 +78,7 @@ def _parse_multipart(content_type: str, body: bytes) -> dict[str, tuple[str, byt
         message = BytesParser(policy=policy.default).parsebytes(header + body)
     except (UnicodeError, ValueError) as exc:
         raise MultipartInputError("multipart body is invalid") from exc
-    if not message.is_multipart():
+    if not message.is_multipart() or message.defects:
         raise MultipartInputError("multipart body is invalid")
 
     fields: dict[str, tuple[str, bytes]] = {}
@@ -194,6 +196,8 @@ class _Handler(BaseHTTPRequestHandler):
             _, profile = fields["profile"]
             if not filename.lower().endswith(".docx"):
                 raise MultipartInputError("document filename must end with .docx")
+            if not filename.rsplit(".", 1)[0]:
+                raise MultipartInputError("document filename must have a base name")
             max_operations = self._read_max_applied_operations(fields)
             bundle = build_product_from_inputs(
                 document, profile, max_applied_operations=max_operations
@@ -210,10 +214,15 @@ class _Handler(BaseHTTPRequestHandler):
         except (ProductInputBoundaryIntegrityError, ProductDeliveryIntegrityError):
             self._reject(HTTPStatus.INTERNAL_SERVER_ERROR, "processing integrity failure")
             return
-        except Exception:
+        except Exception as exc:
+            self.server.request_log.append((self.command, type(exc).__name__))
             self._reject(HTTPStatus.INTERNAL_SERVER_ERROR, "internal error")
             return
-        self._send_delivery(delivery)
+        try:
+            self._send_delivery(delivery)
+        except Exception as exc:
+            self.server.request_log.append((self.command, type(exc).__name__))
+            self._reject(HTTPStatus.INTERNAL_SERVER_ERROR, "internal error")
 
     def _read_max_applied_operations(self, fields: dict[str, tuple[str, bytes]]) -> int:
         if "max_applied_operations" not in fields:
@@ -269,7 +278,10 @@ class _Handler(BaseHTTPRequestHandler):
             }
             for item in delivery.files
         ]
-        report = json.loads(delivery.files[2].content_bytes.decode("utf-8"))
+        reports = [item for item in delivery.files if item.role is DeliveryRole.TECHNICAL_REPORT]
+        if len(reports) != 1:
+            raise ValueError("delivery must contain exactly one technical report")
+        report = json.loads(reports[0].content_bytes.decode("utf-8"))
         payload = _json_bytes(
             {
                 "status": "ok",
@@ -290,7 +302,14 @@ class _Handler(BaseHTTPRequestHandler):
             self._reject(HTTPStatus.METHOD_NOT_ALLOWED, "method not allowed")
 
     do_OPTIONS = _method_not_allowed
-    do_HEAD = _method_not_allowed
+    def do_HEAD(self) -> None:
+        if not self._authorized():
+            return
+        self.send_response(HTTPStatus.METHOD_NOT_ALLOWED)
+        self.send_header("Content-Length", "0")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+
     do_PUT = _method_not_allowed
     do_DELETE = _method_not_allowed
     do_PATCH = _method_not_allowed
@@ -335,14 +354,29 @@ class LocalWebServer(ThreadingHTTPServer):
             raise
 
     def process_request_thread(self, request, client_address) -> None:
+        deadline = Timer(DEFAULT_REQUEST_TIMEOUT_SECONDS, self._expire_request, (request,))
+        deadline.daemon = True
+        deadline.start()
         try:
             super().process_request_thread(request, client_address)
         finally:
+            deadline.cancel()
             self._connection_slots.release()
+
+    @staticmethod
+    def _expire_request(request) -> None:
+        try:
+            request.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        try:
+            request.close()
+        except OSError:
+            pass
 
     def handle_error(self, request, client_address) -> None:
         # Do not print tracebacks or client metadata for request failures.
-        self.request_log.append(("ERROR", "500"))
+        self.request_log.append(("ERROR", "internal"))
 
 
 def create_server(
