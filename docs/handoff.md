@@ -630,6 +630,26 @@ Foram incorporados os ajustes da auditoria do DeepSeek Flash 4.1:
 
 Auditoria registrada em `docs/audits/0057-deepseek-flash-41-processing-audit.md`. A suíte local final ficou em 797 testes aprovados e o CI do PR passou antes da integração.
 
-Permanecem como acompanhamento, sem bloqueio para o uso local de usuário único, a amplificação de memória causada pela resposta Base64 única e a ausência de um prazo total para requisições muito lentas. Esses pontos devem ser tratados antes de exposição para múltiplos usuários ou documentos de grande porte.
+Naquele ponto permaneciam como acompanhamento a amplificação de memória causada pela resposta Base64 única e a ausência de um prazo total para requisições muito lentas. O segundo ponto foi tratado na auditoria final; a amplificação de memória e a transmissão em fluxo continuam como trabalho posterior antes de exposição para múltiplos usuários ou documentos de grande porte.
 
-Próxima etapa: auditoria completa do código integrado pelo Claude Opus. Depois dela, decidir entre ajustes de capacidade, interface user-facing e nova cobertura de classificação em documentos reais.
+O próximo passo daquela etapa foi a auditoria completa do código integrado pelo Claude Opus, registrada na seção seguinte.
+
+## Auditoria final 0057 e correções de disponibilidade
+
+Atualização registrada em 2026-09-12, após a auditoria final do Claude Opus sobre a `main` em `94309fc`.
+
+O parecer final foi registrado em `docs/audits/0057b-claude-opus-final-cycle-audit.md`. A auditoria confirmou os bloqueantes anteriores e a preservação das invariantes do ciclo, inclusive o perfil JSON opaco, a rejeição de chaves duplicadas, a entrega dos cinco artefatos e a separação entre erros de entrada e erros de integridade.
+
+Antes do encerramento operacional, foram aplicados os seguintes ajustes:
+
+- prazo absoluto para conexões, evitando que o timeout por operação seja mantido indefinidamente por envio lento;
+- seleção do relatório técnico pelo papel `DeliveryRole.TECHNICAL_REPORT`, sem índice numérico;
+- registro limitado do tipo da exceção, sem guardar a mensagem ou dados do documento;
+- rejeição de defeitos do parser multipart;
+- validação de nome-base não vazio;
+- resposta HEAD sem corpo;
+- encerramento seguro da conexão quando o prazo total é excedido.
+
+Os pontos de memória da resposta Base64 e transmissão em fluxo permanecem como trabalho posterior. Para o uso atual, o serviço continua restrito a `127.0.0.1`, com token de sessão, túnel SSH e usuário único. A suíte local permanece em 797 testes aprovados.
+
+Próxima etapa: revisar o PR de correções finais, executar o CI e, se aprovado, encerrar o ciclo 0057. A interface visual ainda não foi iniciada.
