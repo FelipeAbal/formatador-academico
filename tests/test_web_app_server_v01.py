@@ -182,6 +182,16 @@ class TestLocalWebServer(unittest.TestCase):
                 if method != "HEAD":
                     self.assertIn(b"method not allowed", body)
 
+    def test_rejected_head_responses_have_no_body(self):
+        for headers in (
+            {"Host": f"localhost:{self.port}"},
+            {"Host": "evil.example:8000"},
+        ):
+            with self.subTest(headers=headers):
+                status, body = self._request(headers, path="/", method="HEAD")
+                self.assertIn(status, (400, 401))
+                self.assertEqual(body, b"")
+
     def test_response_does_not_expose_python_version(self):
         connection = http.client.HTTPConnection(self.host, self.port, timeout=2)
         connection.request(

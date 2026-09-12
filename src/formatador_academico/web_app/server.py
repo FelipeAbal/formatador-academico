@@ -8,14 +8,13 @@ import json
 import re
 import secrets
 import socket
-import time
 from collections import deque
 from email import policy
 from email.parser import BytesParser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files as resource_files
-from threading import BoundedSemaphore
+from threading import BoundedSemaphore, Timer
 from typing import Any
 
 from ..processing_session import DEFAULT_MAX_APPLIED_OPERATIONS
@@ -152,7 +151,32 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(payload)
+        if self.command != "HEAD":
+            self.wfile.write(payload)
+
+    def handle_one_request(self) -> None:
+        self._read_deadline = Timer(
+            DEFAULT_UPLOAD_TIMEOUT_SECONDS, self._expire_read_phase, (self.connection,)
+        )
+        self._read_deadline.daemon = True
+        self._read_deadline.start()
+        super().handle_one_request()
+
+    @staticmethod
+    def _expire_read_phase(connection: socket.socket) -> None:
+        try:
+            connection.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        try:
+            connection.close()
+        except OSError:
+            pass
+
+    def _cancel_read_deadline(self) -> None:
+        deadline = getattr(self, "_read_deadline", None)
+        if deadline is not None:
+            deadline.cancel()
 
     def _host_allowed(self) -> bool:
         hosts = self.headers.get_all("Host", [])
@@ -192,6 +216,7 @@ class _Handler(BaseHTTPRequestHandler):
         return True
 
     def do_GET(self) -> None:
+        self._cancel_read_deadline()
         if not self._host_allowed():
             return
         request_target = self._request_target()
@@ -226,12 +251,17 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         if not self._authorized():
+            self._cancel_read_deadline()
             return
         if self._request_target() != _PROCESS_PATH:
+            self._cancel_read_deadline()
             self._reject(HTTPStatus.NOT_FOUND, "route not found")
             return
         try:
-            fields = self._read_multipart_body()
+            try:
+                fields = self._read_multipart_body()
+            finally:
+                self._cancel_read_deadline()
             filename, document = fields["document"]
             _, profile = fields["profile"]
             if not filename.lower().endswith(".docx"):
@@ -307,25 +337,10 @@ class _Handler(BaseHTTPRequestHandler):
         return _parse_multipart(content_types[0], body)
 
     def _read_body_bytes(self, limit: int) -> bytes:
-        deadline = time.monotonic() + DEFAULT_UPLOAD_TIMEOUT_SECONDS
-        chunks: list[bytes] = []
-        total = 0
         previous_timeout = self.connection.gettimeout()
         try:
-            while total < limit:
-                remaining_time = deadline - time.monotonic()
-                if remaining_time <= 0:
-                    raise MultipartInputError("request upload timed out")
-                self.connection.settimeout(min(1.0, remaining_time))
-                try:
-                    chunk = self.rfile.read(min(64 * 1024, limit - total))
-                except socket.timeout:
-                    continue
-                if not chunk:
-                    break
-                chunks.append(chunk)
-                total += len(chunk)
-            return b"".join(chunks)
+            self.connection.settimeout(None)
+            return self.rfile.read(limit)
         finally:
             self.connection.settimeout(previous_timeout)
 
@@ -361,11 +376,13 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def _method_not_allowed(self) -> None:
+        self._cancel_read_deadline()
         if self._authorized():
             self._reject(HTTPStatus.METHOD_NOT_ALLOWED, "method not allowed")
 
     do_OPTIONS = _method_not_allowed
     def do_HEAD(self) -> None:
+        self._cancel_read_deadline()
         if not self._authorized():
             return
         self.send_response(HTTPStatus.METHOD_NOT_ALLOWED)
