@@ -91,7 +91,10 @@ form.addEventListener("submit", async event => {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "processamento rejeitado");
     if (payload.session_status === "quiescent") {
-      status.textContent = "Processamento concluído. Nenhuma alteração automática segura foi necessária. Isso não significa conformidade integral.";
+      const appliedCount = payload.summary?.applied_change_count || 0;
+      status.textContent = appliedCount > 0
+        ? `Processamento concluído. Foram aplicadas ${appliedCount} alterações automáticas seguras. Não restou outra alteração automática segura no slice atual; isso não significa conformidade integral.`
+        : "Processamento concluído. Nenhuma alteração automática segura foi necessária. Isso não significa conformidade integral.";
     } else if (payload.session_status === "operation_limit_reached") {
       status.textContent = "Limite de alterações atingido. O processamento parou antes de concluir todas as alterações seguras.";
     } else if (payload.session_status === "quiescent_with_unapplied") {
