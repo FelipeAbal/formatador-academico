@@ -682,7 +682,7 @@ Auditorias independentes:
 - DeepSeek Flash 4.1: reauditorias 0058, 0058B e 0058C;
 - Claude Opus: auditorias 0058, 0058B, 0058C e 0058D;
 - ambas confirmaram a correção das falhas de alinhamento, timeout, cabeçalhos lentos, temporizadores acumulados, mensagens de status e `HEAD`;
-- nenhuma das auditorias encontrou defeito bloqueante no commit final;
+- as reauditorias 0058C e 0058D classificaram o commit final como aprovado com ajustes obrigatórios; os ajustes de código foram tratados, e as pendências remanescentes estão registradas abaixo;
 - os seis DOCX reais continuam fora do repositório e foram usados apenas para medição.
 
 Validação final:
@@ -698,6 +698,15 @@ O perfil gerado pela interface continua declarando `id = "web-interface"` e `ver
 
 Essa escolha é aceita como dívida de rastreabilidade, pois os valores das regras continuam presentes nos itens de decisão, revisão e transformação quando aplicáveis. A interface não deriva uma versão por hash nesta etapa. Uma futura necessidade de auditoria de conjuntos de regras poderá introduzir identificação canônica própria, mediante novo contrato.
 
+### Pendências remanescentes das reauditorias
+
+As reauditorias 0058C e 0058D deixaram estas pendências explícitas:
+
+- a mensagem de `quiescent` ainda afirma que nenhuma alteração automática foi necessária mesmo quando houve alterações aplicadas; isso deve ser corrigido antes do uso com usuários;
+- `_read_body_bytes` usa `settimeout(None)` e depende do `Timer` com `shutdown(SHUT_RD)`; o comportamento foi validado no macOS e pelo CI em Ubuntu, mas ainda não há teste comportamental dedicado no repositório;
+- o lexema numérico `.5` aceito pelo controle HTML pode gerar JSON inválido; a interface deve validar ou normalizar esse caso antes do processamento;
+- a identidade fixa `web-interface/1` é dívida aceita de rastreabilidade, conforme decisão registrada acima.
+
 ### Dívidas posteriores
 
 Continuam registradas, sem bloquear a integração atual:
@@ -710,4 +719,4 @@ Continuam registradas, sem bloquear a integração atual:
 - eventual inclusão de `form-action`, `base-uri` e `Cross-Origin-Resource-Policy` na política de segurança;
 - identificação por conjunto de regras, caso a rastreabilidade detalhada se torne requisito.
 
-Próxima etapa: integrar o PR #55 por squash, atualizar a `main` e, depois, fechar as branches intermediárias já incorporadas. Não iniciar nova propriedade antes de atualizar o handoff e definir o próximo ciclo.
+Próxima etapa: medir de forma reproduzível o custo do processamento em documentos grandes e avaliar uma alteração arquitetural no ciclo 0059. Não iniciar nova propriedade antes de tratar o custo de múltiplas alterações e atualizar o critério de aceitação.
