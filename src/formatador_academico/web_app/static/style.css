@@ -1,0 +1,17 @@
+:root { color-scheme: light; font-family: system-ui, sans-serif; }
+body { margin: 0; color: #202124; background: #f4f6f8; }
+.page { max-width: 820px; margin: 2rem auto; padding: 0 1rem 3rem; }
+fieldset, .result { margin: 1rem 0; padding: 1rem; border: 1px solid #c7ccd1; border-radius: 8px; background: #fff; }
+legend { padding: 0 .4rem; font-weight: 700; }
+label { display: block; margin: .7rem 0; }
+input[type="number"], select { box-sizing: border-box; max-width: 12rem; padding: .45rem; }
+input[type="file"] { display: block; margin-top: .5rem; }
+.rule-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .25rem 1rem; }
+button { margin-top: 1rem; padding: .65rem 1rem; border: 0; border-radius: 6px; color: #fff; background: #145da0; cursor: pointer; }
+button:disabled { cursor: wait; opacity: .65; }
+.result { border-left: 5px solid #145da0; }
+.result.error { border-left-color: #b3261e; }
+dt { font-weight: 700; }
+dd { margin: 0 0 .4rem; }
+.downloads { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: 1rem; }
+.downloads a { padding: .5rem .7rem; border-radius: 5px; background: #e5eef8; color: #124d80; }

@@ -82,7 +82,7 @@ A interface fornecerá apenas o `base_name`, derivado do nome enviado e entregue
 
 ## 5. Transporte local
 
-A primeira implementação usará `ThreadingHTTPServer`, da biblioteca padrão, e uma página HTML estática, sem biblioteca JavaScript externa.
+A primeira implementação usará `ThreadingHTTPServer`, da biblioteca padrão, e uma página HTML estática, sem biblioteca JavaScript externa. A superfície pública será uma lista fechada de três recursos, comparados por igualdade exata: `/`, `/static/app.js` e `/static/style.css`. Eles conterão somente recursos estáticos, sem dados do usuário, token ou nomes de arquivos. Não haverá servidor de arquivos por prefixo, acesso ao sistema de arquivos derivado do caminho recebido ou rotas públicas adicionais. Somente `GET` será público; `HEAD` e os demais métodos continuarão sujeitos à autorização.
 
 O navegador enviará o documento e o perfil ao servidor local por multipart. O servidor retornará, em uma única resposta, os cinco `DeliveryFile` codificados para que o navegador crie os downloads localmente. Não haverá endpoint posterior de download nem retenção de bytes entre requisições.
 
@@ -105,9 +105,15 @@ Cada processo do servidor gerará um token aleatório de sessão no arranque. O 
 - método HTTP, aceitando apenas os métodos previstos;
 - token de sessão, usando comparação segura.
 
+Como o fragmento de uma URL não é enviado ao servidor, a URL inicial terá o formato `http://localhost:8000/#TOKEN`. O `GET /` e os dois recursos estáticos acima não exigirão o token, mas continuarão exigindo um `Host` permitido. Essa é uma superfície pública fechada, estática e sem dados. As rotas de saúde, processamento e qualquer outro caminho exigirão autenticação antes do roteamento.
+
+O JavaScript lerá o token de `location.hash`, gravará esse valor em `sessionStorage` e depois usará `history.replaceState` para removê-lo da barra de endereços e da entrada atual da sessão. Isso não apaga necessariamente histórico, preenchimento automático, sincronização, restauração de sessão ou recuperação de falha do navegador. A URL com o token não deverá ser salva em favoritos nem compartilhada. O token não será guardado em `localStorage`.
+
+Os recursos públicos enviarão `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` e `X-Frame-Options: DENY`. A página enviará também a política `Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'`, que torna verificável a ausência de recursos externos. A escolha do fragmento é especialmente importante porque o túnel SSH faz `localhost` existir também no Mac: servir o token em HTML ou em resposta HTTP o exporia a processos locais daquela máquina.
+
 O token é a fronteira de autorização. `Host`, `Origin` e `Sec-Fetch-Site` são camadas adicionais contra roteamento incorreto e requisições iniciadas por outra origem; a ausência dos cabeçalhos opcionais não substitui o token. `OPTIONS` permanecerá recusado enquanto não houver contrato explícito de CORS.
 
-O servidor usará timeout de leitura por requisição e limite de conexões simultâneas. O log operacional será limitado e não reterá linhas de requisição, caminhos, cabeçalhos ou bytes de documentos.
+O servidor usará prazo absoluto de 30 segundos para receber o corpo do upload, além do timeout de operação de socket, e limite de conexões simultâneas. O prazo de upload não será aplicado durante o processamento do pipeline, para que a conexão do usuário permaneça disponível enquanto os cinco artefatos são produzidos. O log operacional será limitado e não reterá linhas de requisição, caminhos, cabeçalhos ou bytes de documentos.
 
 Como os downloads serão montados no navegador a partir da resposta única, não haverá identificador de download reutilizável nem armazenamento de artefatos no servidor.
 
@@ -130,7 +136,7 @@ A aplicação deverá respeitar todas as invariantes do núcleo:
 
 O servidor deverá rejeitar o corpo antes de materializá-lo quando o `Content-Length` exceder 64 MiB e, quando o cabeçalho estiver ausente ou não for confiável, ler no máximo 64 MiB mais um byte antes de rejeitar. Requisições fora do formato definido deverão ser recusadas.
 
-O formulário deverá expor `max_applied_operations`, com valor inicial igual ao limite padrão vigente do núcleo e possibilidade de redução pelo usuário. O resultado `operation_limit_reached` será mostrado como limite atingido, nunca como processamento concluído sem ressalvas.
+O formulário deverá expor `max_applied_operations`, com valor inicial igual ao limite padrão vigente do núcleo e possibilidade de redução pelo usuário. O resultado `operation_limit_reached` será mostrado como limite atingido, nunca como processamento concluído sem ressalvas. A interface deverá preservar a representação decimal digitada pelo usuário até o parser do perfil, sem converter números por `Number()` antes do envio. O controle de negrito deverá permitir ausência, exigência ou ausência de regra. O resultado deverá explicar que `quiescent` não equivale a conformidade integral.
 
 ## 7. Tecnologia inicial
 

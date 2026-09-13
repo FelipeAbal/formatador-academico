@@ -653,3 +653,61 @@ Antes do encerramento operacional, foram aplicados os seguintes ajustes:
 Os pontos de memória da resposta Base64 e transmissão em fluxo permanecem como trabalho posterior. Para o uso atual, o serviço continua restrito a `127.0.0.1`, com token de sessão, túnel SSH e usuário único. A suíte local permanece em 797 testes aprovados.
 
 Próxima etapa: revisar o PR de correções finais, executar o CI e, se aprovado, encerrar o ciclo 0057. A interface visual ainda não foi iniciada.
+
+## Fechamento do ciclo 0058: interface web local
+
+Atualização registrada em 2026-09-13, após o PR #55 chegar ao commit `d42a3b8638045d097b6fd67551c499453f0c4846`.
+
+O ciclo implementou a interface web local para envio de DOCX e declaração das regras P1 a P4. A interface usa a fronteira `build_product_delivery`, mantém o perfil como bytes opacos até o parser, retorna os cinco artefatos em uma única resposta e cria os downloads no navegador.
+
+Foram incorporados os seguintes ajustes:
+
+- alinhamento justificado enviado como `justify`;
+- preservação da representação decimal digitada, sem conversão por `Number()`;
+- controle de negrito com ausência de regra, exigência ou ausência;
+- bloqueio de submissão sem regra;
+- mensagens específicas para `quiescent`, `operation_limit_reached` e `quiescent_with_unapplied`;
+- limite inicial de 10.000 operações;
+- token no fragmento da URL, `sessionStorage` e `history.replaceState`;
+- superfície pública fechada, com `/`, `/static/app.js` e `/static/style.css` apenas;
+- cabeçalhos de segurança, sem recursos externos e sem servidor de arquivos por prefixo;
+- prazo absoluto para linha, cabeçalhos e corpo da requisição, cancelado antes do processamento;
+- cancelamento do temporizador em `finally`, inclusive para requisições inválidas ou métodos sem rota;
+- respostas `HEAD` recusadas sem corpo;
+- encerramento apenas da leitura no timeout, permitindo resposta 400 limpa;
+- seleção do relatório técnico por `DeliveryRole.TECHNICAL_REPORT`.
+
+Auditorias independentes:
+
+- DeepSeek Flash 4.1: reauditorias 0058, 0058B e 0058C;
+- Claude Opus: auditorias 0058, 0058B, 0058C e 0058D;
+- ambas confirmaram a correção das falhas de alinhamento, timeout, cabeçalhos lentos, temporizadores acumulados, mensagens de status e `HEAD`;
+- nenhuma das auditorias encontrou defeito bloqueante no commit final;
+- os seis DOCX reais continuam fora do repositório e foram usados apenas para medição.
+
+Validação final:
+
+- 804 testes aprovados localmente;
+- CI aprovado na run `34715046627`;
+- PR #55 pronta para integração por squash;
+- a branch incompleta `fix/0058-interface-findings` não deve ser integrada.
+
+### Decisão sobre a identidade do perfil web
+
+O perfil gerado pela interface continua declarando `id = "web-interface"` e `version = "1"`. Esta identidade representa o gerador e a versão do formato da interface, não cada combinação de regras escolhida pelo usuário.
+
+Essa escolha é aceita como dívida de rastreabilidade, pois os valores das regras continuam presentes nos itens de decisão, revisão e transformação quando aplicáveis. A interface não deriva uma versão por hash nesta etapa. Uma futura necessidade de auditoria de conjuntos de regras poderá introduzir identificação canônica própria, mediante novo contrato.
+
+### Dívidas posteriores
+
+Continuam registradas, sem bloquear a integração atual:
+
+- transmissão em fluxo ou redução da amplificação de memória causada por Base64;
+- tratamento de MIME `application/octet-stream` quando os bytes forem DOCX válido;
+- validação de empacotamento em wheel para os recursos estáticos;
+- testes comportamentais adicionais para upload lento, além dos testes adversariais externos;
+- encerramento cooperativo de processamento quando o cliente abandona a conexão;
+- eventual inclusão de `form-action`, `base-uri` e `Cross-Origin-Resource-Policy` na política de segurança;
+- identificação por conjunto de regras, caso a rastreabilidade detalhada se torne requisito.
+
+Próxima etapa: integrar o PR #55 por squash, atualizar a `main` e, depois, fechar as branches intermediárias já incorporadas. Não iniciar nova propriedade antes de atualizar o handoff e definir o próximo ciclo.
