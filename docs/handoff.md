@@ -703,7 +703,7 @@ Essa escolha é aceita como dívida de rastreabilidade, pois os valores das regr
 As reauditorias 0058C e 0058D deixaram estas pendências explícitas:
 
 - a mensagem de `quiescent` ainda afirma que nenhuma alteração automática foi necessária mesmo quando houve alterações aplicadas; isso deve ser corrigido antes do uso com usuários;
-- `_read_body_bytes` usa `settimeout(None)` e depende do `Timer` com `shutdown(SHUT_RD)`; o comportamento foi validado no macOS e pelo CI em Ubuntu, mas ainda não há teste comportamental dedicado no repositório;
+- `_read_body_bytes` usa `settimeout(None)` e depende do `Timer` com `shutdown(SHUT_RD)`; o comportamento foi verificado por sondas no macOS, mas ainda não há teste comportamental dedicado no repositório que o valide no Ubuntu do CI;
 - o lexema numérico `.5` aceito pelo controle HTML pode gerar JSON inválido; a interface deve validar ou normalizar esse caso antes do processamento;
 - a identidade fixa `web-interface/1` é dívida aceita de rastreabilidade, conforme decisão registrada acima.
 
