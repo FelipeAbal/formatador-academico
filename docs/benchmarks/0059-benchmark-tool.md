@@ -48,6 +48,7 @@ Depois de um timeout ou de um erro, a outra variante ainda roda uma vez, se aind
 
 ```text
 decision      ⊃ formatting_resolution
+safety_gate   ⊃ safety_gate_formatting_resolution
 patch_total   ⊃ xml_mutation, zip_repackaging, allowed_delta_validation, postcondition
 postcondition ⊃ postcondition_parse, postcondition_style_catalog,
                 postcondition_target_resolution, postcondition_formatting_resolution
@@ -57,6 +58,7 @@ postcondition ⊃ postcondition_parse, postcondition_style_catalog,
 - `parse`, `analysis`, `classification`, `decision`, `planning`, `safety_gate`, `patch_total` e `transform_record` não se sobrepõem entre si.
 - `total_seconds` inclui a montagem final do bundle (relatório e DOCX de revisão), que não tem cronômetro por etapa, as gravações de progresso e `final_delivery`.
 - `postcondition_share_of_patch_total` é a fração do patch ocupada pela pós-condição.
+- `safety_gate_formatting_resolution` mede a resolução feita pelas referências próprias do SafetyGate.
 
 **Não some as etapas diretamente**: os tempos inclusivos contam as etapas filhas mais de uma vez.
 
@@ -67,7 +69,7 @@ O JSON de saída repete estas regras em `timing_semantics`.
 O progresso é gravado só em fronteiras grossas: início e fim de cada avaliação, após cada registro de transformação, em torno da montagem do relatório, do DOCX de revisão e da entrega final, e ao concluir. Nada é gravado dentro de chamadas por run ou por parágrafo.
 
 Em timeout, o registro da execução inclui `current_stage`, `last_completed_stage`, `evaluations_started`, `patches_completed`, `applied_changes` e a forma do documento. Isso vale para as duas variantes.
-
+\n`input_unchanged_in_memory` é uma verificação de identidade sobre `bytes` imutáveis; a verificação substantiva do arquivo DOCX é `input_unchanged_on_disk`.\n
 A variável `BENCHMARK_0059_TEST_HOLD_AFTER` existe só para os testes: ela suspende o processo depois de uma fronteira, tornando o timeout determinístico. **Nunca a defina durante uma medição.**
 
 ## Comandos
