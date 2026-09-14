@@ -90,6 +90,7 @@ STAGE_HIERARCHY: dict[str, tuple[str, ...]] = {
         "postcondition_target_resolution",
         "postcondition_formatting_resolution",
     ),
+    "safety_gate": ("safety_gate_formatting_resolution",),
 }
 
 TIMING_SEMANTICS: dict[str, Any] = {
@@ -277,6 +278,7 @@ def install_instrumentation(timing: Timings) -> Callable[[], None]:
     from formatador_academico import product_delivery
     from formatador_academico.patcher import applicator, validation
     from formatador_academico.processing_session import engine
+    from formatador_academico.safety_gate import gate
 
     targets = [
         (engine, "resolve_run_formatting", "formatting_resolution"),
@@ -286,6 +288,8 @@ def install_instrumentation(timing: Timings) -> Callable[[], None]:
         (engine, "_build_decisions", "decision"),
         (engine, "build_operation_plan", "planning"),
         (engine, "evaluate_operation_plan", "safety_gate"),
+        (gate, "resolve_run_formatting", "safety_gate_formatting_resolution"),
+        (gate, "resolve_paragraph_formatting", "safety_gate_formatting_resolution"),
         (engine, "apply_cleared_operation", "patch_total"),
         (engine, "build_transform_record", "transform_record"),
         (applicator, "mutate_run", "xml_mutation"),
@@ -562,6 +566,7 @@ def run_worker(paragraphs: int, changes: int, instrumented: bool,
     })
     progress.end("complete")
     result["progress_writes"] = progress.writes
+    result["patches_completed"] = progress.patches_completed
     return result
 
 
@@ -591,6 +596,7 @@ def run_docx_worker(docx_path: Path, profile_path: Path | None, instrumented: bo
     })
     progress.end("complete")
     result["progress_writes"] = progress.writes
+    result["patches_completed"] = progress.patches_completed
     return result
 
 
@@ -606,18 +612,22 @@ def _now() -> str:
 
 
 def _spawn(worker_args: list[str], timeout: float, strict: bool,
-           script: Path = TOOL) -> dict[str, Any]:
+           script: Path = TOOL, allow_test_hooks: bool = False) -> dict[str, Any]:
     descriptor, name = tempfile.mkstemp(prefix="benchmark-0059-progress-", suffix=".json")
     os.close(descriptor)
     progress_file = Path(name)
     command = [sys.executable, str(script), *worker_args, "--progress-file", str(progress_file)]
     record: dict[str, Any] = {"started_at": _now()}
     started = time.perf_counter()
+    worker_env = dict(os.environ)
+    if not allow_test_hooks:
+        worker_env.pop(TEST_HOLD_ENV, None)
+    worker_env["PYTHONPATH"] = str(SRC)
     try:
         try:
             completed = subprocess.run(
                 command, cwd=str(ROOT), capture_output=True, text=True, timeout=timeout,
-                env={**os.environ, "PYTHONPATH": str(SRC)},
+                env=worker_env,
             )
         except subprocess.TimeoutExpired:
             record.update(_read_progress(progress_file))
@@ -647,24 +657,26 @@ def _spawn(worker_args: list[str], timeout: float, strict: bool,
 
 
 def run_case(script: Path, paragraphs: int, changes: int, timeout: float,
-             instrumented: bool) -> dict[str, Any]:
+             instrumented: bool, allow_test_hooks: bool = False) -> dict[str, Any]:
     worker_args = ["--worker", str(paragraphs), str(changes)]
     if instrumented:
         worker_args.append("--instrumented")
-    record = _spawn(worker_args, timeout, strict=True, script=script)
+    record = _spawn(worker_args, timeout, strict=True, script=script,
+                    allow_test_hooks=allow_test_hooks)
     record.setdefault("paragraphs", paragraphs)
     record.setdefault("expected_changes", changes)
     return record
 
 
 def run_docx_case(docx_path: Path, profile_path: Path | None, timeout: float,
-                  instrumented: bool) -> dict[str, Any]:
+                  instrumented: bool, allow_test_hooks: bool = False) -> dict[str, Any]:
     worker_args = ["--worker-docx", str(docx_path)]
     if profile_path is not None:
         worker_args += ["--worker-profile", str(profile_path)]
     if instrumented:
         worker_args.append("--instrumented")
-    record = _spawn(worker_args, timeout, strict=False)
+    record = _spawn(worker_args, timeout, strict=False,
+                    allow_test_hooks=allow_test_hooks)
     record.setdefault("label", Path(docx_path).name)
     return record
 
