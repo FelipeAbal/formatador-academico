@@ -5,7 +5,18 @@ The worker always uses ``build_product_from_inputs`` and, for the end-to-end
 number, ``build_product_delivery``. Instrumentation is installed only in the
 worker process and wraps names already imported by the frozen processing loop.
 No production module is edited by this tool.
+
+Stage timings are hierarchical, not additive:
+- decision includes formatting_resolution;
+- patch_total includes xml_mutation, zip_repackaging,
+  allowed_delta_validation, and postcondition;
+- postcondition includes its own parse, which is not separately timed;
+- parse, analysis, classification, planning, and safety_gate are disjoint;
+- total_seconds includes final bundle assembly, while final_delivery measures
+  build_product_delivery separately.
+Therefore, stage_seconds must not be summed as if every bucket were exclusive.
 """
+
 from __future__ import annotations
 
 import argparse
