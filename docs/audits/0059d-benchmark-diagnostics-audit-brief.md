@@ -104,3 +104,15 @@ As frações de pós-condição observadas nos smokes (88,8% no A1, 66,4% no doc
 - a contagem de parágrafos e runs cobre só `word/document.xml`;
 - documento que estoura o prazo nas duas variantes gera diagnóstico, mas nenhum tempo total;
 - a verificação de timeout usa o gancho de teste; o comportamento em Linux fica verificado pelo CI, em `ubuntu-latest`.
+
+
+## Escopo da correção posterior à auditoria 0059D
+
+O head seguinte incorpora o L2 e os ajustes pequenos aceitos para o mesmo ciclo:
+
+- `safety_gate.resolve_run_formatting` e `safety_gate.resolve_paragraph_formatting` são instrumentados como `safety_gate_formatting_resolution`; a hierarquia e os tempos exclusivos refletem essa inclusão;
+- o processo pai remove `BENCHMARK_0059_TEST_HOLD_AFTER` do ambiente dos workers, salvo autorização explícita usada pelos testes;
+- execuções completas registram `patches_completed`;
+- o teste de modo DOCX identifica corretamente uma execução fora de uma árvore Git e a documentação explica o alcance limitado de `input_unchanged_in_memory`.
+
+A reauditoria deve confirmar que os nomes importados pelo SafetyGate são realmente os exercitados, que a restauração continua exata em exceções e que os testes do gancho não deixam o ambiente de medição contaminado. O head a auditar é o informado pelo PR, após a conclusão do CI.
