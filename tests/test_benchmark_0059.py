@@ -111,6 +111,7 @@ class WorkerRunTests(unittest.TestCase):
                 self.assertEqual(record["outcome"], "quiescent")
                 self.assertEqual(record["review_items"], 0)
                 self.assertEqual(record["unapplied_changes"], 0)
+                self.assertEqual(record["patches_completed"], TINY[1])
 
     def test_instrumentation_does_not_change_outputs(self):
         self.assertEqual(bench._equivalence(self.reference), bench._equivalence(self.instrumented))
@@ -155,7 +156,7 @@ class WorkerRunTests(unittest.TestCase):
 class TimeoutTests(unittest.TestCase):
     def _run_held(self, instrumented: bool):
         with mock.patch.dict(os.environ, {bench.TEST_HOLD_ENV: "evaluation"}):
-            return bench.run_case(TOOL, *TINY, HOLD_TIMEOUT, instrumented)
+            return bench.run_case(TOOL, *TINY, HOLD_TIMEOUT, instrumented, allow_test_hooks=True)
 
     def _assert_diagnostic(self, record):
         self.assertFalse(record["complete"])
@@ -201,6 +202,12 @@ class DocxModeTests(unittest.TestCase):
     def _git_status(self):
         if shutil.which("git") is None:
             self.skipTest("git is not available")
+        probe = subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            cwd=str(ROOT), capture_output=True, text=True,
+        )
+        if probe.returncode != 0 or probe.stdout.strip() != "true":
+            self.skipTest("test root is not a git work tree")
         return subprocess.run(
             ["git", "status", "--porcelain", "--untracked-files=all"],
             cwd=str(ROOT), capture_output=True, text=True, check=True,
