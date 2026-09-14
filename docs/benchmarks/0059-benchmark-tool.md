@@ -69,7 +69,10 @@ O JSON de saída repete estas regras em `timing_semantics`.
 O progresso é gravado só em fronteiras grossas: início e fim de cada avaliação, após cada registro de transformação, em torno da montagem do relatório, do DOCX de revisão e da entrega final, e ao concluir. Nada é gravado dentro de chamadas por run ou por parágrafo.
 
 Em timeout, o registro da execução inclui `current_stage`, `last_completed_stage`, `evaluations_started`, `patches_completed`, `applied_changes` e a forma do documento. Isso vale para as duas variantes.
-\n`input_unchanged_in_memory` é uma verificação de identidade sobre `bytes` imutáveis; a verificação substantiva do arquivo DOCX é `input_unchanged_on_disk`.\n
+
+
+`input_unchanged_in_memory` é uma verificação de identidade sobre `bytes` imutáveis; a verificação substantiva do arquivo DOCX é `input_unchanged_on_disk`.
+
 A variável `BENCHMARK_0059_TEST_HOLD_AFTER` existe só para os testes: ela suspende o processo depois de uma fronteira, tornando o timeout determinístico. **Nunca a defina durante uma medição.**
 
 ## Comandos
