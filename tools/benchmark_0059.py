@@ -119,7 +119,11 @@ class Timings:
                 self.calls[label] += 1
                 if label == "transform_record":
                     self.applied_changes += 1
-                self.progress(label)
+                # Progress is intentionally emitted only at coarse iteration
+                # boundaries. Writing once per formatting-resolution call would
+                # contaminate the timings this benchmark is meant to measure.
+                if label in {"decision", "patch_total"}:
+                    self.progress(label)
 
         measured.__name__ = getattr(function, "__name__", label)
         return measured
@@ -165,7 +169,6 @@ def install_instrumentation(timing: Timings) -> Callable[[], None]:
             finally:
                 timing.seconds["parse"] += time.perf_counter() - started
                 timing.calls["parse"] += 1
-                timing.progress("parse")
 
     originals.append((engine, "DocxParser", original_parser))
     setattr(engine, "DocxParser", TimedDocxParser)
