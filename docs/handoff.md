@@ -719,4 +719,43 @@ Continuam registradas, sem bloquear a integração atual:
 - eventual inclusão de `form-action`, `base-uri` e `Cross-Origin-Resource-Policy` na política de segurança;
 - identificação por conjunto de regras, caso a rastreabilidade detalhada se torne requisito.
 
-Próxima etapa: medir de forma reproduzível o custo do processamento em documentos grandes e avaliar uma alteração arquitetural no ciclo 0059. Não iniciar nova propriedade antes de tratar o custo de múltiplas alterações e atualizar o critério de aceitação.
+Próxima etapa naquele ponto: medir de forma reproduzível o custo do processamento em documentos grandes e avaliar uma alteração arquitetural no ciclo 0059. Não iniciar nova propriedade antes de tratar o custo de múltiplas alterações e atualizar o critério de aceitação.
+
+## Fechamento da medição do ciclo 0059
+
+Atualização registrada em 2026-09-15. Relatório completo em `docs/benchmarks/0059-measurement-report.md`.
+
+A ferramenta `tools/benchmark_0059.py` entrou pelo PR #58 (`99cde017f956e223cdc31b4ca2aa5e3004fb0490`) e recebeu os diagnósticos por etapa no PR #59 (`84879124d4f9868fd09df751b992eef967dbd463`). Nenhum código de produção foi alterado no ciclo.
+
+A medição oficial rodou em 2026-09-14 no Ubuntu (Linux 7.0.0-31-generic, x86_64), com Python 3.12.3, `lxml` 6.1.3, commit `84879124d4f9868fd09df751b992eef967dbd463`, três repetições por variante em ordem ABBA. Os resultados ficam fora do repositório:
+
+- `/home/fca/benchmark-0059/sintetico-full.json`, SHA-256 `23bddc80fba62ff9cbcd9c6ef812bf3945d2ae721f44a3e01db65efbc7d87226`;
+- `/home/fca/benchmark-0059/reais-full.json`, SHA-256 `659f9360f7b6d4881b5b5c0ee27f07a94eb2a40d45931efc06101c57611a6331`.
+
+Tamanho e SHA-256 de cada documento estão no relatório.
+
+| Documento | Alterações automáticas | Itens de revisão | Mediana oficial |
+| --- | ---: | ---: | ---: |
+| A Boca da Lei Feita Máquina | 51 | 84 | 78,9 s |
+| Artigo Claudir | 53 | 9 | 48,0 s |
+| artigo Hellen-2 | 288 | 100 | 458,3 s |
+| Diovana | 99 | 23 | 122,7 s |
+| Dissertação final | 63 | 130 | 502,7 s |
+| Soberania verificável sem metadados | 26 | 6 | 59,7 s |
+
+Resultado:
+
+- os seis documentos tiveram seis execuções completas, sem timeout e sem erro;
+- Hellen-2 e Dissertação, que não concluíam em 2026-09-11, agora concluem de ponta a ponta;
+- referência e instrumentação produziram o mesmo resultado funcional em todas as execuções;
+- `input_unchanged_on_disk = true` em todas as execuções: os DOCX originais não foram modificados, e nenhum deles entrou no repositório;
+- a pós-condição ocupa de 83,0% a 90,0% do tempo de patch nos documentos reais, mas de 17,6% a 28,0% do tempo total;
+- o ciclo completo repetido a cada alteração (parse, decisão, planejamento, SafetyGate e patch) soma de 92,9% a 96,3% do total, e os dois parses por alteração ocupam de 32,9% a 54,5%;
+- no sintético, o custo é linear no número de alterações e superlinear no tamanho do documento;
+- a revisão humana responde por 14,5% a 67,4% das intervenções identificadas em cada documento.
+
+Conclusão técnica: o gargalo dominante continua sendo a repetição da pós-condição e das validações a cada alteração. O que se repete é o ciclo inteiro, não apenas a pós-condição; otimizar só a pós-condição limitaria o ganho a cerca de um quarto do tempo. A resolução de formatação no SafetyGate é chamada `n(n+1)/2` vezes, mas hoje custa no máximo 2,7% do total.
+
+Auditorias do ciclo: `0059`, `0059b`, `0059c` e `0059e` do Claude Opus; `0059d` do DeepSeek Flash 4.1; brief `0059d-benchmark-diagnostics-audit-brief.md`.
+
+Próxima etapa: abrir o ciclo de otimização com proposta de mudança arquitetural para reduzir reprocessamentos entre alterações sucessivas, em especial os dois parses por alteração e a reavaliação completa, preservando o resultado funcional e as garantias da pós-condição, e usando estes JSONs como linha de base. Não iniciar nova propriedade antes dessa otimização.
