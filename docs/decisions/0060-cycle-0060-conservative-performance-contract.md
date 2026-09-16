@@ -1,10 +1,20 @@
 # Decisão 0060A: contrato do ciclo 0060 — otimização conservadora com equivalência exata
 
-**Status:** PROPOSTA, revisão 4, com as escolhas pendentes já decididas
+**Status:** PROPOSTA, revisão 5, com as escolhas pendentes já decididas
 **Data:** 2026-09-16
 **Base:** `main` após o merge do PR #60, commit `4bcda308a4975f2bb84d87ab4738faaed463bb75`
-**Depende de:** `docs/benchmarks/0059-measurement-report.md`; auditoria arquitetural do Claude Opus sobre o mesmo commit; pareceres do DeepSeek Flash 4.1 sobre as revisões 1, 2 e 3
+**Depende de:** `docs/benchmarks/0059-measurement-report.md`; auditoria arquitetural do Claude Opus sobre o mesmo commit; pareceres do DeepSeek Flash 4.1 sobre as revisões 1, 2, 3 e 4
 **Não altera:** nenhum código de produção. Esta decisão é contrato e critério, não implementação.
+
+**Revisão 5 — o que mudou em relação à revisão 4**
+
+1. **Bloqueante corrigido:** desfeita a circularidade do limite de memória. O limite definitivo passa a ser condição para **integrar** o PR do 0060D, e não para **iniciar** a fase.
+2. Mecanismo de fixação do oráculo especificado: `git worktree` ou `git archive` pelo SHA completo, em caminho temporário, nunca a árvore de trabalho atual.
+3. Gating explícito entre fases, em seção própria (§3.12).
+4. Distinção entre entregáveis do 0060A, pré-requisito do 0060B e pré-requisito de integração do 0060D.
+5. Mantida a natureza manual e autorizada da verificação dos seis DOCX reais no 0060B.
+
+Nada mais foi alterado: critérios de equivalência, rejeição do agrupamento, ordem dos subciclos, as sete escolhas registradas, `PatchResult`, as cinco igualdades de reuso e os nove gatilhos de fallback permanecem como na revisão 4.
 
 **Revisão 4 — o que mudou em relação à revisão 3**
 
@@ -77,8 +87,16 @@ A referência vive como oráculo de teste e **nunca** como caminho alternativo e
 
 1. **`tools/benchmark_0059.py` permanece intacto durante todo o ciclo.** Ele define a linha de base e a semântica de tempo; alterá-lo invalidaria a comparação.
 2. O oráculo fica em **`tools/oracle_0060.py`**, com testes próprios em **`tests/test_oracle_0060.py`**. Ele **não importa e não modifica** `tools/benchmark_0059.py`.
-3. O comparador de artefatos por hash e a instrumentação de tamanho da IR são scripts separados, sob `tools/` ou `tests/`, com a mesma proibição de tocar no benchmark.
+3. O comparador de artefatos por hash e a instrumentação de tamanho da IR e de pico de memória são scripts separados, sob `tools/` ou `tests/`, com a mesma proibição de tocar no benchmark.
 4. Se, apesar disso, o benchmark precisar mudar, a mudança vira PR próprio e anterior, **a linha de base 0059 precisa ser inteiramente refeita** antes de qualquer comparação, e esta decisão precisa de emenda.
+
+**Mecanismo de fixação do código de referência.**
+
+1. O código de referência é o commit completo **`4bcda308a4975f2bb84d87ab4738faaed463bb75`**. O SHA curto nunca é usado para fixar a referência, apenas para citação em texto.
+2. No CI e em qualquer execução do oráculo, a referência é obtida por **`git worktree add`** num caminho temporário, ou por **`git archive`** extraído num caminho temporário, sempre pelo **SHA completo**.
+3. **Proibido usar a árvore de trabalho atual como referência implícita.** O oráculo precisa falhar, e não cair no código corrente, se a referência não puder ser materializada pelo SHA.
+4. O oráculo verifica, antes de comparar, que a referência materializada corresponde ao SHA fixado, e registra esse SHA em toda saída de comparação.
+5. O caminho temporário é removido ao fim da execução; nenhuma referência materializada é versionada nem reaproveitada entre execuções.
 
 ### 3.3 Serializador canônico do oráculo
 
@@ -269,16 +287,34 @@ pico permitido = 1,15 × (pico de memória da linha de base 0059
                          + delta de pico causado pela retenção da IR)
 ```
 
-**Trava provisória**, válida até o limite definitivo ser escrito: nenhum documento pode ultrapassar o dobro do pico registrado em 0059, que vai de 48 MiB a 170 MiB conforme o documento.
+**Trava provisória**, válida enquanto o limite definitivo não estiver escrito: nenhum documento pode ultrapassar o dobro do pico registrado em 0059, que vai de 48 MiB a 170 MiB conforme o documento.
 
-Regras de procedimento:
+**Sequência, sem circularidade:**
 
-1. A instrumentação de tamanho da IR e de pico de memória é entregue no **0060A**, como ferramenta separada, sem tocar em `tools/benchmark_0059.py` (§3.2).
-2. O **delta de pico** é medido na trilha do Ubuntu (§3.8), nos seis documentos reais, comparando a execução que retém a IR do snapshot com a que não retém. Mede-se o delta, e não o tamanho da IR isolado: assumir que o pico cresce pelo tamanho inteiro da IR seria errado, porque a IR antiga é liberada quando o snapshot muda.
-3. **O limite definitivo é fixado antes do 0060D**, por emenda a esta decisão, com o delta já medido.
-4. O registro grava apenas nome, tamanho, SHA-256 e os bytes medidos.
+1. O **0060A entrega a ferramenta** de medição de tamanho da IR e de pico de memória, como script separado, sem tocar em `tools/benchmark_0059.py` (§3.2). Ele não mede nada em documento real.
+2. O **delta real é medido na branch do 0060D**, com a implementação já escrita, comparando a execução que retém a IR do snapshot com a que não retém. Mede-se o delta, e não o tamanho da IR isolado: assumir que o pico cresce pelo tamanho inteiro da IR seria errado, porque a IR antiga é liberada quando o snapshot muda.
+3. A medição roda na trilha do Ubuntu (§3.8), nos seis documentos reais, sob autorização explícita.
+4. O **limite definitivo é fixado por emenda a esta decisão antes da integração do PR do 0060D**, com o delta já medido. **Ele não é requisito para iniciar o 0060D**, porque só pode ser calculado depois que a fase existir.
+5. Até essa medição, vale a trava provisória do item anterior, inclusive durante o desenvolvimento do 0060D.
+6. O registro grava apenas nome, tamanho, SHA-256 e os bytes medidos.
 
 Referência de ordem de grandeza, apenas indicativa: em fixtures sintéticas a IR ocupa cerca de 28 vezes o tamanho do DOCX (1,8 MiB para 67 KiB; 3,7 MiB para 132 KiB). Esse fator **não pode ser extrapolado** para a Dissertação, onde a maior parte dos 3,2 MB é imagem, que não vira registro.
+
+### 3.12 Dependências e gating entre fases
+
+| Fase | Entregáveis | Pré-requisito para **iniciar** | Pré-requisito para **integrar** |
+| --- | --- | --- | --- |
+| **0060A** | oráculo `tools/oracle_0060.py` com `tests/test_oracle_0060.py`; comparador de artefatos por hash; ferramenta de medição de IR e de pico de memória; fixture de estresse estrutural; este contrato | contrato auditado | oráculo e comparador funcionando sobre fixtures sintéticas, com testes próprios verdes |
+| **0060B** | parser com índice por chamada; nota de erratum a 0009 e 0011 | **0060A integrado**, com oráculo disponível e mecanismo de fixação definido (§3.2) | IR idêntica no CI e nos seis DOCX reais; sem regressão |
+| **0060C** | `EvaluationContext` e reuso de bytes de serialização | 0060B integrado | diferenciais idênticos; escolha de fronteira registrada |
+| **0060D** | compartilhamento do parse verificado do mesmo snapshot; emendas a 0028 e 0032 | 0060C integrado; **não depende do limite definitivo de memória** | **delta de memória medido e limite definitivo fixado por emenda**; identidade verificada; diferenciais idênticos |
+| **0060E** | relatório de medição e atualização do handoff | 0060D integrado | critérios do §3.9, §3.10 e §3.11 |
+
+Observações de dependência:
+
+- o **0060B depende funcionalmente do oráculo**, porque é ele que prova a IR idêntica; sem o 0060A integrado, a fase não tem como ser aprovada;
+- a **ferramenta de memória é entregue no 0060A, mas só é usada no 0060D**, na medição do delta;
+- nenhuma fase começa antes de a anterior estar integrada, e nenhuma é integrada sem auditoria adversarial.
 
 ---
 
@@ -302,7 +338,15 @@ Acréscimos obrigatórios: os seis documentos mantêm exatamente as alterações
 
 **Objetivo.** Fixar decisão, equivalência, oráculo, regras de cache e critérios antes de qualquer otimização.
 
-**Escopo.** Este documento; o oráculo de `4bcda30` em `tools/oracle_0060.py`, com `tests/test_oracle_0060.py`; o serializador canônico do oráculo (§3.3), com as duas lacunas; o comparador de artefatos por hash; a **instrumentação de tamanho da IR e de pico de memória** (§3.11); a fixture de estresse estrutural do 0060B. Tudo sem tocar em `tools/benchmark_0059.py`. Nada em `src/`.
+**Entregáveis.**
+
+1. este documento;
+2. **oráculo** em `tools/oracle_0060.py`, fixado no commit completo `4bcda308a4975f2bb84d87ab4738faaed463bb75` pelo mecanismo do §3.2, com `tests/test_oracle_0060.py` e o serializador canônico do §3.3, incluindo as duas lacunas;
+3. **comparador** de artefatos por hash;
+4. **ferramenta de medição** de tamanho da IR e de pico de memória, usada só no 0060D (§3.11);
+5. fixture de estresse estrutural do 0060B.
+
+Tudo sem tocar em `tools/benchmark_0059.py`. Nada em `src/`.
 
 **Contratos emendados.** Nenhum.
 
@@ -321,6 +365,8 @@ Acréscimos obrigatórios: os seis documentos mantêm exatamente as alterações
 ### 0060B — parser
 
 **Objetivo.** Remover o custo quadrático do caminho estrutural, sem alterar a IR.
+
+**Pré-requisito para iniciar.** O **0060A precisa estar integrado**, com o oráculo e o comparador funcionando e o mecanismo de fixação do §3.2 definido. Esta fase **depende funcionalmente do oráculo**: a prova de IR idêntica, no CI e nos seis DOCX reais, é feita contra a referência fixada pelo SHA completo. Sem isso, a fase não pode ser aprovada.
 
 **Escopo.** `docx_parser.py`: índice de posição entre irmãos por tipo de nó e índice de `original_index`, construídos **uma vez por chamada de `parse_bytes`** e descartados no retorno. Sem mudança de campos, de ordem, de avisos ou de semântica de caminho. `parser_api.resolve_structural_path` fica fora.
 
@@ -421,7 +467,9 @@ Por operar sobre um único snapshot, esta fase **não depende do predicado de n�
 - cache de sessão descartado em `finally`;
 - `PatchResult` intacto.
 
-**Pré-requisito.** O limite definitivo de memória (§3.11) precisa estar fixado por emenda **antes** do início desta fase, com o delta já medido na trilha do Ubuntu.
+**Pré-requisito para iniciar.** 0060C integrado. **O limite definitivo de memória não é requisito de início**: ele só pode ser calculado depois que esta fase existir. Durante o desenvolvimento vale a trava provisória do §3.11.
+
+**Pré-requisito para integrar.** O **delta de pico de memória precisa estar medido** na trilha do Ubuntu, nos seis documentos reais, e o **limite definitivo precisa estar fixado por emenda a esta decisão**, na forma `1,15 × (pico de 0059 + delta medido)`, antes do merge do PR desta fase.
 
 **Testes na trilha do CI.**
 - consumidor instrumentado que muta a IR é detectado por hash canônico antes e depois da avaliação;
@@ -514,7 +562,7 @@ Decididas por Felipe em 2026-09-16, após o parecer final do DeepSeek:
 3. **Regressão:** até 3% pela mediana, máximo 5% acima da linha de base e dispersão relativa de até 3%. **Aceita.**
 4. **Medição da IR:** fica no **0060A**, como instrumento separado, sem alterar `tools/benchmark_0059.py`.
 5. **Oráculo:** `tools/oracle_0060.py`, com testes em `tests/test_oracle_0060.py`.
-6. **Memória:** limite definitivo `1,15 × (pico de 0059 + delta medido da IR)`, com a trava provisória do dobro do pico até que o delta seja medido.
+6. **Memória:** limite definitivo `1,15 × (pico de 0059 + delta medido da IR)`, fixado por emenda **antes da integração** do PR do 0060D, e não antes do seu início; até a medição vale a trava provisória do dobro do pico.
 7. **0061:** nunca abre automaticamente como implementação. Na faixa parcial, decisão obrigatória registrada após o 0060E; abaixo de 25% em qualquer documento, torna-se obrigatório.
 8. **Reuso após rejeição:** **removido** do 0060D. Só o parse verificado do mesmo snapshot é compartilhado.
 
