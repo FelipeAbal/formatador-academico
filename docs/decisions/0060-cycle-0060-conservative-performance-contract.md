@@ -1,25 +1,25 @@
 # Decisão 0060A: contrato do ciclo 0060 — otimização conservadora com equivalência exata
 
-**Status:** PROPOSTA, revisão 3, pendente de conferência final e de autorização
+**Status:** PROPOSTA, revisão 4, com as escolhas pendentes já decididas
 **Data:** 2026-09-16
 **Base:** `main` após o merge do PR #60, commit `4bcda308a4975f2bb84d87ab4738faaed463bb75`
-**Depende de:** `docs/benchmarks/0059-measurement-report.md`; auditoria arquitetural do Claude Opus sobre o mesmo commit; pareceres do DeepSeek Flash 4.1 sobre as revisões 1 e 2
+**Depende de:** `docs/benchmarks/0059-measurement-report.md`; auditoria arquitetural do Claude Opus sobre o mesmo commit; pareceres do DeepSeek Flash 4.1 sobre as revisões 1, 2 e 3
 **Não altera:** nenhum código de produção. Esta decisão é contrato e critério, não implementação.
 
-**Revisão 3 — o que mudou em relação à revisão 2**
+**Revisão 4 — o que mudou em relação à revisão 3**
 
-1. O 0060C deixa de afirmar "nenhum contrato": a preferência é API interna que preserve as fronteiras públicas e, se isso não for possível, a emenda aditiva a 0024 e 0026 passa a ser obrigatória, com 0025 e 0027 reafirmados.
-2. O critério de desempenho ganhou tabela fechada para os dois documentos mais pesados.
-3. `tools/benchmark_0059.py` permanece intacto; oráculo, comparador e medição de IR são scripts separados.
-4. A condição de reuso verbatim passa a exigir cinco igualdades simultâneas; hash igual, sozinho, não basta.
-5. O fallback integral está enumerado.
-6. O predicado passa a ter **quatro** planos: físico, estrutural, semântico e referências derivadas.
-7. `PatchResult` permanece intacto.
-8. O 0060D mede o delta real de memória; a trava do dobro do pico é provisória.
-9. Teste cross-process do envelope do resultado, com `PYTHONHASHSEED` variado.
-10. O reuso após rejeição vale apenas dentro do mesmo snapshot.
-11. O 0061 avaliará emendas a 0015 e 0022, com 0018 e 0023 reafirmados.
-12. A sequência 0060A a 0060E, com 0061 condicional, está mantida.
+1. Separação explícita entre o compartilhamento de parse do 0060D e o fallback semântico, que é assunto do 0061.
+2. A medição de tamanho da IR fica no 0060A, por ferramenta separada; a pergunta correspondente saiu da lista de pendências.
+3. A tabela do critério passa a ser descrita como seis linhas que cobrem nove células combinadas, com os casos assimétricos nomeados.
+4. Limite de memória definido sem ambiguidade: `1,15 × (pico de 0059 + delta medido)`.
+5. A verificação nos seis DOCX reais é procedimento manual autorizado no Ubuntu, separada do CI, que usa apenas fixtures sintéticas.
+6. `PatchResult` permanece intacto, com entrega por API interna ou retorno aditivo separado.
+7. O 0061 avaliará os normativos 0015 e 0022, com 0018 e 0023 reafirmados.
+8. Mantidos os nove gatilhos de fallback integral e as cinco igualdades simultâneas do reuso.
+9. Oráculo em `tools/oracle_0060.py`, com testes em `tests/test_oracle_0060.py`.
+10. Critério de abertura do 0061 fixado em três casos, sem abertura automática na faixa parcial.
+11. **Retirada** do 0060D qualquer forma de reuso semântico após rejeição.
+12. Proveniência da auditoria de arquitetura corrigida: os números vieram do parecer entregue a Felipe, que não está versionado no repositório.
 
 ---
 
@@ -48,7 +48,7 @@ Números de fixtures sintéticas no macOS: servem para ordenar o trabalho, não 
 
 1. **Agrupamento de operações em lote e atomicidade multi-alvo ficam rejeitados neste ciclo.**
 2. O 0060 aplica apenas otimizações compatíveis com a cadeia atual de um patch por vez, capazes de provar equivalência exata.
-3. Cinco fases em PRs próprios, com auditoria adversarial independente: **0060A** (contrato), **0060B** (parser), **0060C** (serialização), **0060D** (snapshot verificado) e **0060E** (medição oficial). O **0061** é condicional.
+3. Cinco fases em PRs próprios, com auditoria adversarial independente: **0060A** (contrato), **0060B** (parser), **0060C** (serialização), **0060D** (snapshot verificado) e **0060E** (medição oficial). O **0061** é condicional e nunca automático.
 4. **Avaliação incremental e SafetyGate incremental não fazem parte do 0060.**
 5. Nenhuma nova propriedade do slice automático entra antes do fim do 0060E.
 6. Qualquer fase que não prove equivalência exata é revertida, não negociada.
@@ -76,12 +76,13 @@ A referência vive como oráculo de teste e **nunca** como caminho alternativo e
 ### 3.2 Ferramentas do ciclo
 
 1. **`tools/benchmark_0059.py` permanece intacto durante todo o ciclo.** Ele define a linha de base e a semântica de tempo; alterá-lo invalidaria a comparação.
-2. Oráculo, comparador de artefatos e medição de tamanho da IR são **scripts separados**, versionados sob `tools/` ou `tests/`, sem importar nem modificar o benchmark.
-3. Se, apesar disso, a ferramenta original precisar mudar, a mudança vira PR próprio e anterior, **a linha de base 0059 precisa ser inteiramente refeita** antes de qualquer comparação, e esta decisão precisa de emenda.
+2. O oráculo fica em **`tools/oracle_0060.py`**, com testes próprios em **`tests/test_oracle_0060.py`**. Ele **não importa e não modifica** `tools/benchmark_0059.py`.
+3. O comparador de artefatos por hash e a instrumentação de tamanho da IR são scripts separados, sob `tools/` ou `tests/`, com a mesma proibição de tocar no benchmark.
+4. Se, apesar disso, o benchmark precisar mudar, a mudança vira PR próprio e anterior, **a linha de base 0059 precisa ser inteiramente refeita** antes de qualquer comparação, e esta decisão precisa de emenda.
 
 ### 3.3 Serializador canônico do oráculo
 
-A comparação usa serializadores canônicos congelados, nunca `repr` ou `pickle`. Convenção: enums viram string, `Decimal` vira string, tuplas viram array, `sort_keys=True`, separadores compactos, UTF-8, sem timestamp e sem valor aleatório.
+Implementado em `tools/oracle_0060.py`. Usa serializadores canônicos congelados, nunca `repr` ou `pickle`. Convenção: enums viram string, `Decimal` vira string, tuplas viram array, `sort_keys=True`, separadores compactos, UTF-8, sem timestamp e sem valor aleatório.
 
 | Artefato comparado | Serializador |
 | --- | --- |
@@ -93,14 +94,14 @@ A comparação usa serializadores canônicos congelados, nunca `repr` ou `pickle
 | `ProcessingReport` | `processing_report.serialization`, com `processing_report_ref` |
 | DOCX limpo, Review DOCX, relatório humano, relatório técnico e manifesto | SHA-256 dos bytes, com `filename` e `DeliveryRole` na ordem de `ROLE_ORDER` |
 
-**Duas lacunas, preenchidas como ferramenta de teste e nunca como API pública:**
+**Duas lacunas, preenchidas dentro do oráculo e nunca como API pública:**
 
 1. **`SessionFinding`**, que não tem serializador congelado: o oráculo define um, com `kind`, `decision_ref`, `operation_ref`, `target` e `reason`.
 2. **Envelope do `ProcessingSessionResult`**, que também não tem: o oráculo compõe os serializadores existentes na ordem `processing_session_version`, `status`, `profile_ref`, `input_package_sha256`, `output_package_sha256`, `sha256(output_package_bytes)`, `transforms`, `final_classifications`, `final_decisions` e `findings`, preservando a ordem real de cada tupla.
 
 Se algum campo exigido pelo envelope não estiver exposto por modelo congelado, a fase para e abre emenda específica.
 
-**Teste cross-process obrigatório do envelope.** O envelope precisa ser estável entre processos: duas execuções em subprocessos distintos, com `PYTHONHASHSEED` diferente em cada um, precisam produzir bytes idênticos, para referência e para otimizado. Sem isso, o oráculo poderia mascarar dependência de ordenação de dicionário.
+**Teste cross-process obrigatório do envelope**, em `tests/test_oracle_0060.py`: duas execuções em subprocessos distintos, com `PYTHONHASHSEED` diferente em cada um, produzindo bytes idênticos, para referência e para otimizado. Sem isso, o oráculo poderia mascarar dependência de ordenação de dicionário.
 
 ### 3.4 Campos e artefatos que precisam permanecer idênticos
 
@@ -136,9 +137,19 @@ A interface web usa `ThreadingHTTPServer`, com sessões simultâneas no mesmo pr
 8. Em modo de teste, cada cache expõe acertos, erros e invalidações.
 9. Testes obrigatórios: N sessões simultâneas em threads, com documentos e perfis diferentes; e duas sessões em sequência no mesmo processo, na ordem A, B, A.
 
-### 3.7 Predicado de não interferência (especificação preparatória, não obrigação do 0060)
+### 3.7 Duas coisas diferentes que não podem ser confundidas
 
-**Nenhuma fase do 0060 reusa resultado de avaliação entre snapshots diferentes.** Esta especificação existe porque é o pré-requisito formal do 0061 e porque o 0060B e o 0060D precisam respeitá-la para não fechar portas.
+Esta seção existe porque os dois mecanismos abaixo têm nomes parecidos e riscos opostos.
+
+| | **Compartilhamento de parse — 0060D** | **Reuso semântico — 0061, fora deste ciclo** |
+| --- | --- | --- |
+| O que reaproveita | o resultado do parse **dos mesmos bytes**, feito uma vez em vez de duas | valor semântico de Analysis e Classification de alvos **não tocados**, entre snapshots diferentes |
+| Fronteira | **um único snapshot**, identificado pelo seu SHA | atravessa snapshots |
+| Depende do predicado de não interferência? | **não**; é a mesma função, sobre os mesmos bytes | **sim**, integralmente |
+| Reaproveita Decision, Classification ou findings? | **nunca** | sim, apenas o valor semântico, com objetos reconstruídos |
+| Fase | 0060D | 0061 |
+
+**No 0060 nenhuma fase reusa resultado de avaliação entre snapshots diferentes.** O predicado abaixo é especificação preparatória do 0061, registrada aqui porque o 0060B e o 0060D precisam respeitá-la para não fechar portas.
 
 #### Os quatro planos
 
@@ -149,7 +160,7 @@ A interface web usa `ThreadingHTTPServer`, com sessões simultâneas no mesmo pr
 | **Semântico** | valor resolvido pela Analysis, status e classe da Classificação | não, fora do alvo, no slice congelado |
 | **Referências derivadas** | `decision_ref`, `operation_ref`, `operation_plan_ref`, `transform_ref`, `TargetClassification.physical_hash`, `DecisionTarget` e `OperationTarget` | sim, por consequência do plano físico, mesmo sem mudança semântica |
 
-Os quatro planos nunca podem ser confundidos. Em especial, o plano estrutural é o motivo de a postcondição do 0028 §22 proibir comparar `original_index` como identidade.
+Os quatro planos nunca podem ser confundidos. Em especial, o plano estrutural é o motivo de a pós-condição do 0028 §22 proibir comparar `original_index` como identidade.
 
 #### Conjunto de leitura por camada (plano semântico)
 
@@ -163,7 +174,7 @@ Os quatro planos nunca podem ser confundidos. Em especial, o plano estrutural é
 
 #### Condição de reuso verbatim
 
-Um resultado de camada só pode ser reusado verbatim se **todas** estas igualdades valerem ao mesmo tempo, entre o snapshot anterior e o corrente:
+Um resultado de camada só pode ser reusado verbatim se **as cinco igualdades valerem simultaneamente**, entre o snapshot anterior e o corrente:
 
 1. `physical_hash` do alvo inalterado;
 2. `part_sha256` do StyleCatalog inalterado;
@@ -171,13 +182,13 @@ Um resultado de camada só pode ser reusado verbatim se **todas** estas igualdad
 4. `pStyle` resolvido inalterado;
 5. conjunto de leitura da camada inalterado, item a item, conforme a tabela acima.
 
-**Hash igual, sozinho, não basta.** Falhando qualquer condição, o resultado é **reconstruído**, e não remendado.
+**Hash igual, sozinho, não basta.** Falhando qualquer uma das cinco, o resultado é **reconstruído**, e não remendado.
 
-Mesmo quando as cinco condições valem, permanece proibido reusar `ClassificationResult` ou `Decision` **verbatim** se qualquer referência derivada mudou: o reuso admissível é o do **valor semântico**, que alimenta objetos novos, com `physical_hash`, `DecisionTarget`, `OperationTarget`, `TargetClassification`, `decision_ref`, `operation_ref` e `operation_plan_ref` recalculados.
+Mesmo com as cinco igualdades, permanece proibido reusar `ClassificationResult` ou `Decision` **verbatim** se qualquer referência derivada mudou: o reuso admissível é o do **valor semântico**, que alimenta objetos novos, com `physical_hash`, `DecisionTarget`, `OperationTarget`, `TargetClassification`, `decision_ref`, `operation_ref` e `operation_plan_ref` recalculados.
 
 #### Fallback integral obrigatório
 
-Qualquer uma das condições abaixo obriga o recálculo completo da avaliação, sem reuso de nenhuma camada:
+Qualquer um destes nove gatilhos obriga o recálculo completo da avaliação, sem reuso de nenhuma camada:
 
 1. `property_slot` fora do conjunto conhecido do slice;
 2. dependência do valor por estilo ou por cadeia `basedOn`;
@@ -197,18 +208,22 @@ O predicado vale só para o slice congelado. **Qualquer propriedade nova precisa
 
 Quando o 0061 for aberto, a validação exige modo sombra no CI, recalculando tudo e comparando a cada iteração, com falha na primeira divergência.
 
-### 3.8 Medição no Ubuntu
+### 3.8 Medição e verificação: CI e Ubuntu
 
-Mesma máquina, mesmo Python 3.12.3, máquina ociosa, `tools/benchmark_0059.py` intacto (§3.2).
+Duas trilhas separadas, que nunca se misturam.
 
-Protocolo por medição:
+**Trilha do CI, automática.** Usa **apenas fixtures sintéticas**, versionadas no repositório: diferenciais contra o oráculo, testes de equivalência de IR, testes de cache, concorrência, sequência, determinismo e cross-process. Nenhum DOCX real entra no CI, nem como arquivo nem como hash de conteúdo.
+
+**Trilha do Ubuntu, manual e autorizada.** Roda na máquina de Felipe, com os seis DOCX reais fora do repositório, sob autorização explícita dele a cada rodada. Cobre a medição de desempenho e as verificações que exigem documento real: IR byte-idêntica no 0060B, identidade entre pós-condição e nova avaliação no 0060D, delta de memória e a medição oficial do 0060E. Nos documentos, registram-se apenas nome, tamanho, SHA-256 e os hashes comparados. O procedimento é descrito no relatório da fase, para ser reproduzível, e seu resultado é anexado ao PR como texto, não como arquivo de documento.
+
+**Protocolo de medição**, na trilha do Ubuntu, com `tools/benchmark_0059.py` intacto (§3.2):
 
 1. linha de base sintética completa, `--repeats 3`, `--timeout 1800`;
 2. os seis documentos reais, `--repeats 3`, `--timeout 3600`, perfil `builtin-academic-0059`, arquivos fora do repositório e sem `--record-docx-path`;
 3. saída gravada fora do repositório; em documento entram apenas hashes, nomes, tamanhos e SHA-256;
 4. comparação com `sintetico-full.json` `23bddc80…` e `reais-full.json` `659f9360…`;
 5. verificação de `input_unchanged_on_disk` em todas as execuções;
-6. equivalência por hash dos cinco arquivos entregues, referência × otimizado, por documento, gravando apenas hashes.
+6. equivalência por hash dos cinco arquivos entregues, referência × otimizado, por documento.
 
 Para cada documento registram-se **mínimo, mediana e máximo** da variante `reference`. A variação observada em 0059 entre mínimo e máximo foi de no máximo 1,2% da mediana; esse é o ruído de fundo aceito.
 
@@ -224,11 +239,13 @@ mediana_0059:
     Dissertação final     502,7 s   (min 500,1  max 503,6)
 ```
 
+A tabela tem **seis linhas, que cobrem as nove células combinadas** das três faixas de cada documento, incluindo os dois casos assimétricos, em que um documento atinge a meta e o outro fica no piso:
+
 | artigo Hellen-2 | Dissertação final | Resultado | Consequência |
 | --- | --- | --- | --- |
-| `>= 40%` | `>= 40%` | **meta atingida** | ciclo encerrado; o 0061 só abre por decisão de Felipe |
-| `>= 40%` | `>= 25%` e `< 40%` | **parcial** | integra, registra meta não atingida e **abre decisão para o 0061** |
-| `>= 25%` e `< 40%` | `>= 40%` | **parcial** | idem |
+| `>= 40%` | `>= 40%` | **meta atingida** | ciclo encerrado; o 0061 não abre automaticamente |
+| `>= 40%` | `>= 25%` e `< 40%` | **parcial** (assimétrico) | integra, registra meta não atingida e obriga **decisão registrada** sobre o 0061 |
+| `>= 25%` e `< 40%` | `>= 40%` | **parcial** (assimétrico) | idem |
 | `>= 25%` e `< 40%` | `>= 25%` e `< 40%` | **parcial** | idem |
 | `< 25%` | qualquer valor | **insuficiente** | **0061 obrigatório** |
 | qualquer valor | `< 25%` | **insuficiente** | **0061 obrigatório** |
@@ -245,15 +262,23 @@ Em todos os casos, a integração das fases exige equivalência exata e ausênci
 
 ### 3.11 Memória
 
-O limite de 20% da revisão 1 continua suspenso, e a trava atual é **provisória**.
+**Limite definitivo:**
 
-Em fixtures sintéticas, a IR ocupa cerca de 28 vezes o tamanho do DOCX (1,8 MiB para 67 KiB; 3,7 MiB para 132 KiB). Esse fator **não pode ser extrapolado** para a Dissertação, onde a maior parte dos 3,2 MB é imagem, que não vira registro.
+```text
+pico permitido = 1,15 × (pico de memória da linha de base 0059
+                         + delta de pico causado pela retenção da IR)
+```
 
-1. O **0060A** entrega a instrumentação de tamanho da IR e do catálogo, como script separado (§3.2).
-2. O **0060D** mede, nos seis documentos reais e no Ubuntu, o **delta real de pico de memória entre manter e não manter a IR do snapshot**, e não o tamanho da IR isolado. Assumir que o pico cresce pelo tamanho inteiro da IR seria errado, porque a IR antiga é liberada quando o snapshot muda.
-3. Só depois disso o limite definitivo é escrito, como emenda a esta decisão, na forma `pico permitido = pico de 0059 + delta medido + 15%`.
-4. Até lá vale a trava provisória: nenhum documento pode ultrapassar o dobro do pico registrado em 0059, que vai de 48 MiB a 170 MiB conforme o documento.
-5. O registro grava apenas nome, tamanho, SHA-256 e os bytes medidos.
+**Trava provisória**, válida até o limite definitivo ser escrito: nenhum documento pode ultrapassar o dobro do pico registrado em 0059, que vai de 48 MiB a 170 MiB conforme o documento.
+
+Regras de procedimento:
+
+1. A instrumentação de tamanho da IR e de pico de memória é entregue no **0060A**, como ferramenta separada, sem tocar em `tools/benchmark_0059.py` (§3.2).
+2. O **delta de pico** é medido na trilha do Ubuntu (§3.8), nos seis documentos reais, comparando a execução que retém a IR do snapshot com a que não retém. Mede-se o delta, e não o tamanho da IR isolado: assumir que o pico cresce pelo tamanho inteiro da IR seria errado, porque a IR antiga é liberada quando o snapshot muda.
+3. **O limite definitivo é fixado antes do 0060D**, por emenda a esta decisão, com o delta já medido.
+4. O registro grava apenas nome, tamanho, SHA-256 e os bytes medidos.
+
+Referência de ordem de grandeza, apenas indicativa: em fixtures sintéticas a IR ocupa cerca de 28 vezes o tamanho do DOCX (1,8 MiB para 67 KiB; 3,7 MiB para 132 KiB). Esse fator **não pode ser extrapolado** para a Dissertação, onde a maior parte dos 3,2 MB é imagem, que não vira registro.
 
 ---
 
@@ -277,7 +302,7 @@ Acréscimos obrigatórios: os seis documentos mantêm exatamente as alterações
 
 **Objetivo.** Fixar decisão, equivalência, oráculo, regras de cache e critérios antes de qualquer otimização.
 
-**Escopo.** Este documento; o oráculo de `4bcda30`; o serializador canônico do oráculo (§3.3), com as duas lacunas; o comparador de artefatos por hash; a instrumentação de tamanho da IR; a fixture de estresse estrutural do 0060B. Tudo como script separado sob `tools/` ou `tests/`, **sem tocar em `tools/benchmark_0059.py`**. Nada em `src/`.
+**Escopo.** Este documento; o oráculo de `4bcda30` em `tools/oracle_0060.py`, com `tests/test_oracle_0060.py`; o serializador canônico do oráculo (§3.3), com as duas lacunas; o comparador de artefatos por hash; a **instrumentação de tamanho da IR e de pico de memória** (§3.11); a fixture de estresse estrutural do 0060B. Tudo sem tocar em `tools/benchmark_0059.py`. Nada em `src/`.
 
 **Contratos emendados.** Nenhum.
 
@@ -285,9 +310,9 @@ Acréscimos obrigatórios: os seis documentos mantêm exatamente as alterações
 
 **Invariantes de segurança.** Oráculo e serializador do oráculo são artefatos de teste e nunca viram runtime. O comparador não copia documento, não grava caminho absoluto e não registra texto. O benchmark permanece intacto.
 
-**Testes.** Comparador: artefatos iguais dão igual; um byte diferente dá diferente; nenhum conteúdo de documento na saída. Serializador do oráculo: teste de cobertura de campos, que falha se um campo novo de modelo congelado ficar de fora; e o teste cross-process do envelope, com `PYTHONHASHSEED` variado (§3.3).
+**Testes.** Comparador: artefatos iguais dão igual; um byte diferente dá diferente; nenhum conteúdo de documento na saída. Oráculo: cobertura de campos, que falha se um campo novo de modelo congelado ficar de fora; e o teste cross-process do envelope sob `PYTHONHASHSEED` variado (§3.3). Tudo com fixtures sintéticas, na trilha do CI.
 
-**Aprovação.** Auditoria adversarial do contrato; concordância explícita de Felipe com §3.9, §3.10 e §3.11.
+**Aprovação.** Auditoria adversarial do contrato; escolhas da §8 registradas.
 
 **Fallback.** Não se aplica; nada em produção muda.
 
@@ -307,13 +332,14 @@ Acréscimos obrigatórios: os seis documentos mantêm exatamente as alterações
 
 **Invariantes de segurança.** IR idêntica, campo a campo e na serialização canônica; índice local à chamada, nunca global nem em `ContextVar`; limites de ZIP, profundidade e avisos inalterados; `status = partial` preservado; planos físico e estrutural (§3.7) idênticos, inclusive `original_index`.
 
-**Testes.**
+**Testes na trilha do CI.**
 - IR idêntica ao oráculo em todas as fixtures existentes;
 - fixture de estresse: irmãos de mesmo nome intercalados com outros elementos; comentários e instruções de processamento como irmãos; `mc:AlternateContent`; `w:sdt`; hyperlinks; campos; tabelas aninhadas; profundidade próxima do limite; stories secundárias;
 - dois parses sucessivos no mesmo processo e parses concorrentes em threads;
 - documento com story parcial;
-- **IR byte-idêntica nos seis DOCX reais**, verificada no Ubuntu, comparando o hash da serialização canônica da IR, gravando apenas hashes;
 - suíte completa atual.
+
+**Verificação na trilha do Ubuntu.** IR byte-idêntica nos seis DOCX reais, comparando o hash da serialização canônica da IR entre referência e otimizado, sob autorização explícita, registrando apenas os hashes no PR.
 
 **Aprovação.** IR idêntica em 100% dos casos, sintéticos e reais; CI verde; sem regressão (§3.10) e com ganho mensurável nos dois mais pesados; auditoria adversarial.
 
@@ -351,7 +377,7 @@ Regras:
 
 **Invariantes de segurança.** Nenhum valor muda; nenhuma verificação some; determinismo preservado.
 
-**Testes.**
+**Testes na trilha do CI.**
 - Decisions com `Decimal("1.5")` e `Decimal("1.50")` coexistindo produzem refs distintos e corretos;
 - `bool` e `int` em valores observados;
 - Decisions iguais vindas de snapshots diferentes não compartilham entrada de cache;
@@ -374,11 +400,11 @@ Regras:
 
 **Escopo.** Um contexto de sessão guarda, apenas para o **snapshot corrente**, o par (PhysicalIR, StyleCatalog) produzido na pós-condição, ligado por `sha256` dos bytes e por `parser_version`, consumido pela avaliação seguinte.
 
-Isto **não** é reuso entre snapshots diferentes, e por isso não depende do predicado do §3.7: é o mesmo parse dos mesmos bytes, feito uma vez.
+**Limite explícito do escopo.** O 0060D **compartilha apenas o parse verificado do mesmo snapshot**. Ele **não** reutiliza decisões, classificações, findings, planos ou resultados de gate, nem dentro do mesmo snapshot nem entre snapshots. Em particular, **não há reuso semântico após rejeição do Patcher**: quando uma operação é rejeitada, a avaliação seguinte é recomputada normalmente, como hoje, e a única coisa que persiste é o estado `rejected_on_snapshot`, que já existe e governa a seleção do próximo token. Qualquer reuso além do parse é assunto do 0061 (§3.7).
+
+Por operar sobre um único snapshot, esta fase **não depende do predicado de não interferência**: é a mesma função, sobre os mesmos bytes, executada uma vez em vez de duas.
 
 **`PatchResult` permanece intacto.** A entrega do par verificado ocorre por **API interna** — por exemplo, uma função interna do Patcher que devolve o resultado da pós-condição ao chamador da sessão — ou por retorno aditivo separado, nunca por campo novo em `PatchResult` nem em qualquer outro modelo congelado.
-
-**Reuso após rejeição.** Opcional. Se implementado, vale **apenas dentro do mesmo snapshot**: quando o Patcher rejeita, os bytes não mudam, e a avaliação é idêntica. O **único** diferencial entre a iteração anterior e a seguinte é o estado `rejected_on_snapshot`, que governa a seleção do próximo token; ele nunca é reusado de outro snapshot e é zerado quando o snapshot muda, como hoje. Qualquer rejeição que altere `findings` ou o snapshot cai no fallback integral (§3.7).
 
 **Contratos emendados.**
 - **0028**, normativo do Patcher: o resultado do parse já feito na pós-condição pode ser entregue ao chamador. A pós-condição não muda: continua relendo os bytes do ZIP produzido, com o Parser real, conforme 0028 §19.
@@ -395,19 +421,22 @@ Isto **não** é reuso entre snapshots diferentes, e por isso não depende do pr
 - cache de sessão descartado em `finally`;
 - `PatchResult` intacto.
 
-**Testes.**
-- **identidade obrigatória:** para os mesmos bytes, IR e catálogo vindos da pós-condição são idênticos aos de uma nova avaliação, comparados pela serialização canônica da IR e pelos campos do catálogo (`part_name`, `part_sha256`, `part_status`, `doc_defaults`, `styles` e avisos), em fixtures sintéticas e, no Ubuntu, nos seis reais, gravando só hashes;
+**Pré-requisito.** O limite definitivo de memória (§3.11) precisa estar fixado por emenda **antes** do início desta fase, com o delta já medido na trilha do Ubuntu.
+
+**Testes na trilha do CI.**
 - consumidor instrumentado que muta a IR é detectado por hash canônico antes e depois da avaliação;
 - SHA divergente entre IR guardada e bytes correntes gera `ProcessingSessionIntegrityError`;
 - falha de pós-condição não deixa IR guardada e preserva a exceção;
-- rejeição comum, progresso independente e nova tentativa depois da mudança de snapshot (0032 §9), provando que o reuso não atravessa snapshot;
+- rejeição comum, progresso independente e nova tentativa depois da mudança de snapshot (0032 §9), provando que nada além do parse é reaproveitado;
 - limite de operações no ponto exato de corte;
 - detecção de ciclo de SHA;
 - concorrência e sequência de sessões;
-- **delta real de memória** entre manter e não manter a IR, medido nos seis reais (§3.11);
+- identidade entre IR e catálogo da pós-condição e os de uma nova avaliação dos mesmos bytes, em fixtures sintéticas;
 - diferenciais contra o oráculo: bold e font no mesmo run; P3 e P4 no mesmo parágrafo; operação de run e de parágrafo no mesmo parágrafo; run em hyperlink; `w:rPrChange`; `w:del` e `w:ins`; campos.
 
-**Aprovação.** Diferenciais idênticos; teste de identidade verde nos sintéticos e nos seis reais; CI verde; ganho medido nos dois mais pesados; memória dentro da trava provisória, com o delta medido registrado; auditoria adversarial.
+**Verificação na trilha do Ubuntu.** Identidade entre pós-condição e nova avaliação nos seis DOCX reais; delta real de pico de memória entre manter e não manter a IR; ganho nos dois documentos mais pesados.
+
+**Aprovação.** Diferenciais idênticos; identidade verde nos sintéticos e nos seis reais; CI verde; memória dentro do limite definitivo; auditoria adversarial.
 
 **Fallback.** `git revert` do PR, que também reverte as emendas a 0028 e 0032.
 
@@ -431,9 +460,17 @@ Isto **não** é reuso entre snapshots diferentes, e por isso não depende do pr
 
 ### 0061 — condicional, fora do 0060
 
-Aberto conforme a tabela do §3.9. Conteúdo previsto:
+**Critério de abertura**, conforme a tabela do §3.9:
 
-1. avaliação incremental, reusando **valor semântico** de alvos não tocados, sob a condição de reuso verbatim e o fallback integral do §3.7;
+- **(a)** ambos os documentos com redução de pelo menos 40%: meta atingida, **sem abertura automática**;
+- **(b)** ambos com pelo menos 25%, e algum abaixo de 40%: resultado parcial, com **decisão obrigatória registrada** sobre abrir ou não o 0061, tomada por Felipe depois do 0060E;
+- **(c)** qualquer documento abaixo de 25%: **0061 obrigatório**.
+
+Em nenhum caso o 0061 começa a ser implementado sem contrato próprio e auditoria própria.
+
+**Conteúdo previsto:**
+
+1. avaliação incremental, reusando **valor semântico** de alvos não tocados, sob as cinco igualdades e o fallback integral do §3.7;
 2. SafetyGate incremental, avaliando até o primeiro token liberado, com avaliação integral no snapshot terminal;
 3. implementação e validação do predicado do §3.7, com modo sombra no CI e matriz de dependência por `(target_type, property_slot)`.
 
@@ -447,7 +484,7 @@ Aberto conforme a tabela do §3.9. Conteúdo previsto:
 2. atomicidade multi-alvo, com transação e rollback;
 3. `allowed-delta` de múltiplos alvos;
 4. qualquer mudança na semântica de `TransformRecord`, na ordem de aplicação ou nos identificadores do relatório;
-5. avaliação incremental e SafetyGate incremental, que são o 0061;
+5. avaliação incremental, SafetyGate incremental e qualquer reuso semântico entre snapshots, que são o 0061;
 6. qualquer alteração em `tools/benchmark_0059.py`;
 7. qualquer nova propriedade do slice automático.
 
@@ -462,26 +499,33 @@ Os itens 1, 2 e 3 exigem, antes de discussão técnica, **decisão de produto** 
 - **Mutação da IR compartilhada:** hoje nenhum consumidor muta a IR, mas nada impede; teste no 0060D.
 - **Identidade de proxies do lxml:** tratada pela regra de chave do 0060B.
 - **Plano estrutural:** `original_index` muda quando se cria `w:rPr` ou `w:pPr`; qualquer otimização que assuma estabilidade posicional está errada.
+- **Duas trilhas de verificação:** o CI não vê documento real, então a trilha do Ubuntu é a única que prova equivalência no corpus. Ela depende de execução manual e de registro fiel no PR.
 - **Plataforma:** as sondas rodaram no macOS; a equivalência precisa ser verificada no Ubuntu.
-- **Memória:** o 0060D retém uma IR a mais; o limite definitivo só sai depois de medir o delta real.
+- **Memória:** o 0060D retém uma IR a mais; o limite definitivo sai antes da fase, com o delta medido.
 
 ---
 
-## 8. Pontos que ainda dependem de escolha
+## 8. Escolhas registradas
 
-1. **Meta e piso (§3.9):** a tabela está fechada, mas os limiares de 40% e 25% precisam do seu aval explícito.
-2. **Regra contra regressão (§3.10):** bloqueio em 3% pela mediana, com regras de máximo e de dispersão. Se preferir tolerância zero acima da mediana de 0059, o texto muda.
-3. **Medição da IR (§3.11):** decidir se a instrumentação entra no 0060A ou vira pré-requisito do 0060D.
-4. **Reuso após rejeição** no 0060D: opcional, sem ganho nos seis documentos, que não tiveram rejeições. Pode ser cortado para reduzir superfície.
-5. **Onde vivem oráculo e serializador do oráculo:** worktree de CI ou cópia sob `tools/`. A cópia é mais simples de auditar; a worktree não duplica código.
-6. **Abertura do 0061:** na faixa parcial da tabela do §3.9, decidir se a abertura é automática ou depende de nova autorização sua.
+Decididas por Felipe em 2026-09-16, após o parecer final do DeepSeek:
+
+1. **Meta de redução:** 40% nos dois documentos mais pesados. **Aceita.**
+2. **Piso de continuidade:** 25%. **Aceito.**
+3. **Regressão:** até 3% pela mediana, máximo 5% acima da linha de base e dispersão relativa de até 3%. **Aceita.**
+4. **Medição da IR:** fica no **0060A**, como instrumento separado, sem alterar `tools/benchmark_0059.py`.
+5. **Oráculo:** `tools/oracle_0060.py`, com testes em `tests/test_oracle_0060.py`.
+6. **Memória:** limite definitivo `1,15 × (pico de 0059 + delta medido da IR)`, com a trava provisória do dobro do pico até que o delta seja medido.
+7. **0061:** nunca abre automaticamente como implementação. Na faixa parcial, decisão obrigatória registrada após o 0060E; abaixo de 25% em qualquer documento, torna-se obrigatório.
+8. **Reuso após rejeição:** **removido** do 0060D. Só o parse verificado do mesmo snapshot é compartilhado.
+
+Não há, nesta revisão, ponto pendente de escolha. Qualquer mudança nesses itens exige emenda a esta decisão.
 
 ---
 
 ## 9. Proveniência
 
 - Medição: `docs/benchmarks/0059-measurement-report.md`, com `sintetico-full.json` `23bddc80fba62ff9cbcd9c6ef812bf3945d2ae721f44a3e01db65efbc7d87226` e `reais-full.json` `659f9360f7b6d4881b5b5c0ee27f07a94eb2a40d45931efc06101c57611a6331`, ambos fora do repositório.
-- Auditoria arquitetural do Claude Opus sobre `4bcda30`, com sondas em fixtures sintéticas, no macOS com Python 3.12.13. Nenhum DOCX real foi lido nessas sondas.
-- Pareceres do DeepSeek Flash 4.1 sobre as revisões 1 e 2 desta decisão, incorporados nas revisões 2 e 3.
+- Auditoria arquitetural do Claude Opus sobre `4bcda30`: o parecer foi entregue a Felipe como arquivo fora do repositório e **não está versionado aqui**. Os números do §1 (parser quadrático, serialização repetida, não interferência) vêm desse parecer, produzido com sondas em fixtures sintéticas, no macOS com Python 3.12.13. Nenhum DOCX real foi lido nessas sondas. Se o parecer for incorporado ao repositório em algum momento, esta seção passa a citá-lo por caminho.
+- Pareceres do DeepSeek Flash 4.1 sobre as revisões 1, 2 e 3 desta decisão, incorporados nas revisões 2, 3 e 4.
 - Percentuais de etapa do §1: variante instrumentada da medição oficial, no Ubuntu.
 - Tamanho da IR do §3.11: medido em fixtures sintéticas, 1,8 MiB para um DOCX de 67 KiB e 3,7 MiB para um de 132 KiB.
