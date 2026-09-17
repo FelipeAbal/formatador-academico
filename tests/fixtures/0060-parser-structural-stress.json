@@ -1,0 +1,39 @@
+{
+  "schema_version": "0060.1",
+  "deep_sdt_levels": 63,
+  "same_name_sibling_runs": 128,
+  "same_name_sibling_tables": 16,
+  "features": [
+    "same-name siblings interleaved with other nodes",
+    "comments and processing instructions",
+    "mc:AlternateContent",
+    "w:sdt block containers",
+    "hyperlinks",
+    "fields",
+    "nested tables",
+    "depth at the parser limit",
+    "header and footnote stories"
+  ],
+  "document_body": "<w:p><w:r><w:t>same-1</w:t></w:r><!--between-runs--><?oracle stress?><w:hyperlink r:id=\"rLink\"><w:r><w:t>link</w:t></w:r></w:hyperlink><w:r><w:t>same-2</w:t></w:r><w:fldSimple w:instr=\"DATE\"><w:r><w:instrText>DATE</w:instrText></w:r></w:fldSimple></w:p><mc:AlternateContent><mc:Choice Requires=\"w14\"><w:p><w:r><w:t>choice</w:t></w:r></w:p></mc:Choice><mc:Fallback><w:p><w:r><w:t>fallback</w:t></w:r></w:p></mc:Fallback></mc:AlternateContent><w:sdt><w:sdtContent><w:p><w:r><w:t>sdt</w:t></w:r></w:p></w:sdtContent></w:sdt><w:tbl><w:tr><w:tc><w:p><w:r><w:t>outer</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>inner</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:tc></w:tr></w:tbl>",
+  "secondary_stories": [
+    {
+      "relationship_id": "rHeader0060",
+      "story_type": "header",
+      "target": "header1.xml",
+      "part": "word/header1.xml",
+      "xml": "<w:hdr xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:p><w:r><w:t>header-1</w:t></w:r><!--header-comment--><?oracle header?><w:r><w:t>header-2</w:t></w:r></w:p></w:hdr>"
+    },
+    {
+      "relationship_id": "rFootnote0060",
+      "story_type": "footnotes",
+      "target": "footnotes.xml",
+      "part": "word/footnotes.xml",
+      "xml": "<w:footnotes xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:footnote w:id=\"1\"><w:p><w:r><w:t>footnote</w:t></w:r></w:p></w:footnote></w:footnotes>"
+    }
+  ],
+  "expected_story_types": [
+    "body",
+    "header",
+    "footnotes"
+  ]
+}
