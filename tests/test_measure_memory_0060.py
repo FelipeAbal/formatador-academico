@@ -65,6 +65,7 @@ class MemoryInstrument0060Tests(unittest.TestCase):
         self.assertGreater(result["pipeline_peak"]["process_rss_bytes"], 0)
         self.assertGreaterEqual(result["pipeline_peak"]["process_rss_delta_bytes"], 0)
         self.assertTrue(result["limitations"]["retention_delta_requires_0060d_harness"])
+        self.assertTrue(result["limitations"]["rss_delta_meaningful_only_on_linux"])
         self.assertTrue(result["limitations"]["tracemalloc_excludes_lxml_native_allocations"])
         encoded = json.dumps(result, sort_keys=True)
         self.assertNotIn(temp_dir, encoded)
