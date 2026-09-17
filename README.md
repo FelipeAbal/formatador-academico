@@ -1,79 +1,121 @@
 # Formatador Acadêmico
 
-Projeto para adaptação conservadora de documentos acadêmicos a perfis formais explicitamente declarados.
+Protótipo local para adaptar documentos DOCX a regras formais explicitamente declaradas pelo usuário.
+
+O sistema não promete conformidade acadêmica genérica. Ele altera somente propriedades autorizadas, preserva o documento original e encaminha casos ambíguos para revisão.
+
+> **Princípio central:** na dúvida, marcar.
 
 ## Estado atual
 
-O projeto está na transição entre a fase metodológica e a implementação do motor.
+O protótipo possui motor e interface web local funcionais. O fluxo recebe um DOCX e um perfil de regras, executa o pipeline conservador e entrega cinco arquivos vinculados por hashes:
 
-O **corpus-base v1 está congelado** após:
-- construção de 40 fixtures-base;
-- inclusão de regressão C3;
-- auditoria técnica do schema;
-- auditoria adversarial externa;
-- validação estrutural e semântica;
-- rastreabilidade determinística entrada → saída.
+1. DOCX limpo;
+2. DOCX com destaques para revisão;
+3. relatório técnico JSON;
+4. relatório humano Markdown;
+5. manifesto da entrega.
 
-Nenhum código do motor foi escrito até o congelamento do corpus.
+O slice automático atual cobre, separadamente para corpo e títulos:
 
-## Princípio central
+- negrito;
+- tamanho da fonte;
+- entrelinha;
+- alinhamento.
 
-**Na dúvida, marcar.**
+A suíte possui **851 testes**. O ciclo 0060A, que congelou o oráculo de equivalência das próximas otimizações, está integrado. O próximo passo técnico é o 0060B, dedicado ao desempenho do parser.
 
-O sistema deve maximizar utilidade segura sem:
-- inventar conteúdo;
-- perder conteúdo substantivo;
-- reescrever conteúdo intelectual;
-- aplicar regra não configurada;
-- alterar caso ambíguo silenciosamente.
+## Requisitos
 
-## Estrutura
+- Python 3.12;
+- ambiente virtual recomendado;
+- dependências de `requirements.txt`.
 
-- `docs/handoff.md`: estado corrente e decisões consolidadas.
-- `docs/architecture/`: decisões de arquitetura que começam na próxima fase.
-- `docs/decisions/`: registros de decisões importantes.
-- `corpus/manifest.json`: índice e metadados do corpus congelado.
-- `corpus/fixtures/`: fixtures separados por tipo bibliográfico para facilitar diffs.
-- `corpus/schemas/`: contratos JSON Schema.
-- `corpus/catalogs/`: vocabulário, alertas e warnings esperados.
-- `corpus/reports/`: relatórios de validação.
-- `tools/build_corpus.py`: recompõe o corpus monolítico a partir dos fixtures por tipo.
-- `tools/validate_corpus.py`: validação estrutural e semântica.
-- `src/`: implementação do motor, ainda vazia.
-- `tests/`: testes do motor, ainda vazia.
-
-## Corpus v1
-
-- 10 tipos bibliográficos.
-- 4 funções por tipo.
-- 40 fixtures-base.
-- 1 regressão C3.
-- Correções reais: 5 B1, 4 C2, 1 C3.
-- Piso do motor nulo: 20/41 = 48,8%.
-
-## Reconstrução e validação
-
-Primeiro, gere o corpus monolítico:
+No macOS ou Linux:
 
 ```bash
-python tools/build_corpus.py
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
 ```
 
-Depois valide:
+## Iniciar o protótipo
+
+Na raiz do repositório:
 
 ```bash
-python tools/validate_corpus.py \
-  corpus/schemas/fixture-v1.2.schema.json \
-  corpus/corpus-fixtures-v1.generated.json \
-  corpus/catalogs/alert-catalog-v1.json \
-  corpus/catalogs/profile-vocabulary-v1.json \
-  corpus/catalogs/expected-validation-warnings-v1.json
+.venv/bin/python tools/run_local_web.py
 ```
 
-O corpus reconstruído a partir dos arquivos por tipo foi validado localmente com **zero erros estruturais e zero erros semânticos** antes da subida inicial ao GitHub.
+O servidor imprime uma URL semelhante a:
 
-## Status
+```text
+Formatador Acadêmico: http://localhost:8000/#TOKEN_DA_SESSAO
+```
 
-**Corpus-base v1 congelado para implementação.**
+Abra exatamente essa URL no navegador. O token é válido somente enquanto aquele processo estiver rodando e não deve ser compartilhado ou salvo em favoritos.
 
-A próxima fase é o desenho da arquitetura mínima do motor.
+Para usar outra porta:
+
+```bash
+.venv/bin/python tools/run_local_web.py --port 8080
+```
+
+O servidor aceita conexões somente em `127.0.0.1`.
+
+## Usar a interface
+
+1. selecione um arquivo `.docx`;
+2. declare ao menos uma regra para corpo ou títulos;
+3. ajuste o limite máximo de alterações, se necessário;
+4. selecione **Processar documento**;
+5. leia o status e o resumo;
+6. baixe os cinco arquivos produzidos.
+
+“Processamento concluído” significa que não restou outra alteração automática segura dentro do slice atual. Isso não significa conformidade integral.
+
+## Acesso do Mac a um servidor no Ubuntu
+
+Inicie o protótipo no Ubuntu. No Mac, abra um túnel SSH, substituindo o destino pelo usuário e host reais:
+
+```bash
+ssh -N -L 8000:127.0.0.1:8000 usuario@servidor-ubuntu
+```
+
+Depois abra no navegador do Mac a URL completa, incluindo o fragmento `#TOKEN`, impressa pelo processo no Ubuntu.
+
+O servidor permanece inacessível pela rede externa: o acesso ocorre pelo túnel autenticado.
+
+## Executar os testes
+
+```bash
+PYTHONPATH=src .venv/bin/python -m unittest discover -s tests
+```
+
+O GitHub Actions executa a mesma suíte em cada PR e push para `main`.
+
+## Limites atuais
+
+- o protótipo é local; não há hospedagem pública, contas ou banco de dados;
+- documentos e artefatos permanecem apenas em memória durante a requisição;
+- não há correção automática de referências, citações, margens, tabelas ou estrutura intelectual;
+- documentos grandes ainda podem levar vários minutos;
+- documentos reais não entram no repositório nem no CI;
+- medições com o corpus real ocorrem somente no Ubuntu e com autorização explícita.
+
+## Próximas fases
+
+O ciclo de desempenho segue fases independentes e sequenciais:
+
+1. **0060B:** índice estrutural por chamada no parser;
+2. **0060C:** reuso de bytes de serialização;
+3. **0060D:** compartilhamento do parse verificado do mesmo snapshot;
+4. **0060E:** medição oficial de desempenho e memória.
+
+O 0061 só será considerado depois da medição final e não começa automaticamente.
+
+## Documentação
+
+- [estado corrente](docs/handoff.md);
+- [guia do protótipo local](docs/guides/local-prototype-v01.md);
+- [contrato do ciclo 0060](docs/decisions/0060-cycle-0060-conservative-performance-contract.md);
+- [freeze do 0060A](docs/decisions/0060a-oracle-instruments-freeze.md).
