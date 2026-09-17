@@ -23,6 +23,14 @@ Este é o HANDOFF corrente. O histórico detalhado fica no Git; não criar `hand
 
 GitHub Actions é a execução padrão da suíte. Não gastar outro modelo apenas para repetir testes normais.
 
+## Checkpoint demonstrável do protótipo
+
+- inicialização única: `.venv/bin/python tools/run_local_web.py`;
+- guia: `docs/guides/local-prototype-v01.md`;
+- smoke test real do servidor aprovado com fixture sintética;
+- resposta HTTP 200, sessão `quiescent` e cinco artefatos com tamanho e SHA-256 conferidos;
+- nenhum DOCX real usado, copiado ou versionado.
+
 ## Fechamento do 0060A
 
 - PR #61 — contrato do ciclo 0060, revisão 6; squash `d8093730cc6378eefb2c7801287fc5da13fd500c`;
