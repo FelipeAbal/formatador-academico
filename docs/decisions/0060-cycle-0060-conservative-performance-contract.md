@@ -1,10 +1,22 @@
 # Decisão 0060A: contrato do ciclo 0060 — otimização conservadora com equivalência exata
 
-**Status:** PROPOSTA, revisão 5, com as escolhas pendentes já decididas
+**Status:** PROPOSTA, revisão 6, com as escolhas pendentes já decididas
 **Data:** 2026-09-16
 **Base:** `main` após o merge do PR #60, commit `4bcda308a4975f2bb84d87ab4738faaed463bb75`
-**Depende de:** `docs/benchmarks/0059-measurement-report.md`; auditoria arquitetural do Claude Opus sobre o mesmo commit; pareceres do DeepSeek Flash 4.1 sobre as revisões 1, 2, 3 e 4
+**Depende de:** `docs/benchmarks/0059-measurement-report.md`; auditoria arquitetural do Claude Opus sobre o mesmo commit; pareceres do DeepSeek Flash 4.1 sobre as revisões 1, 2, 3, 4 e 5
 **Não altera:** nenhum código de produção. Esta decisão é contrato e critério, não implementação.
+
+**Revisão 6 — o que mudou em relação à revisão 5**
+
+Apenas ajustes textuais, sem mudança técnica:
+
+1. A seção 7 passa a dizer que o limite definitivo de memória é fixado, por emenda, **antes da integração do PR do 0060D**, depois da medição do delta na branch dessa fase.
+2. O mecanismo de fixação do oráculo passa a exigir que o CI materialize o commit completo, com `fetch-depth: 0` ou `git fetch origin <SHA>` antes de executá-lo.
+3. Novo teste: o oráculo falha explicitamente quando o SHA fixado não está disponível, sem cair na árvore corrente.
+4. Correção de contagem: são **oito** escolhas registradas na seção 8.
+5. Proveniência atualizada.
+
+O conteúdo técnico aprovado permanece: rejeição do agrupamento, equivalência exata, cinco igualdades, nove gatilhos, `PatchResult` intacto, ausência de reuso após rejeição, sequência dos subciclos e critérios de memória.
 
 **Revisão 5 — o que mudou em relação à revisão 4**
 
@@ -14,7 +26,7 @@
 4. Distinção entre entregáveis do 0060A, pré-requisito do 0060B e pré-requisito de integração do 0060D.
 5. Mantida a natureza manual e autorizada da verificação dos seis DOCX reais no 0060B.
 
-Nada mais foi alterado: critérios de equivalência, rejeição do agrupamento, ordem dos subciclos, as sete escolhas registradas, `PatchResult`, as cinco igualdades de reuso e os nove gatilhos de fallback permanecem como na revisão 4.
+Nada mais foi alterado: critérios de equivalência, rejeição do agrupamento, ordem dos subciclos, as oito escolhas registradas, `PatchResult`, as cinco igualdades de reuso e os nove gatilhos de fallback permanecem como na revisão 4.
 
 **Revisão 4 — o que mudou em relação à revisão 3**
 
@@ -97,6 +109,7 @@ A referência vive como oráculo de teste e **nunca** como caminho alternativo e
 3. **Proibido usar a árvore de trabalho atual como referência implícita.** O oráculo precisa falhar, e não cair no código corrente, se a referência não puder ser materializada pelo SHA.
 4. O oráculo verifica, antes de comparar, que a referência materializada corresponde ao SHA fixado, e registra esse SHA em toda saída de comparação.
 5. O caminho temporário é removido ao fim da execução; nenhuma referência materializada é versionada nem reaproveitada entre execuções.
+6. **No CI, o commit completo `4bcda308a4975f2bb84d87ab4738faaed463bb75` precisa estar materializável antes de o oráculo rodar.** O checkout raso padrão do GitHub Actions não basta: o workflow usa `fetch-depth: 0` no `actions/checkout`, ou executa `git fetch origin 4bcda308a4975f2bb84d87ab4738faaed463bb75` antes do passo do oráculo. Sem o objeto presente, o passo falha, e essa falha é o comportamento correto.
 
 ### 3.3 Serializador canônico do oráculo
 
@@ -354,7 +367,7 @@ Tudo sem tocar em `tools/benchmark_0059.py`. Nada em `src/`.
 
 **Invariantes de segurança.** Oráculo e serializador do oráculo são artefatos de teste e nunca viram runtime. O comparador não copia documento, não grava caminho absoluto e não registra texto. O benchmark permanece intacto.
 
-**Testes.** Comparador: artefatos iguais dão igual; um byte diferente dá diferente; nenhum conteúdo de documento na saída. Oráculo: cobertura de campos, que falha se um campo novo de modelo congelado ficar de fora; e o teste cross-process do envelope sob `PYTHONHASHSEED` variado (§3.3). Tudo com fixtures sintéticas, na trilha do CI.
+**Testes.** Comparador: artefatos iguais dão igual; um byte diferente dá diferente; nenhum conteúdo de documento na saída. Oráculo: cobertura de campos, que falha se um campo novo de modelo congelado ficar de fora; teste cross-process do envelope sob `PYTHONHASHSEED` variado (§3.3); e **teste de referência indisponível**, em que o SHA fixado não pode ser materializado e o oráculo precisa falhar de forma explícita, com erro que nomeia o SHA ausente, **sem usar a árvore de trabalho corrente como substituta** e sem produzir comparação alguma. Tudo com fixtures sintéticas, na trilha do CI.
 
 **Aprovação.** Auditoria adversarial do contrato; escolhas da §8 registradas.
 
@@ -549,7 +562,7 @@ Os itens 1, 2 e 3 exigem, antes de discussão técnica, **decisão de produto** 
 - **Plano estrutural:** `original_index` muda quando se cria `w:rPr` ou `w:pPr`; qualquer otimização que assuma estabilidade posicional está errada.
 - **Duas trilhas de verificação:** o CI não vê documento real, então a trilha do Ubuntu é a única que prova equivalência no corpus. Ela depende de execução manual e de registro fiel no PR.
 - **Plataforma:** as sondas rodaram no macOS; a equivalência precisa ser verificada no Ubuntu.
-- **Memória:** o 0060D retém uma IR a mais; o limite definitivo sai antes da fase, com o delta medido.
+- **Memória:** o 0060D retém uma IR a mais; o limite definitivo é fixado, por emenda, antes da integração do PR do 0060D, depois da medição do delta na branch dessa fase.
 
 ---
 
@@ -574,6 +587,6 @@ Não há, nesta revisão, ponto pendente de escolha. Qualquer mudança nesses it
 
 - Medição: `docs/benchmarks/0059-measurement-report.md`, com `sintetico-full.json` `23bddc80fba62ff9cbcd9c6ef812bf3945d2ae721f44a3e01db65efbc7d87226` e `reais-full.json` `659f9360f7b6d4881b5b5c0ee27f07a94eb2a40d45931efc06101c57611a6331`, ambos fora do repositório.
 - Auditoria arquitetural do Claude Opus sobre `4bcda30`: o parecer foi entregue a Felipe como arquivo fora do repositório e **não está versionado aqui**. Os números do §1 (parser quadrático, serialização repetida, não interferência) vêm desse parecer, produzido com sondas em fixtures sintéticas, no macOS com Python 3.12.13. Nenhum DOCX real foi lido nessas sondas. Se o parecer for incorporado ao repositório em algum momento, esta seção passa a citá-lo por caminho.
-- Pareceres do DeepSeek Flash 4.1 sobre as revisões 1, 2 e 3 desta decisão, incorporados nas revisões 2, 3 e 4.
+- Pareceres do DeepSeek Flash 4.1 sobre as revisões 1, 2, 3, 4 e 5 desta decisão, incorporados nas revisões 2, 3, 4, 5 e 6.
 - Percentuais de etapa do §1: variante instrumentada da medição oficial, no Ubuntu.
 - Tamanho da IR do §3.11: medido em fixtures sintéticas, 1,8 MiB para um DOCX de 67 KiB e 3,7 MiB para um de 132 KiB.
