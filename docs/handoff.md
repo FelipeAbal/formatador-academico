@@ -2,10 +2,11 @@
 
 ## Estado atual
 
-**Fase:** ciclo 0060, com o **0060A integrado e congelado**.
+**Fase:** ciclo 0060, com o **0060A integrado e congelado** e o **0060B implementado localmente**.
 
-**Próxima fase permitida:** 0060B.
-**0060B ainda não foi iniciado.**
+**Branch corrente:** `implement/0060b-parser-sibling-index`.
+**Commit local do 0060B:** `8842d0e`.
+**0060C não foi iniciado.**
 
 Este é o HANDOFF corrente. O histórico detalhado fica no Git; não criar `handoff_vNN`.
 
@@ -30,6 +31,23 @@ GitHub Actions é a execução padrão da suíte. Não gastar outro modelo apena
 - smoke test real do servidor aprovado com fixture sintética;
 - resposta HTTP 200, sessão `quiescent` e cinco artefatos com tamanho e SHA-256 conferidos;
 - nenhum DOCX real usado, copiado ou versionado.
+
+## Estado do 0060B
+
+- índice de posição de irmãos local a cada `parse_bytes`, construído sob demanda por pai;
+- chaves formadas pelos próprios objetos do lxml, mantendo os proxies vivos durante o uso;
+- descarte em `finally`, inclusive em falha inesperada;
+- `PARSER_VERSION` preservado em `0.4.0`;
+- errata de implementação acrescentada às decisões 0009 e 0011;
+- API pública de caminhos preservada e `parser_api.resolve_structural_path` inalterado;
+- oráculo do 0060A: IR byte-idêntica na fixture estrutural;
+- suíte completa local: **858/858 OK**;
+- medição sintética: mediana de 102,7 ms para 35,3 ms, ganho de **2,91×**;
+- parses A/B/A, threads concorrentes, story parcial, comentários, instruções de processamento e descarte cobertos por testes;
+- `tools/benchmark_0059.py` permanece intacto;
+- nenhum DOCX real foi acessado.
+
+Ainda faltam, antes da integração: enviar a branch, abrir o PR, obter CI verde, executar a trilha manual autorizada dos seis DOCX reais no Ubuntu e concluir a auditoria adversarial independente.
 
 ## Fechamento do 0060A
 
@@ -80,7 +98,7 @@ Arquivos centrais:
 
 ## Próximo passo exato — não executado
 
-Abrir uma branch e um PR próprios para o **0060B**, partindo da `main` em `fb3f2a67f59a00cabdb8023377c924fc67792a34` ou de seu descendente documental.
+Enviar `8842d0e` para `origin/implement/0060b-parser-sibling-index`, abrir o PR próprio do **0060B** e acompanhar o CI.
 
 Escopo exclusivo do 0060B:
 
