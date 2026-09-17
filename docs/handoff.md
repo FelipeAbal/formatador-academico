@@ -9,11 +9,13 @@
 
 Este é o HANDOFF corrente. O histórico detalhado fica no Git; não criar `handoff_vNN`.
 
-## Baseline validado
+## Baseline de implementação validado
 
-- `main`: `fb3f2a67f59a00cabdb8023377c924fc67792a34`;
+- implementação do 0060A: `fb3f2a67f59a00cabdb8023377c924fc67792a34`;
+- freeze e HANDOFF: PR #64, squash `8fb2c1195dde92b08890ca940cd4d979713d191d`;
 - suíte completa: **851/851 OK**;
-- CI pós-merge: run `35254093051`, `success`;
+- CI pós-merge da implementação: run `35254093051`, `success`;
+- CI pós-merge do freeze: run `35254795199`, `success`;
 - Python local de validação: 3.12.13;
 - `lxml`: 6.1.3;
 - failures: 0;
