@@ -110,3 +110,11 @@ Só se posterga algo por expansão explícita de escopo, dependência ainda não
 A v0.3 recebeu também o último ajuste menor apontado na verificação externa. Falta somente executar a suíte completa de **56 testes** no `main` atualizado e confirmar especificamente o novo estado `rejected` para `suspicious_target`.
 
 Se verde, a v0.3 deve ser congelada formalmente e a próxima etapa proposta é v0.4: decomposição física segura de tabelas.
+
+## Erratum de implementação — índice de irmãos do 0060B (2026-09-17)
+
+O custo de calcular `structural_path` e `original_index` foi corrigido sem alterar o contrato da PhysicalIR. Durante cada chamada de `DocxParser.parse_bytes`, o parser mantém um índice local e preguiçoso para cada pai que for consultado. Esse índice associa o próprio objeto filho do lxml ao par formado por sua posição física entre todos os irmãos e sua posição entre irmãos do mesmo tipo. Elementos são agrupados pela tag expandida; comentários e instruções de processamento formam grupos próprios.
+
+Os próprios objetos pai e filho são as chaves dos dicionários. Isso mantém os proxies vivos enquanto o índice estiver em uso e evita depender de `id()`, que pode ser reaproveitado. O índice aceita raízes de várias stories na mesma chamada, permanece inacessível fora dela e é limpo em `finally`, tanto no sucesso quanto em falhas controladas. Sua memória adicional é linear no número de filhos dos pais efetivamente consultados e existe somente durante o parse.
+
+Esta é uma emenda de custo, não de saída. `PARSER_VERSION` permanece `0.4.0`; campos, ordem, warnings, estados `ok`/`partial`/`failed`, caminhos estruturais, hashes físicos e serialização canônica permanecem idênticos. A cobertura do 0060B prova comentários e instruções de processamento intercalados, construção única por pai, descarte em sucesso e falha, parses A/B/A no mesmo processo, threads concorrentes, story parcial e a fixture estrutural completa contra o oráculo congelado.

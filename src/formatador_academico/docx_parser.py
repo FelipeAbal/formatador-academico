@@ -63,6 +63,72 @@ class ParserLimits:
     max_parts: int = 10_000
     max_structural_depth: int = 64
 
+
+class _SiblingIndex:
+    """Per-parse-call positions that keep every indexed lxml proxy alive."""
+
+    def __init__(self) -> None:
+        self._parents: dict[
+            etree._Element, dict[etree._Element, tuple[int, int]]
+        ] = {}
+        self.hits = 0
+        self.misses = 0
+        self.invalidations = 0
+        self.indexed_parents = 0
+        self.indexed_nodes = 0
+        self._active = True
+
+    @staticmethod
+    def _kind(node: etree._Element) -> tuple[str, str | None]:
+        if isinstance(node.tag, str):
+            return "element", node.tag
+        if isinstance(node, etree._Comment):
+            return "comment", None
+        return "processing-instruction", None
+
+    def positions(self, node: etree._Element) -> tuple[int, int]:
+        if not self._active:
+            raise RuntimeError("sibling index was already discarded")
+        parent = node.getparent()
+        if parent is None:
+            return 0, 0
+        positions = self._parents.get(parent)
+        if positions is None:
+            self.misses += 1
+            self.indexed_parents += 1
+            positions = {}
+            counts: dict[tuple[str, str | None], int] = {}
+            for original_index, child in enumerate(parent):
+                kind = self._kind(child)
+                type_index = counts.get(kind, 0) + 1
+                counts[kind] = type_index
+                positions[child] = original_index, type_index
+                self.indexed_nodes += 1
+            self._parents[parent] = positions
+        else:
+            self.hits += 1
+        try:
+            return positions[node]
+        except KeyError as exc:
+            raise ValueError("node is not a child of its reported parent") from exc
+
+    @property
+    def stats(self) -> dict[str, int]:
+        return {
+            "hits": self.hits,
+            "misses": self.misses,
+            "invalidations": self.invalidations,
+            "indexed_parents": self.indexed_parents,
+            "active_parents": len(self._parents),
+            "indexed_nodes": self.indexed_nodes,
+        }
+
+    def discard(self) -> None:
+        if self._active:
+            self._parents.clear()
+            self._active = False
+            self.invalidations += 1
+
 class ParseFailure(Exception):
     def __init__(self, code: str, message: str):
         super().__init__(message)
@@ -106,7 +172,17 @@ def _node_kind_name(node: etree._Element) -> str:
     if isinstance(node, etree._Comment): return "comment()"
     return "processing-instruction()"
 
-def _structural_path(node: etree._Element, root: etree._Element) -> str:
+def _structural_path(
+    node: etree._Element,
+    root: etree._Element,
+    sibling_index: _SiblingIndex | None = None,
+) -> str:
+    if sibling_index is None:
+        local_index = _SiblingIndex()
+        try:
+            return _structural_path(node, root, local_index)
+        finally:
+            local_index.discard()
     chain=[]; cur=node
     while cur is not None:
         chain.append(cur)
@@ -120,18 +196,13 @@ def _structural_path(node: etree._Element, root: etree._Element) -> str:
         parent=el.getparent()
         if parent is None:
             parts.append(name); continue
-        if isinstance(el.tag,str):
-            peers=[c for c in parent if isinstance(c.tag,str) and c.tag==el.tag]
-        elif isinstance(el, etree._Comment):
-            peers=[c for c in parent if isinstance(c, etree._Comment)]
-        else:
-            peers=[c for c in parent if isinstance(c, etree._ProcessingInstruction)]
-        parts.append(f"{name}[{peers.index(el)+1}]")
+        _, type_index = sibling_index.positions(el)
+        parts.append(f"{name}[{type_index}]")
     return "/" + "/".join(parts)
 
-def _child_index(node: etree._Element) -> int:
-    parent=node.getparent()
-    return 0 if parent is None else list(parent).index(node)
+def _child_index(node: etree._Element, sibling_index: _SiblingIndex) -> int:
+    original_index, _ = sibling_index.positions(node)
+    return original_index
 
 def _inherited_xml_attrs(node: etree._Element) -> dict[str,str]:
     values={}; chain=[]; cur=node.getparent()
@@ -155,10 +226,10 @@ def _physical_hash(canonical_xml: str, inherited_xml_attrs: dict[str,str]) -> st
     payload={"canonical_xml":canonical_xml,"inherited_xml_attrs":inherited_xml_attrs}
     return _sha256(json.dumps(payload,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode())
 
-def _raw_node_record(node, root):
+def _raw_node_record(node, root, sibling_index):
     canonical=_canonical_xml(node).decode("utf-8")
     inherited=_inherited_xml_attrs(node)
-    return {"structural_path":_structural_path(node,root),"original_index":_child_index(node),
+    return {"structural_path":_structural_path(node,root,sibling_index),"original_index":_child_index(node,sibling_index),
             "canonical_xml":canonical,"inherited_xml_attrs":inherited,
             "physical_hash":_physical_hash(canonical,inherited)}
 
@@ -168,14 +239,14 @@ def _warn(warnings, code, message, path=None, story_id=None):
     if story_id: w["story_id"]=story_id
     warnings.append(w)
 
-def _warn_mixed_content(node, root, warnings, story_id=None, allow_text=False):
+def _warn_mixed_content(node, root, sibling_index, warnings, story_id=None, allow_text=False):
     if not allow_text and node.text and node.text.strip():
         _warn(warnings,"mixed_content_text","Unexpected direct text preserved only in canonical XML.",
-              _structural_path(node,root),story_id)
+              _structural_path(node,root,sibling_index),story_id)
     for child in node:
         if child.tail and child.tail.strip():
             _warn(warnings,"mixed_content_text","Unexpected tail text preserved only in canonical XML.",
-                  _structural_path(child,root),story_id)
+                  _structural_path(child,root,sibling_index),story_id)
 
 def _aggregate_warnings(warnings):
     grouped={}
@@ -188,7 +259,7 @@ def _aggregate_warnings(warnings):
             item["sample_paths"].append(w["structural_path"])
     return sorted(grouped.values(),key=lambda x:(x.get("story_id",""),x["code"],x["message"]))
 
-def _detect_textbox(node, root, warnings, story_id=None):
+def _detect_textbox(node, root, sibling_index, warnings, story_id=None):
     if not isinstance(node.tag,str):
         return
     textbox_tags = (
@@ -199,13 +270,13 @@ def _detect_textbox(node, root, warnings, story_id=None):
     detected = node.tag in textbox_tags or any(node.find(f".//{tag}") is not None for tag in textbox_tags)
     if detected:
         _warn(warnings,"textbox_detected","Textbox/text-body content detected inside opaque XML and not decomposed.",
-              _structural_path(node,root),story_id)
+              _structural_path(node,root,sibling_index),story_id)
 
-def _properties_record(node, root):
-    r=_raw_node_record(node,root); r["source_type"]="properties_raw"; return r
+def _properties_record(node, root, sibling_index):
+    r=_raw_node_record(node,root,sibling_index); r["source_type"]="properties_raw"; return r
 
-def _fragment_record(node, root, warnings, story_id=None):
-    record=_raw_node_record(node,root)
+def _fragment_record(node, root, sibling_index, warnings, story_id=None):
+    record=_raw_node_record(node,root,sibling_index)
     if not isinstance(node.tag,str):
         record.update({"source_type":"non_element_fragment","protected":True})
         _warn(warnings,"non_element_run_child",f"Non-element run child preserved: {_node_kind_name(node)}",
@@ -219,34 +290,34 @@ def _fragment_record(node, root, warnings, story_id=None):
             record["symbol"]={"font":node.get(f"{{{W_NS}}}font"),"char":node.get(f"{{{W_NS}}}char")}
         return record
     record.update({"source_type":"opaque_fragment","protected":True})
-    _detect_textbox(node,root,warnings,story_id)
+    _detect_textbox(node,root,sibling_index,warnings,story_id)
     _warn(warnings,"opaque_run_fragment",f"Run child preserved as opaque fragment: {_prefixed_name(node.tag)}",
           record["structural_path"],story_id)
     return record
 
-def _parse_run(node, root, warnings, story_id=None):
-    _warn_mixed_content(node,root,warnings,story_id)
-    r=_raw_node_record(node,root)
+def _parse_run(node, root, sibling_index, warnings, story_id=None):
+    _warn_mixed_content(node,root,sibling_index,warnings,story_id)
+    r=_raw_node_record(node,root,sibling_index)
     r.update({"source_type":"run_raw","properties_raw":None,"fragment_refs":[],"children":[],"protected":False})
     for child in node:
         if isinstance(child.tag,str):
             ns,local=_qname_parts(child.tag)
             if ns==W_NS and local=="rPr":
                 if r["properties_raw"] is None:
-                    r["properties_raw"]=_properties_record(child,root)
+                    r["properties_raw"]=_properties_record(child,root,sibling_index)
                 else:
-                    opaque=_raw_node_record(child,root); opaque.update({"source_type":"opaque_fragment","protected":True})
+                    opaque=_raw_node_record(child,root,sibling_index); opaque.update({"source_type":"opaque_fragment","protected":True})
                     r["children"].append(opaque)
                     _warn(warnings,"duplicate_run_properties","Additional w:rPr preserved as opaque run child.",
                           opaque["structural_path"],story_id)
                 continue
-        f=_fragment_record(child,root,warnings,story_id)
+        f=_fragment_record(child,root,sibling_index,warnings,story_id)
         r["fragment_refs"].append(f["structural_path"]); r["children"].append(f)
     return r
 
-def _parse_run_container(node, root, warnings, story_id=None):
-    _warn_mixed_content(node,root,warnings,story_id)
-    r=_raw_node_record(node,root); _,local=_qname_parts(node.tag)
+def _parse_run_container(node, root, sibling_index, warnings, story_id=None):
+    _warn_mixed_content(node,root,sibling_index,warnings,story_id)
+    r=_raw_node_record(node,root,sibling_index); _,local=_qname_parts(node.tag)
     r.update({"source_type":"run_container","container_type":local,"children":[],"run_refs":[],"protected":True})
     _warn(warnings,"unparsed_container",f"Run container preserved; nested runs decomposed for ordering: w:{local}",
           r["structural_path"],story_id)
@@ -254,66 +325,66 @@ def _parse_run_container(node, root, warnings, story_id=None):
         if isinstance(child.tag,str):
             ns,cl=_qname_parts(child.tag)
             if ns==W_NS and cl=="r":
-                run=_parse_run(child,root,warnings,story_id)
+                run=_parse_run(child,root,sibling_index,warnings,story_id)
                 r["run_refs"].append(run["structural_path"]); r["children"].append(run); continue
             if ns==W_NS and cl in RUN_CONTAINER_TYPES:
-                r["children"].append(_parse_run_container(child,root,warnings,story_id)); continue
-        opaque=_raw_node_record(child,root); opaque.update({"source_type":"opaque_container_child","protected":True})
-        _detect_textbox(child,root,warnings,story_id)
+                r["children"].append(_parse_run_container(child,root,sibling_index,warnings,story_id)); continue
+        opaque=_raw_node_record(child,root,sibling_index); opaque.update({"source_type":"opaque_container_child","protected":True})
+        _detect_textbox(child,root,sibling_index,warnings,story_id)
         r["children"].append(opaque)
         _warn(warnings,"opaque_container_child",f"Container child preserved without decomposition: {_node_kind_name(child)}",
               opaque["structural_path"],story_id)
     return r
 
-def _parse_paragraph(node, root, warnings, story_id=None):
-    _warn_mixed_content(node,root,warnings,story_id)
-    r=_raw_node_record(node,root)
+def _parse_paragraph(node, root, sibling_index, warnings, story_id=None):
+    _warn_mixed_content(node,root,sibling_index,warnings,story_id)
+    r=_raw_node_record(node,root,sibling_index)
     r.update({"source_type":"paragraph","properties_raw":None,"children":[],"run_refs":[],"protected":False})
     for child in node:
         if isinstance(child.tag,str):
             ns,local=_qname_parts(child.tag)
             if ns==W_NS and local=="pPr":
-                if r["properties_raw"] is None: r["properties_raw"]=_properties_record(child,root)
+                if r["properties_raw"] is None: r["properties_raw"]=_properties_record(child,root,sibling_index)
                 else:
-                    opaque=_raw_node_record(child,root); opaque.update({"source_type":"opaque_paragraph_child","protected":True})
+                    opaque=_raw_node_record(child,root,sibling_index); opaque.update({"source_type":"opaque_paragraph_child","protected":True})
                     r["children"].append(opaque)
                     _warn(warnings,"duplicate_paragraph_properties","Additional w:pPr preserved as opaque paragraph child.",
                           opaque["structural_path"],story_id)
                 continue
             if ns==W_NS and local=="r":
-                run=_parse_run(child,root,warnings,story_id)
+                run=_parse_run(child,root,sibling_index,warnings,story_id)
                 r["run_refs"].append(run["structural_path"]); r["children"].append(run); continue
             if ns==W_NS and local in RUN_CONTAINER_TYPES:
-                r["children"].append(_parse_run_container(child,root,warnings,story_id)); continue
-        opaque=_raw_node_record(child,root)
+                r["children"].append(_parse_run_container(child,root,sibling_index,warnings,story_id)); continue
+        opaque=_raw_node_record(child,root,sibling_index)
         opaque.update({"source_type":"non_element_paragraph_child" if not isinstance(child.tag,str) else "opaque_paragraph_child",
                        "protected":True})
-        _detect_textbox(child,root,warnings,story_id)
+        _detect_textbox(child,root,sibling_index,warnings,story_id)
         r["children"].append(opaque)
         _warn(warnings,"opaque_paragraph_child",f"Paragraph child preserved without decomposition: {_node_kind_name(child)}",
               opaque["structural_path"],story_id)
     return r
 
-def _parse_block_child(child, original_index, root, warnings, story_id, *, allow_sectpr, depth, max_depth, assign_ids):
+def _parse_block_child(child, original_index, root, sibling_index, warnings, story_id, *, allow_sectpr, depth, max_depth, assign_ids):
     """Dispatch físico de um filho de sequência de blocos (0011 §5/§7)."""
     if isinstance(child.tag,str):
         ns,local=_qname_parts(child.tag)
         if ns==W_NS and local=="p":
-            block=_parse_paragraph(child,root,warnings,story_id)
+            block=_parse_paragraph(child,root,sibling_index,warnings,story_id)
             block["original_index"]=original_index
             if assign_ids: block["id"]=f"{story_id}/block-{original_index+1:06d}"
             return block
         if ns==W_NS and local=="tbl":
-            block=_parse_table(child,root,warnings,story_id,depth=depth+1,max_depth=max_depth)
+            block=_parse_table(child,root,sibling_index,warnings,story_id,depth=depth+1,max_depth=max_depth)
             block["original_index"]=original_index
             if assign_ids: block["id"]=f"{story_id}/block-{original_index+1:06d}"
             return block
         if ns==W_NS and local in BLOCK_CONTAINER_TYPES:
-            block=_parse_block_container(child,root,warnings,story_id,depth=depth+1,max_depth=max_depth)
+            block=_parse_block_container(child,root,sibling_index,warnings,story_id,depth=depth+1,max_depth=max_depth)
             block["original_index"]=original_index
             if assign_ids: block["id"]=f"{story_id}/block-{original_index+1:06d}"
             return block
-    rec=_raw_node_record(child,root)
+    rec=_raw_node_record(child,root,sibling_index)
     if not isinstance(child.tag,str):
         source_type,protected="non_element_node",True
         _warn(warnings,"non_element_child",
@@ -325,7 +396,7 @@ def _parse_block_child(child, original_index, root, warnings, story_id, *, allow
             source_type,protected="section_properties",True
         else:
             source_type,protected="opaque_object",True
-            _detect_textbox(child,root,warnings,story_id)
+            _detect_textbox(child,root,sibling_index,warnings,story_id)
             _warn(warnings,"unsupported_story_child",
                   f"Unsupported direct story child preserved as opaque object: {_node_kind_name(child)}",
                   rec["structural_path"],story_id)
@@ -334,53 +405,53 @@ def _parse_block_child(child, original_index, root, warnings, story_id, *, allow
     return rec
 
 
-def _parse_block_sequence(container, root, warnings, story_id, *, allow_sectpr=False, depth=0, max_depth=64, assign_ids=False):
-    return [_parse_block_child(child,idx,root,warnings,story_id,allow_sectpr=allow_sectpr,
+def _parse_block_sequence(container, root, sibling_index, warnings, story_id, *, allow_sectpr=False, depth=0, max_depth=64, assign_ids=False):
+    return [_parse_block_child(child,idx,root,sibling_index,warnings,story_id,allow_sectpr=allow_sectpr,
                                depth=depth,max_depth=max_depth,assign_ids=assign_ids)
             for idx,child in enumerate(container)]
 
 
-def _depth_limited_record(node, root, warnings, story_id, source_type):
+def _depth_limited_record(node, root, sibling_index, warnings, story_id, source_type):
     """Degradação local ao atingir max_structural_depth (0011 §9): preserva o subtree integral."""
-    rec=_raw_node_record(node,root)
+    rec=_raw_node_record(node,root,sibling_index)
     rec.update({"source_type":source_type,"protected":True,"depth_limited":True,
                 "properties_raw":None,"children":[]})
-    _detect_textbox(node,root,warnings,story_id)
+    _detect_textbox(node,root,sibling_index,warnings,story_id)
     _warn(warnings,"max_depth_exceeded",
           f"Structural depth limit reached; subtree preserved as opaque {source_type}.",
           rec["structural_path"],story_id)
     return rec
 
 
-def _parse_tbl_grid(node, root, warnings, story_id):
-    _warn_mixed_content(node,root,warnings,story_id)
-    rec=_raw_node_record(node,root)
+def _parse_tbl_grid(node, root, sibling_index, warnings, story_id):
+    _warn_mixed_content(node,root,sibling_index,warnings,story_id)
+    rec=_raw_node_record(node,root,sibling_index)
     rec.update({"source_type":"table_grid","children":[],"grid_col_refs":[],"protected":False})
     for child in node:
         if isinstance(child.tag,str):
             ns,local=_qname_parts(child.tag)
             if ns==W_NS and local=="gridCol":
-                col=_raw_node_record(child,root)
+                col=_raw_node_record(child,root,sibling_index)
                 col.update({"source_type":"table_grid_col","protected":False,
                             "attributes_raw":{_prefixed_name(k):v for k,v in child.attrib.items()}})
                 rec["children"].append(col); rec["grid_col_refs"].append(col["structural_path"]); continue
-        op=_raw_node_record(child,root)
+        op=_raw_node_record(child,root,sibling_index)
         op.update({"source_type":"non_element_node" if not isinstance(child.tag,str) else "opaque_grid_child",
                    "protected":True})
-        _detect_textbox(child,root,warnings,story_id)
+        _detect_textbox(child,root,sibling_index,warnings,story_id)
         _warn(warnings,"opaque_grid_child",f"Grid child preserved without decomposition: {_node_kind_name(child)}",
               op["structural_path"],story_id)
         rec["children"].append(op)
     return rec
 
 
-def _parse_table(node, root, warnings, story_id, *, depth, max_depth):
+def _parse_table(node, root, sibling_index, warnings, story_id, *, depth, max_depth):
     if depth>=max_depth:
-        rec=_depth_limited_record(node,root,warnings,story_id,"table")
+        rec=_depth_limited_record(node,root,sibling_index,warnings,story_id,"table")
         rec.update({"grid_raw":None,"row_refs":[]})
         return rec
-    _warn_mixed_content(node,root,warnings,story_id)
-    rec=_raw_node_record(node,root)
+    _warn_mixed_content(node,root,sibling_index,warnings,story_id)
+    rec=_raw_node_record(node,root,sibling_index)
     rec.update({"source_type":"table","properties_raw":None,"grid_raw":None,
                 "children":[],"row_refs":[],"protected":False})
     for original_index,child in enumerate(node):
@@ -388,29 +459,29 @@ def _parse_table(node, root, warnings, story_id, *, depth, max_depth):
             ns,local=_qname_parts(child.tag)
             if ns==W_NS and local=="tblPr":
                 if rec["properties_raw"] is None:
-                    rec["properties_raw"]=_properties_record(child,root)
+                    rec["properties_raw"]=_properties_record(child,root,sibling_index)
                 else:
-                    op=_raw_node_record(child,root); op.update({"source_type":"opaque_table_child","protected":True})
+                    op=_raw_node_record(child,root,sibling_index); op.update({"source_type":"opaque_table_child","protected":True})
                     rec["children"].append(op)
                     _warn(warnings,"duplicate_table_properties","Additional w:tblPr preserved as opaque table child.",
                           op["structural_path"],story_id)
                 continue
             if ns==W_NS and local=="tblGrid":
                 if rec["grid_raw"] is None:
-                    rec["grid_raw"]=_parse_tbl_grid(child,root,warnings,story_id)
+                    rec["grid_raw"]=_parse_tbl_grid(child,root,sibling_index,warnings,story_id)
                 else:
-                    op=_raw_node_record(child,root); op.update({"source_type":"opaque_table_child","protected":True})
+                    op=_raw_node_record(child,root,sibling_index); op.update({"source_type":"opaque_table_child","protected":True})
                     rec["children"].append(op)
                     _warn(warnings,"duplicate_table_grid","Additional w:tblGrid preserved as opaque table child.",
                           op["structural_path"],story_id)
                 continue
             if ns==W_NS and local=="tr":
-                row=_parse_row(child,root,warnings,story_id,depth=depth,max_depth=max_depth)
+                row=_parse_row(child,root,sibling_index,warnings,story_id,depth=depth,max_depth=max_depth)
                 rec["children"].append(row); rec["row_refs"].append(row["structural_path"]); continue
-        op=_raw_node_record(child,root)
+        op=_raw_node_record(child,root,sibling_index)
         op.update({"source_type":"non_element_node" if not isinstance(child.tag,str) else "opaque_table_child",
                    "protected":True})
-        _detect_textbox(child,root,warnings,story_id)
+        _detect_textbox(child,root,sibling_index,warnings,story_id)
         _warn(warnings,"opaque_table_child" if isinstance(child.tag,str) else "non_element_child",
               f"Table child preserved without decomposition: {_node_kind_name(child)}",
               op["structural_path"],story_id)
@@ -418,29 +489,29 @@ def _parse_table(node, root, warnings, story_id, *, depth, max_depth):
     return rec
 
 
-def _parse_row(node, root, warnings, story_id, *, depth, max_depth):
-    _warn_mixed_content(node,root,warnings,story_id)
-    rec=_raw_node_record(node,root)
+def _parse_row(node, root, sibling_index, warnings, story_id, *, depth, max_depth):
+    _warn_mixed_content(node,root,sibling_index,warnings,story_id)
+    rec=_raw_node_record(node,root,sibling_index)
     rec.update({"source_type":"table_row","properties_raw":None,"children":[],"cell_refs":[],"protected":False})
     for child in node:
         if isinstance(child.tag,str):
             ns,local=_qname_parts(child.tag)
             if ns==W_NS and local=="trPr":
                 if rec["properties_raw"] is None:
-                    rec["properties_raw"]=_properties_record(child,root)
+                    rec["properties_raw"]=_properties_record(child,root,sibling_index)
                 else:
-                    op=_raw_node_record(child,root); op.update({"source_type":"opaque_row_child","protected":True})
+                    op=_raw_node_record(child,root,sibling_index); op.update({"source_type":"opaque_row_child","protected":True})
                     rec["children"].append(op)
                     _warn(warnings,"duplicate_row_properties","Additional w:trPr preserved as opaque row child.",
                           op["structural_path"],story_id)
                 continue
             if ns==W_NS and local=="tc":
-                cell=_parse_cell(child,root,warnings,story_id,depth=depth,max_depth=max_depth)
+                cell=_parse_cell(child,root,sibling_index,warnings,story_id,depth=depth,max_depth=max_depth)
                 rec["children"].append(cell); rec["cell_refs"].append(cell["structural_path"]); continue
-        op=_raw_node_record(child,root)
+        op=_raw_node_record(child,root,sibling_index)
         op.update({"source_type":"non_element_node" if not isinstance(child.tag,str) else "opaque_row_child",
                    "protected":True})
-        _detect_textbox(child,root,warnings,story_id)
+        _detect_textbox(child,root,sibling_index,warnings,story_id)
         _warn(warnings,"opaque_row_child" if isinstance(child.tag,str) else "non_element_child",
               f"Row child preserved without decomposition: {_node_kind_name(child)}",
               op["structural_path"],story_id)
@@ -448,23 +519,23 @@ def _parse_row(node, root, warnings, story_id, *, depth, max_depth):
     return rec
 
 
-def _parse_cell(node, root, warnings, story_id, *, depth, max_depth):
-    _warn_mixed_content(node,root,warnings,story_id)
-    rec=_raw_node_record(node,root)
+def _parse_cell(node, root, sibling_index, warnings, story_id, *, depth, max_depth):
+    _warn_mixed_content(node,root,sibling_index,warnings,story_id)
+    rec=_raw_node_record(node,root,sibling_index)
     rec.update({"source_type":"table_cell","properties_raw":None,"children":[],"block_refs":[],"protected":False})
     for original_index,child in enumerate(node):
         if isinstance(child.tag,str):
             ns,local=_qname_parts(child.tag)
             if ns==W_NS and local=="tcPr":
                 if rec["properties_raw"] is None:
-                    rec["properties_raw"]=_properties_record(child,root)
+                    rec["properties_raw"]=_properties_record(child,root,sibling_index)
                 else:
-                    op=_raw_node_record(child,root); op.update({"source_type":"opaque_cell_child","protected":True})
+                    op=_raw_node_record(child,root,sibling_index); op.update({"source_type":"opaque_cell_child","protected":True})
                     rec["children"].append(op)
                     _warn(warnings,"duplicate_cell_properties","Additional w:tcPr preserved as opaque cell child.",
                           op["structural_path"],story_id)
                 continue
-        block=_parse_block_child(child,original_index,root,warnings,story_id,
+        block=_parse_block_child(child,original_index,root,sibling_index,warnings,story_id,
                                  allow_sectpr=False,depth=depth,max_depth=max_depth,assign_ids=False)
         rec["children"].append(block)
         if block["source_type"] in STRUCTURAL_BLOCK_TYPES:
@@ -472,14 +543,14 @@ def _parse_cell(node, root, warnings, story_id, *, depth, max_depth):
     return rec
 
 
-def _parse_block_container(node, root, warnings, story_id, *, depth, max_depth):
+def _parse_block_container(node, root, sibling_index, warnings, story_id, *, depth, max_depth):
     if depth>=max_depth:
-        rec=_depth_limited_record(node,root,warnings,story_id,"block_container")
+        rec=_depth_limited_record(node,root,sibling_index,warnings,story_id,"block_container")
         rec.update({"container_type":_qname_parts(node.tag)[1] if isinstance(node.tag,str) else None,
                     "block_refs":[]})
         return rec
-    _warn_mixed_content(node,root,warnings,story_id)
-    rec=_raw_node_record(node,root)
+    _warn_mixed_content(node,root,sibling_index,warnings,story_id)
+    rec=_raw_node_record(node,root,sibling_index)
     _,local=_qname_parts(node.tag)
     rec.update({"source_type":"block_container","container_type":local,
                 "children":[],"block_refs":[],"protected":True})
@@ -487,7 +558,7 @@ def _parse_block_container(node, root, warnings, story_id, *, depth, max_depth):
           f"Block container preserved; nested blocks decomposed for visibility: w:{local}",
           rec["structural_path"],story_id)
     for original_index,child in enumerate(node):
-        block=_parse_block_child(child,original_index,root,warnings,story_id,
+        block=_parse_block_child(child,original_index,root,sibling_index,warnings,story_id,
                                  allow_sectpr=False,depth=depth,max_depth=max_depth,assign_ids=False)
         rec["children"].append(block)
         if block["source_type"] in STRUCTURAL_BLOCK_TYPES:
@@ -584,7 +655,7 @@ class DocxParser:
                 "items":[] if story_type in ("footnotes","endnotes","comments") else None,
                 "opaque_items":[] if story_type in ("footnotes","endnotes","comments") else None}
 
-    def _parse_block_story(self,zf,part,story_type,story_id,relationship_id,warnings):
+    def _parse_block_story(self,zf,part,story_type,story_id,relationship_id,sibling_index,warnings):
         try:
             root=_parse_xml(self._read(zf,part),part)
             if not isinstance(root.tag,str): raise ParseFailure("unsupported_story_namespace","Story root is not an element.")
@@ -592,14 +663,14 @@ class DocxParser:
             expected={"header":"hdr","footer":"ftr"}[story_type]
             if ns!=W_NS or local!=expected:
                 raise ParseFailure("unsupported_story_namespace",f"Unexpected {story_type} root: {ns} {local}")
-            blocks=_parse_block_sequence(root,root,warnings,story_id,
+            blocks=_parse_block_sequence(root,root,sibling_index,warnings,story_id,
                                          max_depth=self.limits.max_structural_depth,assign_ids=True)
             return {"story_id":story_id,"story_type":story_type,"part":part,"relationship_id":relationship_id,
                     "status":"ok","blocks":blocks,"items":None,"opaque_items":None,"errors":[]}
         except ParseFailure as exc:
             return self._story_error(story_id,story_type,part,relationship_id,exc.code,exc.message)
 
-    def _parse_item_story(self,zf,part,story_type,story_id,relationship_id,warnings):
+    def _parse_item_story(self,zf,part,story_type,story_id,relationship_id,sibling_index,warnings):
         tag_map={"footnotes":("footnotes","footnote","note_id","note_type"),
                  "endnotes":("endnotes","endnote","note_id","note_type"),
                  "comments":("comments","comment","comment_id",None)}
@@ -617,7 +688,7 @@ class DocxParser:
                 if isinstance(child.tag,str):
                     cns,clocal=_qname_parts(child.tag)
                     if cns==W_NS and clocal==item_local:
-                        rec=_raw_node_record(child,root)
+                        rec=_raw_node_record(child,root,sibling_index)
                         item_id=child.get(f"{{{W_NS}}}id")
                         if item_id is None:
                             code = "missing_comment_id" if story_type == "comments" else "missing_note_id"
@@ -630,22 +701,22 @@ class DocxParser:
                         item={"structural_path":rec["structural_path"],"original_index":rec["original_index"],
                               "canonical_xml":rec["canonical_xml"],"inherited_xml_attrs":rec["inherited_xml_attrs"],
                               "physical_hash":rec["physical_hash"],id_field:item_id,
-                              "blocks":_parse_block_sequence(child,root,warnings,story_id,
+                              "blocks":_parse_block_sequence(child,root,sibling_index,warnings,story_id,
                                                              max_depth=self.limits.max_structural_depth)}
                         if type_field: item[type_field]=child.get(f"{{{W_NS}}}type")
                         items.append(item); represented_paths.append(rec["structural_path"]); continue
-                rec=_raw_node_record(child,root)
+                rec=_raw_node_record(child,root,sibling_index)
                 represented_paths.append(rec["structural_path"])
-                _detect_textbox(child,root,warnings,story_id)
+                _detect_textbox(child,root,sibling_index,warnings,story_id)
                 _warn(warnings,"unsupported_story_child",
                       f"Unsupported direct {story_type} root child preserved only in story canonical coverage: {_node_kind_name(child)}",
                       rec["structural_path"],story_id)
             opaque_items=[]
             item_paths={x["structural_path"] for x in items}
             for child in root:
-                p=_structural_path(child,root)
+                p=_structural_path(child,root,sibling_index)
                 if p not in item_paths:
-                    rec=_raw_node_record(child,root); rec.update({"source_type":"opaque_story_child","protected":True})
+                    rec=_raw_node_record(child,root,sibling_index); rec.update({"source_type":"opaque_story_child","protected":True})
                     opaque_items.append(rec)
             return {"story_id":story_id,"story_type":story_type,"part":part,"relationship_id":relationship_id,
                     "status":"ok","blocks":None,"items":items,"opaque_items":opaque_items,"errors":[]}
@@ -654,6 +725,7 @@ class DocxParser:
 
     def parse_bytes(self,docx_bytes):
         package_sha256=_sha256(docx_bytes)
+        sibling_index=_SiblingIndex()
         try:
             with zipfile.ZipFile(io.BytesIO(docx_bytes),"r") as zf:
                 infos=_safe_zip_inventory(zf,self.limits)
@@ -680,7 +752,7 @@ class DocxParser:
 
                 warnings=[]; errors=[]
                 stories=[{"story_id":"body","story_type":"body","part":DOCUMENT_XML,"relationship_id":None,
-                          "status":"ok","blocks":_parse_block_sequence(body,doc_root,warnings,"body",allow_sectpr=True,
+                          "status":"ok","blocks":_parse_block_sequence(body,doc_root,sibling_index,warnings,"body",allow_sectpr=True,
                                                                        max_depth=self.limits.max_structural_depth,assign_ids=True),
                           "items":None,"opaque_items":None,"errors":[]}]
 
@@ -723,9 +795,9 @@ class DocxParser:
                               f"Relationship type {stype} disagrees with content type {actual_ctype!r}; relationship type used.",
                               story_id=sid)
                     if stype in ("header","footer"):
-                        story=self._parse_block_story(zf,part,stype,sid,rel["id"],warnings)
+                        story=self._parse_block_story(zf,part,stype,sid,rel["id"],sibling_index,warnings)
                     else:
-                        story=self._parse_item_story(zf,part,stype,sid,rel["id"],warnings)
+                        story=self._parse_item_story(zf,part,stype,sid,rel["id"],sibling_index,warnings)
                     stories.append(story)
                     if story["status"]!="ok":
                         errors.extend({**e,"story_id":sid} for e in story["errors"])
@@ -736,9 +808,9 @@ class DocxParser:
                     sid=f"{stype}:{part}"
                     _warn(warnings,"orphan_story_part",f"Known story part exists without document relationship: {part}",story_id=sid)
                     if stype in ("header","footer"):
-                        story=self._parse_block_story(zf,part,stype,sid,None,warnings)
+                        story=self._parse_block_story(zf,part,stype,sid,None,sibling_index,warnings)
                     else:
-                        story=self._parse_item_story(zf,part,stype,sid,None,warnings)
+                        story=self._parse_item_story(zf,part,stype,sid,None,sibling_index,warnings)
                     stories.append(story)
                     if story["status"]!="ok": errors.extend({**e,"story_id":sid} for e in story["errors"])
 
@@ -758,6 +830,8 @@ class DocxParser:
             return _failed_result(package_sha256,"not_a_docx","Input is not a valid ZIP/DOCX package.")
         except ParseFailure as exc:
             return _failed_result(package_sha256,exc.code,exc.message)
+        finally:
+            sibling_index.discard()
 
 def serialize_parse_result(result):
     return json.dumps(result,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode("utf-8")
