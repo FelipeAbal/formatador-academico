@@ -42,12 +42,13 @@ GitHub Actions é a execução padrão da suíte. Não gastar outro modelo apena
 - API pública de caminhos preservada e `parser_api.resolve_structural_path` inalterado;
 - oráculo do 0060A: IR byte-idêntica na fixture estrutural;
 - suíte completa local: **858/858 OK**;
+- PR #67 aberto; primeira execução do CI (`35278748881`) aprovada;
 - medição sintética: mediana de 102,7 ms para 35,3 ms, ganho de **2,91×**;
 - parses A/B/A, threads concorrentes, story parcial, comentários, instruções de processamento e descarte cobertos por testes;
 - `tools/benchmark_0059.py` permanece intacto;
 - nenhum DOCX real foi acessado.
 
-Ainda faltam, antes da integração: enviar a branch, abrir o PR, obter CI verde, executar a trilha manual autorizada dos seis DOCX reais no Ubuntu e concluir a auditoria adversarial independente.
+Ainda faltam, antes da integração: executar a trilha manual autorizada dos seis DOCX reais no Ubuntu e concluir a auditoria adversarial independente.
 
 ## Fechamento do 0060A
 
@@ -98,7 +99,7 @@ Arquivos centrais:
 
 ## Próximo passo exato — não executado
 
-Enviar `8842d0e` para `origin/implement/0060b-parser-sibling-index`, abrir o PR próprio do **0060B** e acompanhar o CI.
+Fixar o SHA final do PR #67 para a auditoria adversarial independente e executar a trilha manual autorizada dos seis DOCX reais no Ubuntu. Só integrar depois das duas aprovações e do CI verde do SHA auditado.
 
 Escopo exclusivo do 0060B:
 
