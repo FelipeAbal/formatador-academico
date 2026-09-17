@@ -107,7 +107,11 @@ def _target_json(target: object) -> Mapping[str, Any]:
                 field.name: convert(getattr(value, field.name))
                 for field in fields(value)
             }
-        return value
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        raise OracleError(
+            f"unsupported canonical target value type: {type(value).__qualname__}"
+        )
 
     converted = convert(target)
     if not isinstance(converted, dict):
@@ -171,11 +175,38 @@ def serialize_processing_session_result(result: object) -> bytes:
 
 
 def _activate_source_root(source_root: Path) -> None:
+    import importlib
+
     source_root = source_root.resolve()
     package_dir = source_root / "src" / "formatador_academico"
     if not package_dir.is_dir():
-        raise WorkerError(f"source root does not contain src/formatador_academico: {source_root}")
+        raise WorkerError("selected source root does not contain the application package")
     sys.path.insert(0, str(source_root / "src"))
+    package = importlib.import_module("formatador_academico")
+    package_file = Path(package.__file__).resolve()
+    if not package_file.is_relative_to(package_dir.resolve()):
+        raise WorkerError("application package was imported outside the selected source root")
+
+
+def _assert_execution_binding(
+    session: object,
+    bundle: object,
+    *,
+    session_report_ref: str,
+    session_review_sha256: str,
+) -> None:
+    """Bind the independently observed session to the product execution."""
+
+    checks = (
+        session.output_package_sha256 == bundle.clean_package_sha256,
+        session.status is bundle.session_status,
+        session.profile_ref == bundle.profile_ref,
+        session.input_package_sha256 == bundle.input_package_sha256,
+        session_report_ref == bundle.processing_report_ref,
+        session_review_sha256 == bundle.review_package_sha256,
+    )
+    if not all(checks):
+        raise OracleError("independent product executions failed complete lineage binding")
 
 
 def build_observation(
@@ -193,9 +224,14 @@ def build_observation(
     from formatador_academico.decision.serialization import serialize_decision
     from formatador_academico.docx_parser import DocxParser, serialize_parse_result
     from formatador_academico.processing_session import process_document
+    from formatador_academico.processing_report import (
+        build_processing_report,
+        processing_report_ref,
+    )
     from formatador_academico.product_delivery import build_product_delivery
     from formatador_academico.product_input_boundary import build_product_from_inputs
     from formatador_academico.profile_input import processing_profile_from_json
+    from formatador_academico.review_docx import build_review_docx
     from formatador_academico.transform_log.serialization import (
         serialize_transform_record,
         transform_ref,
@@ -208,14 +244,21 @@ def build_observation(
         profile,
         max_applied_operations=max_applied_operations,
     )
+    session_report = build_processing_report(session)
+    session_report_ref = processing_report_ref(session_report)
+    session_review = build_review_docx(session.output_package_bytes, session_report)
     bundle = build_product_from_inputs(
         package_snapshot,
         profile_json_bytes,
         max_applied_operations=max_applied_operations,
     )
     delivery = build_product_delivery(bundle, base_name=base_name)
-    if session.output_package_sha256 != bundle.clean_package_sha256:
-        raise OracleError("session and delivery runs produced different clean package hashes")
+    _assert_execution_binding(
+        session,
+        bundle,
+        session_report_ref=session_report_ref,
+        session_review_sha256=session_review.output_review_package_sha256,
+    )
 
     envelope = serialize_processing_session_result(session)
     artifacts = digest_delivery(delivery)
@@ -241,6 +284,11 @@ def build_observation(
             "finding_sha256": [
                 _sha(serialize_session_finding(item)) for item in session.findings
             ],
+        },
+        "cross_run_binding": {
+            "processing_report_ref": session_report_ref,
+            "review_package_sha256": session_review.output_review_package_sha256,
+            "session_status": session.status.value,
         },
         "artifacts": [
             {
@@ -270,6 +318,8 @@ def build_observation_or_error(
             base_name=base_name,
             max_applied_operations=max_applied_operations,
         )
+    except OracleError:
+        raise
     except Exception as exc:
         exception_type = f"{type(exc).__module__}.{type(exc).__qualname__}"
         return {
@@ -307,8 +357,10 @@ def materialized_reference(
         added = _git(repo_root, "worktree", "add", "--detach", "--quiet", str(worktree), reference_commit)
         if added.returncode != 0:
             raise ReferenceMaterializationError(
-                f"could not materialize reference commit {reference_commit}: {added.stderr.strip()}"
+                f"could not materialize reference commit {reference_commit}; "
+                f"git_stderr_sha256={_sha(added.stderr.encode('utf-8'))}"
             )
+        primary_error: BaseException | None = None
         try:
             actual = _git(worktree, "rev-parse", "HEAD")
             if actual.returncode != 0 or actual.stdout.strip() != reference_commit:
@@ -316,11 +368,26 @@ def materialized_reference(
                     f"materialized reference does not match {reference_commit}"
                 )
             yield worktree
+            final_head = _git(worktree, "rev-parse", "HEAD")
+            final_status = _git(worktree, "status", "--porcelain")
+            if (
+                final_head.returncode != 0
+                or final_head.stdout.strip() != reference_commit
+                or final_status.returncode != 0
+                or final_status.stdout
+            ):
+                raise ReferenceMaterializationError(
+                    f"materialized reference changed while observing {reference_commit}"
+                )
+        except BaseException as exc:
+            primary_error = exc
+            raise
         finally:
             removed = _git(repo_root, "worktree", "remove", "--force", str(worktree))
-            if removed.returncode != 0 and worktree.exists():
+            if removed.returncode != 0 and worktree.exists() and primary_error is None:
                 raise ReferenceMaterializationError(
-                    f"could not remove temporary reference worktree: {removed.stderr.strip()}"
+                    "could not remove temporary reference worktree; "
+                    f"git_stderr_sha256={_sha(removed.stderr.encode('utf-8'))}"
                 )
 
 
@@ -335,7 +402,7 @@ def run_worker(
 ) -> dict[str, Any]:
     env = os.environ.copy()
     src = str(source_root.resolve() / "src")
-    env["PYTHONPATH"] = src + os.pathsep + env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = src
     if hash_seed is not None:
         env["PYTHONHASHSEED"] = hash_seed
     command = [
@@ -362,8 +429,10 @@ def run_worker(
         check=False,
     )
     if completed.returncode != 0:
-        detail = completed.stderr.decode("utf-8", errors="replace").strip()
-        raise WorkerError(f"isolated oracle worker failed: {detail}")
+        raise WorkerError(
+            "isolated oracle worker failed; "
+            f"exit_code={completed.returncode}; stderr_sha256={_sha(completed.stderr)}"
+        )
     try:
         return json.loads(completed.stdout.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -381,6 +450,7 @@ def compare_against_reference(
     *,
     base_name: str = "oracle-0060",
     max_applied_operations: int = 10000,
+    allow_error_equivalence: bool = False,
 ) -> dict[str, Any]:
     with materialized_reference(repo_root) as reference_root:
         reference = run_worker(
@@ -397,7 +467,9 @@ def compare_against_reference(
         base_name=base_name,
         max_applied_operations=max_applied_operations,
     )
-    if reference.get("outcome") == "success" and candidate.get("outcome") == "success":
+    reference_success = reference.get("outcome") == "success"
+    candidate_success = candidate.get("outcome") == "success"
+    if reference_success and candidate_success:
         artifact_comparison = compare_artifacts(
             _artifact_records(reference),
             _artifact_records(candidate),
@@ -407,14 +479,25 @@ def compare_against_reference(
             comparison_json_bytes(artifact_comparison)
         )
         artifacts_equal = artifact_comparison.equal
+        comparison_outcome = "success"
+        non_artifact_reference = {k: v for k, v in reference.items() if k != "artifacts"}
+        non_artifact_candidate = {k: v for k, v in candidate.items() if k != "artifacts"}
+        non_artifact_equal = non_artifact_reference == non_artifact_candidate
+        equal = non_artifact_equal and artifacts_equal
     else:
         artifact_payload = None
-        artifacts_equal = "artifacts" not in reference and "artifacts" not in candidate
-    non_artifact_reference = {k: v for k, v in reference.items() if k != "artifacts"}
-    non_artifact_candidate = {k: v for k, v in candidate.items() if k != "artifacts"}
-    non_artifact_equal = non_artifact_reference == non_artifact_candidate
+        non_artifact_reference = reference
+        non_artifact_candidate = candidate
+        same_error = (
+            not reference_success
+            and not candidate_success
+            and reference == candidate
+        )
+        comparison_outcome = "both_error" if same_error else "error_divergence"
+        equal = bool(same_error and allow_error_equivalence)
     return {
-        "equal": non_artifact_equal and artifacts_equal,
+        "equal": equal,
+        "outcome": comparison_outcome,
         "reference_commit": REFERENCE_COMMIT,
         "reference": non_artifact_reference,
         "candidate": non_artifact_candidate,
@@ -432,6 +515,7 @@ def _parser() -> argparse.ArgumentParser:
     compare.add_argument("--profile", type=Path, required=True)
     compare.add_argument("--base-name", default="oracle-0060")
     compare.add_argument("--max-applied-operations", type=int, default=10000)
+    compare.add_argument("--allow-error-equivalence", action="store_true")
 
     worker = subparsers.add_parser("_worker")
     worker.add_argument("--source-root", type=Path, required=True)
@@ -462,11 +546,28 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.profile.resolve(),
             base_name=args.base_name,
             max_applied_operations=args.max_applied_operations,
+            allow_error_equivalence=args.allow_error_equivalence,
         )
         print(_canonical_json_bytes(comparison).decode("utf-8"))
+        if comparison["outcome"] == "both_error" and not args.allow_error_equivalence:
+            return 3
         return 0 if comparison["equal"] else 1
-    except OracleError as exc:
+    except ReferenceMaterializationError as exc:
         print(f"oracle_0060: {exc}", file=sys.stderr)
+        return 2
+    except OracleError as exc:
+        print(
+            "oracle_0060: instrument_error; "
+            f"type={type(exc).__qualname__}; detail_sha256={_sha(str(exc).encode('utf-8'))}",
+            file=sys.stderr,
+        )
+        return 2
+    except Exception as exc:
+        print(
+            "oracle_0060: unexpected_error; "
+            f"type={type(exc).__qualname__}; detail_sha256={_sha(str(exc).encode('utf-8'))}",
+            file=sys.stderr,
+        )
         return 2
 
 

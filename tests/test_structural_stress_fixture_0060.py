@@ -57,6 +57,12 @@ class StructuralStressFixture0060Tests(unittest.TestCase):
         self.assertTrue(any("processing-instruction()" in path for path in paths))
         run_paths = [path for path in paths if "/w:r[" in path]
         self.assertEqual(len(run_paths), len(set(run_paths)))
+        self.assertGreaterEqual(len(run_paths), self.spec["same_name_sibling_runs"])
+        tables = [
+            record for record in _walk(self.result)
+            if record.get("source_type") == "table"
+        ]
+        self.assertGreaterEqual(len(tables), self.spec["same_name_sibling_tables"])
 
     def test_depth_limit_is_exercised_without_losing_the_package(self):
         warning_codes = {item["code"] for item in self.result["parse_warnings"]}

@@ -28,9 +28,38 @@ def _deep_sdt(levels: int) -> str:
     return content
 
 
+def _same_name_run_stress(count: int) -> str:
+    children = []
+    for index in range(count):
+        children.append(f"<w:r><w:t>run-{index}</w:t></w:r>")
+        if index + 1 < count:
+            children.append(
+                f'<w:bookmarkStart w:id="{index}" w:name="stress-{index}"/>'
+                f'<w:bookmarkEnd w:id="{index}"/>'
+            )
+    return "<w:p>" + "".join(children) + "</w:p>"
+
+
+def _same_name_table_stress(count: int) -> str:
+    records = []
+    for index in range(count):
+        records.append(
+            "<w:tbl><w:tr><w:tc><w:p><w:r>"
+            f"<w:t>table-{index}</w:t>"
+            "</w:r></w:p></w:tc></w:tr></w:tbl>"
+        )
+        records.append(f"<w:p><w:r><w:t>separator-{index}</w:t></w:r></w:p>")
+    return "".join(records)
+
+
 def build_structural_stress_package() -> bytes:
     spec = load_stress_spec()
-    body = spec["document_body"] + _deep_sdt(spec["deep_sdt_levels"])
+    body = (
+        spec["document_body"]
+        + _same_name_run_stress(spec["same_name_sibling_runs"])
+        + _same_name_table_stress(spec["same_name_sibling_tables"])
+        + _deep_sdt(spec["deep_sdt_levels"])
+    )
     document = (
         f'<w:document xmlns:w="{W}" xmlns:r="{R}" xmlns:mc="{MC}" '
         f'xmlns:w14="{W14}" mc:Ignorable="w14"><w:body>{body}</w:body></w:document>'

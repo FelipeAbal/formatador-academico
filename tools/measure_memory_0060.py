@@ -17,7 +17,13 @@ from pathlib import Path
 from typing import Any, Sequence
 
 
-SCHEMA_VERSION = "0060.1"
+SCHEMA_VERSION = "0060.2"
+LIMITATIONS = {
+    "deep_size_is_lower_bound_for_unhandled_native_state": True,
+    "tracemalloc_excludes_lxml_native_allocations": True,
+    "tracemalloc_changes_runtime_cost": True,
+    "retention_delta_requires_0060d_harness": True,
+}
 
 
 class MemoryMeasurementError(RuntimeError):
@@ -48,8 +54,19 @@ def deep_size_bytes(value: object) -> int:
 
 def _rss_peak_bytes() -> int:
     peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    # Linux reports KiB; macOS and the BSDs report bytes.
+    # Linux reports KiB; macOS reports bytes. Official 0060 measurements run
+    # on Ubuntu, so other platforms are diagnostic only.
     return int(peak if sys.platform == "darwin" else peak * 1024)
+
+
+def _rss_current_bytes() -> int:
+    """Current RSS on Linux; diagnostic peak fallback on macOS."""
+
+    statm = Path("/proc/self/statm")
+    if statm.is_file():
+        resident_pages = int(statm.read_text(encoding="ascii").split()[1])
+        return resident_pages * os.sysconf("SC_PAGE_SIZE")
+    return _rss_peak_bytes()
 
 
 def _metadata(package_path: Path, package_bytes: bytes) -> dict[str, Any]:
@@ -65,9 +82,11 @@ def _measure_parse(package_path: Path) -> dict[str, Any]:
 
     package_bytes = package_path.read_bytes()
     gc.collect()
+    rss_baseline = _rss_current_bytes()
     tracemalloc.start()
     ir = DocxParser().parse_bytes(package_bytes)
     current, peak = tracemalloc.get_traced_memory()
+    rss_peak = _rss_peak_bytes()
     result = {
         "schema_version": SCHEMA_VERSION,
         "mode": "parse",
@@ -77,7 +96,9 @@ def _measure_parse(package_path: Path) -> dict[str, Any]:
         "ir_serialized_sha256": hashlib.sha256(serialize_parse_result(ir)).hexdigest(),
         "tracemalloc_current_bytes": current,
         "tracemalloc_peak_bytes": peak,
-        "process_rss_peak_bytes": _rss_peak_bytes(),
+        "process_rss_baseline_bytes": rss_baseline,
+        "process_rss_peak_bytes": rss_peak,
+        "process_rss_delta_bytes": max(0, rss_peak - rss_baseline),
     }
     tracemalloc.stop()
     return result
@@ -90,10 +111,12 @@ def _measure_pipeline(package_path: Path, profile_path: Path) -> dict[str, Any]:
     package_bytes = package_path.read_bytes()
     profile_bytes = profile_path.read_bytes()
     gc.collect()
+    rss_baseline = _rss_current_bytes()
     tracemalloc.start()
     bundle = build_product_from_inputs(package_bytes, profile_bytes)
     delivery = build_product_delivery(bundle, base_name="memory-0060")
     current, peak = tracemalloc.get_traced_memory()
+    rss_peak = _rss_peak_bytes()
     result = {
         "schema_version": SCHEMA_VERSION,
         "mode": "pipeline",
@@ -102,7 +125,9 @@ def _measure_pipeline(package_path: Path, profile_path: Path) -> dict[str, Any]:
         "delivery_sha256": [item.content_sha256 for item in delivery.files],
         "tracemalloc_current_bytes": current,
         "tracemalloc_peak_bytes": peak,
-        "process_rss_peak_bytes": _rss_peak_bytes(),
+        "process_rss_baseline_bytes": rss_baseline,
+        "process_rss_peak_bytes": rss_peak,
+        "process_rss_delta_bytes": max(0, rss_peak - rss_baseline),
     }
     tracemalloc.stop()
     return result
@@ -124,11 +149,7 @@ def _run_worker(
     profile_path: Path | None = None,
 ) -> dict[str, Any]:
     env = os.environ.copy()
-    env["PYTHONPATH"] = (
-        str(source_root.resolve() / "src")
-        + os.pathsep
-        + env.get("PYTHONPATH", "")
-    )
+    env["PYTHONPATH"] = str(source_root.resolve() / "src")
     command = [
         sys.executable,
         str(Path(__file__).resolve()),
@@ -151,8 +172,10 @@ def _run_worker(
         check=False,
     )
     if completed.returncode != 0:
-        detail = completed.stderr.decode("utf-8", errors="replace").strip()
-        raise MemoryMeasurementError(f"{mode} worker failed: {detail}")
+        raise MemoryMeasurementError(
+            f"{mode} worker failed; exit_code={completed.returncode}; "
+            f"stderr_sha256={hashlib.sha256(completed.stderr).hexdigest()}"
+        )
     try:
         return json.loads(completed.stdout.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -172,6 +195,7 @@ def measure_document(
     )
     return {
         "schema_version": SCHEMA_VERSION,
+        "limitations": LIMITATIONS,
         "input": parse["input"],
         "ir": {
             "deep_size_bytes": parse["ir_deep_size_bytes"],
@@ -180,12 +204,16 @@ def measure_document(
         },
         "parse_peak": {
             "tracemalloc_bytes": parse["tracemalloc_peak_bytes"],
+            "process_rss_baseline_bytes": parse["process_rss_baseline_bytes"],
             "process_rss_bytes": parse["process_rss_peak_bytes"],
+            "process_rss_delta_bytes": parse["process_rss_delta_bytes"],
         },
         "pipeline_peak": (
             {
                 "tracemalloc_bytes": pipeline["tracemalloc_peak_bytes"],
+                "process_rss_baseline_bytes": pipeline["process_rss_baseline_bytes"],
                 "process_rss_bytes": pipeline["process_rss_peak_bytes"],
+                "process_rss_delta_bytes": pipeline["process_rss_delta_bytes"],
                 "session_status": pipeline["session_status"],
                 "delivery_sha256": pipeline["delivery_sha256"],
             }
@@ -240,6 +268,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     except MemoryMeasurementError as exc:
         print(f"measure_memory_0060: {exc}", file=sys.stderr)
+        return 2
+    except Exception as exc:
+        detail = hashlib.sha256(str(exc).encode("utf-8")).hexdigest()
+        print(
+            "measure_memory_0060: unexpected_error; "
+            f"type={type(exc).__qualname__}; detail_sha256={detail}",
+            file=sys.stderr,
+        )
         return 2
 
 

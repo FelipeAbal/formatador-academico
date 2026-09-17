@@ -5,16 +5,22 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import contextmanager
+from copy import deepcopy
 from dataclasses import fields
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 from formatador_academico.processing_session import process_document
 
 from test_processing_session_v01 import _body_profile, _two_change_pkg
+from fixture_0060 import build_structural_stress_package
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -100,6 +106,50 @@ class OracleSerialization0060Tests(unittest.TestCase):
         self.assertNotIn("import benchmark_0059", source)
         self.assertNotIn("from benchmark_0059", source)
 
+    def test_instrument_error_is_never_converted_to_application_error(self):
+        with mock.patch.object(
+            oracle,
+            "build_observation",
+            side_effect=oracle.OracleError("symmetric instrument defect"),
+        ):
+            with self.assertRaisesRegex(oracle.OracleError, "instrument defect"):
+                oracle.build_observation_or_error(
+                    b"package",
+                    b"profile",
+                    base_name="fixture",
+                    max_applied_operations=1,
+                )
+
+    def test_cross_run_binding_checks_all_product_lineage(self):
+        session = SimpleNamespace(
+            output_package_sha256="a",
+            status=object(),
+            profile_ref=object(),
+            input_package_sha256="b",
+        )
+        bundle = SimpleNamespace(
+            clean_package_sha256="a",
+            session_status=session.status,
+            profile_ref=session.profile_ref,
+            input_package_sha256="b",
+            processing_report_ref="c",
+            review_package_sha256="d",
+        )
+        oracle._assert_execution_binding(
+            session,
+            bundle,
+            session_report_ref="c",
+            session_review_sha256="d",
+        )
+        bundle.review_package_sha256 = "different"
+        with self.assertRaises(oracle.OracleError):
+            oracle._assert_execution_binding(
+                session,
+                bundle,
+                session_report_ref="c",
+                session_review_sha256="d",
+            )
+
 
 class OracleReference0060Tests(unittest.TestCase):
     @classmethod
@@ -118,7 +168,8 @@ class OracleReference0060Tests(unittest.TestCase):
             if completed.returncode != 0:
                 raise RuntimeError(
                     "CI could not fetch oracle reference "
-                    f"{oracle.REFERENCE_COMMIT}: {completed.stderr.strip()}"
+                    f"{oracle.REFERENCE_COMMIT}; "
+                    f"stderr_sha256={oracle._sha(completed.stderr.encode('utf-8'))}"
                 )
         cls.temp_dir = tempfile.TemporaryDirectory(prefix="test-oracle-0060-")
         cls.package_path = Path(cls.temp_dir.name) / "fixture.docx"
@@ -169,13 +220,14 @@ class OracleReference0060Tests(unittest.TestCase):
             max_applied_operations=1,
         )
         self.assertTrue(comparison["equal"])
+        self.assertEqual(comparison["outcome"], "success")
         self.assertEqual(comparison["reference_commit"], oracle.REFERENCE_COMMIT)
         self.assertTrue(comparison["artifact_comparison"]["equal"])
         output = json.dumps(comparison, sort_keys=True)
         self.assertNotIn(str(self.package_path), output)
         self.assertNotIn("<w:", output)
 
-    def test_failure_path_compares_exception_type_and_condition_without_message(self):
+    def test_failure_path_requires_explicit_error_equivalence_opt_in(self):
         invalid = Path(self.temp_dir.name) / "invalid.docx"
         invalid.write_bytes(b"not-a-docx")
         comparison = oracle.compare_against_reference(
@@ -184,12 +236,165 @@ class OracleReference0060Tests(unittest.TestCase):
             self.profile_path,
             base_name="invalid",
         )
-        self.assertTrue(comparison["equal"])
+        self.assertFalse(comparison["equal"])
+        self.assertEqual(comparison["outcome"], "both_error")
         self.assertEqual(comparison["reference"]["outcome"], "error")
         self.assertIn("exception_type", comparison["reference"])
         self.assertIn("exception_message_sha256", comparison["reference"])
         self.assertIsNone(comparison["artifact_comparison"])
         self.assertNotIn("not-a-docx", json.dumps(comparison, sort_keys=True))
+
+        allowed = oracle.compare_against_reference(
+            ROOT,
+            invalid,
+            self.profile_path,
+            base_name="invalid",
+            allow_error_equivalence=True,
+        )
+        self.assertTrue(allowed["equal"])
+        self.assertEqual(allowed["outcome"], "both_error")
+
+        cli = subprocess.run(
+            [
+                sys.executable,
+                str(TOOL),
+                "compare",
+                "--repo-root",
+                str(ROOT),
+                "--package",
+                str(invalid),
+                "--profile",
+                str(self.profile_path),
+            ],
+            cwd=ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(cli.returncode, 3)
+        self.assertFalse(json.loads(cli.stdout)["equal"])
+
+    def test_comparison_rejects_every_divergence_branch(self):
+        baseline = self._observe(ROOT, "505")
+
+        @contextmanager
+        def fake_reference(_repo_root):
+            yield ROOT
+
+        cases = []
+        non_artifact = deepcopy(baseline)
+        non_artifact["parse_result_sha256"] = "0" * 64
+        cases.append((baseline, non_artifact))
+
+        artifact = deepcopy(baseline)
+        artifact["artifacts"][0]["sha256"] = "0" * 64
+        cases.append((baseline, artifact))
+
+        application_error = {
+            "outcome": "error",
+            "exception_type": "builtins.ValueError",
+            "exception_message_sha256": "0" * 64,
+        }
+        cases.append((baseline, application_error))
+
+        for reference, candidate in cases:
+            with self.subTest(candidate=candidate.get("outcome")):
+                with mock.patch.object(
+                    oracle, "materialized_reference", fake_reference
+                ), mock.patch.object(
+                    oracle, "run_worker", side_effect=[reference, candidate]
+                ):
+                    comparison = oracle.compare_against_reference(
+                        ROOT,
+                        self.package_path,
+                        self.profile_path,
+                    )
+                self.assertFalse(comparison["equal"])
+
+    def test_infrastructure_failure_never_emits_absolute_paths(self):
+        private_input = Path(self.temp_dir.name) / "private-document.docx"
+        private_input.mkdir()
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(TOOL),
+                "compare",
+                "--repo-root",
+                str(ROOT),
+                "--package",
+                str(private_input),
+                "--profile",
+                str(self.profile_path),
+            ],
+            cwd=ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        combined = completed.stdout + completed.stderr
+        self.assertEqual(completed.returncode, 2)
+        self.assertNotIn(str(private_input), combined)
+        self.assertNotIn(str(ROOT), combined)
+
+    def test_mutated_instrument_cannot_report_equivalence(self):
+        mutant_dir = Path(self.temp_dir.name) / "mutant-tools"
+        mutant_dir.mkdir()
+        mutant = mutant_dir / "oracle_0060.py"
+        comparator = mutant_dir / "artifact_comparator_0060.py"
+        source = TOOL.read_text(encoding="utf-8")
+        marker = '    """Run the frozen public pipeline and emit hashes only."""\n'
+        self.assertIn(marker, source)
+        mutant.write_text(
+            source.replace(
+                marker,
+                marker + '\n    raise OracleError("symmetric instrument defect")\n',
+                1,
+            ),
+            encoding="utf-8",
+        )
+        shutil.copy2(ROOT / "tools" / "artifact_comparator_0060.py", comparator)
+
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(mutant),
+                "compare",
+                "--repo-root",
+                str(ROOT),
+                "--package",
+                str(self.package_path),
+                "--profile",
+                str(self.profile_path),
+            ],
+            cwd=ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        combined = completed.stdout + completed.stderr
+        self.assertEqual(completed.returncode, 2)
+        self.assertNotIn('"equal":true', combined)
+        self.assertNotIn(str(mutant), combined)
+        self.assertNotIn(str(self.package_path), combined)
+
+    def test_structural_stress_fixture_passes_through_oracle(self):
+        stress = Path(self.temp_dir.name) / "structural-stress.docx"
+        stress.write_bytes(build_structural_stress_package())
+        comparison = oracle.compare_against_reference(
+            ROOT,
+            stress,
+            self.profile_path,
+            base_name="structural-stress",
+            max_applied_operations=1,
+        )
+        self.assertTrue(comparison["equal"])
+        self.assertEqual(
+            comparison["reference"]["parse_result_sha256"],
+            comparison["candidate"]["parse_result_sha256"],
+        )
 
 
 if __name__ == "__main__":

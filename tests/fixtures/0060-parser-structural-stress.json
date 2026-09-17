@@ -1,6 +1,8 @@
 {
   "schema_version": "0060.1",
   "deep_sdt_levels": 63,
+  "same_name_sibling_runs": 128,
+  "same_name_sibling_tables": 16,
   "features": [
     "same-name siblings interleaved with other nodes",
     "comments and processing instructions",

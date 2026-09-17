@@ -8,6 +8,8 @@ import sys
 import unittest
 from pathlib import Path
 
+from formatador_academico.product_delivery import ROLE_ORDER as PRODUCT_ROLE_ORDER
+
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOL = ROOT / "tools" / "artifact_comparator_0060.py"
@@ -30,6 +32,12 @@ def _records(*, changed_role: str | None = None):
 
 
 class ArtifactComparator0060Tests(unittest.TestCase):
+    def test_role_order_matches_frozen_product_delivery(self):
+        self.assertEqual(
+            comparator.ROLE_ORDER,
+            tuple(role.value for role in PRODUCT_ROLE_ORDER),
+        )
+
     def test_equal_artifacts_compare_equal(self):
         records = _records()
         result = comparator.compare_artifacts(

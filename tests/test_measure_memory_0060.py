@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -56,9 +57,15 @@ class MemoryInstrument0060Tests(unittest.TestCase):
         self.assertEqual(len(result["input"]["sha256"]), 64)
         self.assertGreater(result["ir"]["deep_size_bytes"], 0)
         self.assertGreater(result["parse_peak"]["tracemalloc_bytes"], 0)
+        self.assertGreater(result["parse_peak"]["process_rss_baseline_bytes"], 0)
         self.assertGreater(result["parse_peak"]["process_rss_bytes"], 0)
+        self.assertGreaterEqual(result["parse_peak"]["process_rss_delta_bytes"], 0)
         self.assertGreater(result["pipeline_peak"]["tracemalloc_bytes"], 0)
+        self.assertGreater(result["pipeline_peak"]["process_rss_baseline_bytes"], 0)
         self.assertGreater(result["pipeline_peak"]["process_rss_bytes"], 0)
+        self.assertGreaterEqual(result["pipeline_peak"]["process_rss_delta_bytes"], 0)
+        self.assertTrue(result["limitations"]["retention_delta_requires_0060d_harness"])
+        self.assertTrue(result["limitations"]["tracemalloc_excludes_lxml_native_allocations"])
         encoded = json.dumps(result, sort_keys=True)
         self.assertNotIn(temp_dir, encoded)
         self.assertNotIn("<w:", encoded)
@@ -66,6 +73,31 @@ class MemoryInstrument0060Tests(unittest.TestCase):
     def test_tool_is_separate_from_benchmark_0059(self):
         source = TOOL.read_text(encoding="utf-8")
         self.assertNotIn("benchmark_0059", source)
+
+    def test_worker_failure_does_not_emit_input_path(self):
+        with tempfile.TemporaryDirectory(prefix="memory-0060-private-") as temp_dir:
+            private_input = Path(temp_dir) / "private-document.docx"
+            private_input.mkdir()
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(TOOL),
+                    "measure",
+                    "--source-root",
+                    str(ROOT),
+                    "--docx",
+                    str(private_input),
+                ],
+                cwd=ROOT,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            combined = completed.stdout + completed.stderr
+            self.assertEqual(completed.returncode, 2)
+            self.assertNotIn(str(private_input), combined)
+            self.assertNotIn(str(ROOT), combined)
 
 
 if __name__ == "__main__":
