@@ -1,10 +1,19 @@
 # Decisão 0060A: contrato do ciclo 0060 — otimização conservadora com equivalência exata
 
-**Status:** PROPOSTA, revisão 6, com as escolhas pendentes já decididas
-**Data:** 2026-09-16
+**Status:** PROPOSTA, revisão 7, com as escolhas pendentes já decididas
+**Data:** 2026-09-17
 **Base:** `main` após o merge do PR #60, commit `4bcda308a4975f2bb84d87ab4738faaed463bb75`
 **Depende de:** `docs/benchmarks/0059-measurement-report.md`; auditoria arquitetural do Claude Opus sobre o mesmo commit; pareceres do DeepSeek Flash 4.1 sobre as revisões 1, 2, 3, 4 e 5
 **Não altera:** nenhum código de produção. Esta decisão é contrato e critério, não implementação.
+
+**Revisão 7 — esclarecimentos operacionais pós-auditoria do 0060A**
+
+1. O `git fetch origin <SHA>` exigido no CI pode ocorrer no setup obrigatório da suíte que chama o oráculo, desde que rode antes da primeira comparação, falhe alto se o objeto continuar ausente e seja exercitado sob `GITHUB_ACTIONS=true`. Essa é a forma adotada pelo 0060A.
+2. Diagnósticos do instrumento usam códigos fechados de condição, além do hash sanitizado, sem revelar texto livre ou caminhos.
+3. Processos isolados do oráculo e da ferramenta de memória não leem nem gravam o `__pycache__` local, para que sondas de mutação não sejam contaminadas por bytecode obsoleto.
+4. O delta de RSS fora do Linux é explicitamente diagnóstico; a medição oficial permanece restrita ao Ubuntu.
+
+Nenhum critério de equivalência, gating, memória ou escopo de fase foi alterado.
 
 **Revisão 6 — o que mudou em relação à revisão 5**
 
@@ -109,7 +118,7 @@ A referência vive como oráculo de teste e **nunca** como caminho alternativo e
 3. **Proibido usar a árvore de trabalho atual como referência implícita.** O oráculo precisa falhar, e não cair no código corrente, se a referência não puder ser materializada pelo SHA.
 4. O oráculo verifica, antes de comparar, que a referência materializada corresponde ao SHA fixado, e registra esse SHA em toda saída de comparação.
 5. O caminho temporário é removido ao fim da execução; nenhuma referência materializada é versionada nem reaproveitada entre execuções.
-6. **No CI, o commit completo `4bcda308a4975f2bb84d87ab4738faaed463bb75` precisa estar materializável antes de o oráculo rodar.** O checkout raso padrão do GitHub Actions não basta: o workflow usa `fetch-depth: 0` no `actions/checkout`, ou executa `git fetch origin 4bcda308a4975f2bb84d87ab4738faaed463bb75` antes do passo do oráculo. Sem o objeto presente, o passo falha, e essa falha é o comportamento correto.
+6. **No CI, o commit completo `4bcda308a4975f2bb84d87ab4738faaed463bb75` precisa estar materializável antes de o oráculo rodar.** O checkout raso padrão do GitHub Actions não basta: o workflow usa `fetch-depth: 0` no `actions/checkout`, executa `git fetch origin 4bcda308a4975f2bb84d87ab4738faaed463bb75` antes do passo do oráculo, ou exige esse fetch no setup da suíte imediatamente antes da primeira comparação. O setup precisa falhar alto se o objeto continuar ausente. Sem o objeto presente, o passo falha, e essa falha é o comportamento correto.
 
 ### 3.3 Serializador canônico do oráculo
 

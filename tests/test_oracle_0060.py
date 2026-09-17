@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import py_compile
 import shutil
 import subprocess
 import sys
@@ -121,34 +122,116 @@ class OracleSerialization0060Tests(unittest.TestCase):
                 )
 
     def test_cross_run_binding_checks_all_product_lineage(self):
-        session = SimpleNamespace(
-            output_package_sha256="a",
-            status=object(),
-            profile_ref=object(),
-            input_package_sha256="b",
+        cases = (
+            ("clean_package_sha256", "binding_clean_sha"),
+            ("session_status", "binding_status"),
+            ("profile_ref", "binding_profile"),
+            ("input_package_sha256", "binding_input_sha"),
+            ("processing_report_ref", "binding_report_ref"),
+            ("review_package_sha256", "binding_review_sha"),
         )
-        bundle = SimpleNamespace(
-            clean_package_sha256="a",
-            session_status=session.status,
-            profile_ref=session.profile_ref,
-            input_package_sha256="b",
-            processing_report_ref="c",
-            review_package_sha256="d",
-        )
-        oracle._assert_execution_binding(
-            session,
-            bundle,
-            session_report_ref="c",
-            session_review_sha256="d",
-        )
-        bundle.review_package_sha256 = "different"
-        with self.assertRaises(oracle.OracleError):
-            oracle._assert_execution_binding(
-                session,
-                bundle,
-                session_report_ref="c",
-                session_review_sha256="d",
+        for field_name, expected_code in cases:
+            with self.subTest(field=field_name):
+                session = SimpleNamespace(
+                    output_package_sha256="a",
+                    status=object(),
+                    profile_ref=object(),
+                    input_package_sha256="b",
+                )
+                bundle = SimpleNamespace(
+                    clean_package_sha256="a",
+                    session_status=session.status,
+                    profile_ref=session.profile_ref,
+                    input_package_sha256="b",
+                    processing_report_ref="c",
+                    review_package_sha256="d",
+                )
+                oracle._assert_execution_binding(
+                    session,
+                    bundle,
+                    session_report_ref="c",
+                    session_review_sha256="d",
+                )
+                setattr(bundle, field_name, object())
+                with self.assertRaises(oracle.OracleError) as raised:
+                    oracle._assert_execution_binding(
+                        session,
+                        bundle,
+                        session_report_ref="c",
+                        session_review_sha256="d",
+                    )
+                self.assertEqual(raised.exception.code, expected_code)
+
+    def test_namespace_package_reports_stable_code_without_path(self):
+        with tempfile.TemporaryDirectory(prefix="oracle-namespace-") as temp_dir:
+            root = Path(temp_dir)
+            (root / "src" / "formatador_academico").mkdir(parents=True)
+            package = root / "input.docx"
+            profile = root / "profile.json"
+            package.write_bytes(b"unused")
+            profile.write_bytes(b"unused")
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(TOOL),
+                    "_worker",
+                    "--source-root",
+                    str(root),
+                    "--package",
+                    str(package),
+                    "--profile",
+                    str(profile),
+                    "--base-name",
+                    "namespace",
+                    "--max-applied-operations",
+                    "1",
+                ],
+                cwd=root,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
             )
+        combined = completed.stdout + completed.stderr
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("code=source_package_namespace", combined)
+        self.assertNotIn(temp_dir, combined)
+
+    def test_worker_preserves_only_known_diagnostic_code(self):
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=2,
+            stdout=b"",
+            stderr=(
+                b"oracle_0060: instrument_error; code=binding_report_ref; "
+                b"type=OracleError; detail_sha256=abc\n"
+            ),
+        )
+        with mock.patch.object(oracle.subprocess, "run", return_value=completed):
+            with self.assertRaises(oracle.WorkerError) as raised:
+                oracle.run_worker(
+                    ROOT,
+                    Path("input.docx"),
+                    Path("profile.json"),
+                    base_name="fixture",
+                    max_applied_operations=1,
+                )
+        self.assertEqual(raised.exception.code, "binding_report_ref")
+
+        completed.stderr = (
+            b"oracle_0060: instrument_error; code=private-path-content; "
+            b"type=OracleError\n"
+        )
+        with mock.patch.object(oracle.subprocess, "run", return_value=completed):
+            with self.assertRaises(oracle.WorkerError) as rejected:
+                oracle.run_worker(
+                    ROOT,
+                    Path("input.docx"),
+                    Path("profile.json"),
+                    base_name="fixture",
+                    max_applied_operations=1,
+                )
+        self.assertEqual(rejected.exception.code, "worker_exit")
 
 
 class OracleReference0060Tests(unittest.TestCase):
@@ -379,6 +462,56 @@ class OracleReference0060Tests(unittest.TestCase):
         self.assertNotIn('"equal":true', combined)
         self.assertNotIn(str(mutant), combined)
         self.assertNotIn(str(self.package_path), combined)
+
+    def test_stale_comparator_bytecode_is_ignored(self):
+        mutant_dir = Path(self.temp_dir.name) / "stale-pyc-tools"
+        mutant_dir.mkdir()
+        mutant_oracle = mutant_dir / "oracle_0060.py"
+        mutant_comparator = mutant_dir / "artifact_comparator_0060.py"
+        shutil.copy2(TOOL, mutant_oracle)
+        original = (ROOT / "tools" / "artifact_comparator_0060.py").read_text(
+            encoding="utf-8"
+        )
+        marker = '    "clean_docx",\n    "review_docx",\n'
+        poisoned = original.replace(
+            marker,
+            '    "review_docx",\n    "clean_docx",\n',
+            1,
+        )
+        self.assertNotEqual(original, poisoned)
+        self.assertEqual(len(original.encode("utf-8")), len(poisoned.encode("utf-8")))
+
+        timestamp = 1_700_000_000
+        mutant_comparator.write_text(poisoned, encoding="utf-8")
+        os.utime(mutant_comparator, (timestamp, timestamp))
+        py_compile.compile(
+            str(mutant_comparator),
+            doraise=True,
+            invalidation_mode=py_compile.PycInvalidationMode.TIMESTAMP,
+        )
+        mutant_comparator.write_text(original, encoding="utf-8")
+        os.utime(mutant_comparator, (timestamp, timestamp))
+
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(mutant_oracle),
+                "compare",
+                "--repo-root",
+                str(ROOT),
+                "--package",
+                str(self.package_path),
+                "--profile",
+                str(self.profile_path),
+            ],
+            cwd=ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertTrue(json.loads(completed.stdout)["equal"])
 
     def test_structural_stress_fixture_passes_through_oracle(self):
         stress = Path(self.temp_dir.name) / "structural-stress.docx"

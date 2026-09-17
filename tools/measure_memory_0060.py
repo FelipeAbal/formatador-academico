@@ -11,6 +11,7 @@ import os
 import resource
 import subprocess
 import sys
+import tempfile
 import tracemalloc
 from dataclasses import fields, is_dataclass
 from pathlib import Path
@@ -20,6 +21,7 @@ from typing import Any, Sequence
 SCHEMA_VERSION = "0060.2"
 LIMITATIONS = {
     "deep_size_is_lower_bound_for_unhandled_native_state": True,
+    "rss_delta_meaningful_only_on_linux": True,
     "tracemalloc_excludes_lxml_native_allocations": True,
     "tracemalloc_changes_runtime_cost": True,
     "retention_delta_requires_0060d_harness": True,
@@ -28,6 +30,13 @@ LIMITATIONS = {
 
 class MemoryMeasurementError(RuntimeError):
     pass
+
+
+_PYCACHE_DIR: tempfile.TemporaryDirectory[str] | None = None
+if __name__ == "__main__":
+    _PYCACHE_DIR = tempfile.TemporaryDirectory(prefix="memory-0060-pycache-")
+    sys.pycache_prefix = _PYCACHE_DIR.name
+    sys.dont_write_bytecode = True
 
 
 def deep_size_bytes(value: object) -> int:
@@ -150,8 +159,10 @@ def _run_worker(
 ) -> dict[str, Any]:
     env = os.environ.copy()
     env["PYTHONPATH"] = str(source_root.resolve() / "src")
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
     command = [
         sys.executable,
+        "-B",
         str(Path(__file__).resolve()),
         "_worker",
         "--source-root",

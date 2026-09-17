@@ -17,6 +17,23 @@ from typing import Any, Iterator, Mapping, Sequence
 
 
 REFERENCE_COMMIT = "4bcda308a4975f2bb84d87ab4738faaed463bb75"
+INSTRUMENT_ERROR_CODES = frozenset(
+    {
+        "binding_clean_sha",
+        "binding_input_sha",
+        "binding_profile",
+        "binding_report_ref",
+        "binding_review_sha",
+        "binding_status",
+        "instrument_contract",
+        "source_package_mismatch",
+        "source_package_missing",
+        "source_package_namespace",
+        "unexpected_error",
+        "worker_exit",
+        "worker_invalid_json",
+    }
+)
 EXPECTED_SESSION_FIELDS = (
     "processing_session_version",
     "status",
@@ -39,6 +56,13 @@ EXPECTED_FINDING_FIELDS = (
 EXPECTED_PROFILE_REF_FIELDS = ("profile_id", "profile_version")
 
 TOOLS_DIR = Path(__file__).resolve().parent
+_PYCACHE_DIR: tempfile.TemporaryDirectory[str] | None = None
+if __name__ == "__main__":
+    # Mutation probes can restore a source file with the same timestamp and size
+    # as a poisoned .pyc.  Route reads away from local __pycache__ and write none.
+    _PYCACHE_DIR = tempfile.TemporaryDirectory(prefix="oracle-0060-pycache-")
+    sys.pycache_prefix = _PYCACHE_DIR.name
+    sys.dont_write_bytecode = True
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
@@ -53,6 +77,15 @@ from artifact_comparator_0060 import (  # noqa: E402
 class OracleError(RuntimeError):
     """Base class for oracle failures."""
 
+    default_code = "instrument_contract"
+
+    def __init__(self, message: str, *, code: str | None = None) -> None:
+        selected_code = code or self.default_code
+        if selected_code not in INSTRUMENT_ERROR_CODES:
+            raise ValueError("unknown instrument error code")
+        self.code = selected_code
+        super().__init__(message)
+
 
 class ReferenceMaterializationError(OracleError):
     """The fixed reference commit could not be materialized exactly."""
@@ -60,6 +93,8 @@ class ReferenceMaterializationError(OracleError):
 
 class WorkerError(OracleError):
     """An isolated reference or candidate worker failed."""
+
+    default_code = "worker_exit"
 
 
 def _canonical_json_bytes(value: Any) -> bytes:
@@ -180,12 +215,23 @@ def _activate_source_root(source_root: Path) -> None:
     source_root = source_root.resolve()
     package_dir = source_root / "src" / "formatador_academico"
     if not package_dir.is_dir():
-        raise WorkerError("selected source root does not contain the application package")
+        raise WorkerError(
+            "selected source root does not contain the application package",
+            code="source_package_missing",
+        )
     sys.path.insert(0, str(source_root / "src"))
     package = importlib.import_module("formatador_academico")
+    if package.__file__ is None:
+        raise WorkerError(
+            "selected source root contains a namespace package",
+            code="source_package_namespace",
+        )
     package_file = Path(package.__file__).resolve()
     if not package_file.is_relative_to(package_dir.resolve()):
-        raise WorkerError("application package was imported outside the selected source root")
+        raise WorkerError(
+            "application package was imported outside the selected source root",
+            code="source_package_mismatch",
+        )
 
 
 def _assert_execution_binding(
@@ -198,15 +244,19 @@ def _assert_execution_binding(
     """Bind the independently observed session to the product execution."""
 
     checks = (
-        session.output_package_sha256 == bundle.clean_package_sha256,
-        session.status is bundle.session_status,
-        session.profile_ref == bundle.profile_ref,
-        session.input_package_sha256 == bundle.input_package_sha256,
-        session_report_ref == bundle.processing_report_ref,
-        session_review_sha256 == bundle.review_package_sha256,
+        ("binding_clean_sha", session.output_package_sha256 == bundle.clean_package_sha256),
+        ("binding_status", session.status is bundle.session_status),
+        ("binding_profile", session.profile_ref == bundle.profile_ref),
+        ("binding_input_sha", session.input_package_sha256 == bundle.input_package_sha256),
+        ("binding_report_ref", session_report_ref == bundle.processing_report_ref),
+        ("binding_review_sha", session_review_sha256 == bundle.review_package_sha256),
     )
-    if not all(checks):
-        raise OracleError("independent product executions failed complete lineage binding")
+    for error_code, matches in checks:
+        if not matches:
+            raise OracleError(
+                "independent product executions failed complete lineage binding",
+                code=error_code,
+            )
 
 
 def build_observation(
@@ -403,10 +453,12 @@ def run_worker(
     env = os.environ.copy()
     src = str(source_root.resolve() / "src")
     env["PYTHONPATH"] = src
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
     if hash_seed is not None:
         env["PYTHONHASHSEED"] = hash_seed
     command = [
         sys.executable,
+        "-B",
         str(Path(__file__).resolve()),
         "_worker",
         "--source-root",
@@ -429,14 +481,38 @@ def run_worker(
         check=False,
     )
     if completed.returncode != 0:
+        error_code = _diagnostic_code_from_stderr(completed.stderr) or "worker_exit"
         raise WorkerError(
             "isolated oracle worker failed; "
-            f"exit_code={completed.returncode}; stderr_sha256={_sha(completed.stderr)}"
+            f"exit_code={completed.returncode}; stderr_sha256={_sha(completed.stderr)}",
+            code=error_code,
         )
     try:
         return json.loads(completed.stdout.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise WorkerError("isolated oracle worker returned invalid JSON") from exc
+        raise WorkerError(
+            "isolated oracle worker returned invalid JSON",
+            code="worker_invalid_json",
+        ) from exc
+
+
+def _diagnostic_code_from_stderr(stderr: bytes) -> str | None:
+    """Accept only a closed error code from an isolated worker diagnostic."""
+
+    prefixes = (
+        b"oracle_0060: instrument_error; code=",
+        b"oracle_0060: unexpected_error; code=",
+    )
+    for line in stderr.splitlines():
+        for prefix in prefixes:
+            if line.startswith(prefix):
+                raw_code = line[len(prefix) :].split(b";", 1)[0]
+                try:
+                    code = raw_code.decode("ascii")
+                except UnicodeDecodeError:
+                    return None
+                return code if code in INSTRUMENT_ERROR_CODES else None
+    return None
 
 
 def _artifact_records(observation: Mapping[str, Any]) -> tuple[ArtifactDigest, ...]:
@@ -558,13 +634,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     except OracleError as exc:
         print(
             "oracle_0060: instrument_error; "
-            f"type={type(exc).__qualname__}; detail_sha256={_sha(str(exc).encode('utf-8'))}",
+            f"code={exc.code}; type={type(exc).__qualname__}; "
+            f"detail_sha256={_sha(str(exc).encode('utf-8'))}",
             file=sys.stderr,
         )
         return 2
     except Exception as exc:
         print(
             "oracle_0060: unexpected_error; "
+            "code=unexpected_error; "
             f"type={type(exc).__qualname__}; detail_sha256={_sha(str(exc).encode('utf-8'))}",
             file=sys.stderr,
         )
