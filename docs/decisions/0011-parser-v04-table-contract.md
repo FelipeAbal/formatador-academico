@@ -205,3 +205,9 @@ Com tabelas decompostas, a PhysicalIR é considerada suficientemente completa pa
 2. wrappers em nível de row/cell podem continuar opacos protegidos.
 
 Próxima etapa candidata após congelamento da v0.4: **Analysis View v0.1**, começando por visão normalizada de runs com mapa de offsets e resolução de formatação com proveniência.
+
+## Erratum de implementação — índice de irmãos do 0060B (2026-09-17)
+
+A decomposição de tabelas e block containers continua regida integralmente por este contrato, mas o cálculo repetido das posições de irmãos passa a usar o índice por chamada definido no erratum da decisão 0009. Cada pai é indexado sob demanda uma única vez; cada filho fica associado, pelo próprio objeto lxml, ao `original_index` físico e ao índice dentro de seu tipo de nó.
+
+O índice cobre tabelas aninhadas, containers, profundidade limitada e stories secundárias sem persistir entre parses. Ele é descartado em `finally`, inclusive quando o pacote ou uma story falha. Não há mudança em cobertura 1:1, slots nomeados, `block_refs`, proteção de conteúdo opaco, warnings, limite de profundidade, `structural_path`, `original_index`, `physical_hash` ou ordem dos filhos. Por isso `PARSER_VERSION` permanece `0.4.0` e os congelamentos das decisões 0010 e 0012 continuam válidos.
